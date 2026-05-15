@@ -1,0 +1,65 @@
+# Render Blueprint — AlgoSphere Quant Signal Engine
+# Render dashboard → New → Blueprint → pick this repo → it reads this file.
+# Only the signal-engine is hosted here. The Next.js web app stays on Vercel
+# and the database stays on Supabase.
+
+services:
+  - type: web
+    name: algosphere-signal-engine
+    runtime: python
+    rootDir: apps/signal-engine
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    envVars:
+      # Pin Python — numpy 2.1 / pandas 2.2 require 3.11+
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+
+      # ── Secrets — set these in the Render dashboard (sync:false = not in git) ──
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: TWELVE_DATA_API_KEY
+        sync: false
+      - key: ALPHA_VANTAGE_API_KEY
+        sync: false
+      - key: ENGINE_API_KEY
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+
+      # ── Non-secret defaults ──
+      - key: ENVIRONMENT
+        value: production
+      - key: SIGNAL_ENGINE_ENABLED
+        value: "true"
+      - key: SCAN_INTERVAL_MINUTES
+        value: "5"
+      - key: SYMBOLS
+        value: XAUUSD,EURUSD,GBPUSD,USDJPY
+      - key: TIMEFRAME
+        value: "1h"
+      - key: ALLOWED_ORIGINS
+        value: https://algosphere.vercel.app,http://localhost:3000
+
+      # ── Institutional risk subsystem ──
+      - key: RISK_ENABLED
+        value: "true"
+      - key: RISK_INITIAL_EQUITY
+        value: "10000"
+      - key: RISK_STARTING_BALANCE
+        value: "10000"
+      - key: RISK_DAILY_LOSS_LIMIT_PCT
+        value: "0.05"
+      - key: RISK_WEEKLY_LOSS_LIMIT_PCT
+        value: "0.10"
+      - key: RISK_MAX_TOTAL_DRAWDOWN_PCT
+        value: "0.15"
+      - key: RISK_BROKER_MODE
+        value: supabase

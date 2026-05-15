@@ -1,0 +1,5 @@
+{
+  "framework": "nextjs",
+  "installCommand": "npm install --prefer-dedupe",
+  "buildCommand": "npm run build"
+}

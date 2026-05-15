@@ -1,0 +1,228 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /*
+    Light theme (legacy). Kept for marketing/auth surfaces that opt out of dark
+    by adding `.light` to a parent. The dashboard sits inside `.dark` via the
+    root html class, so most surfaces render with the premium dark palette.
+  */
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 224 71.4% 4.1%;
+    --card: 0 0% 100%;
+    --card-foreground: 224 71.4% 4.1%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 224 71.4% 4.1%;
+    --primary: 220.9 39.3% 11%;
+    --primary-foreground: 210 20% 98%;
+    --secondary: 220 14.3% 95.9%;
+    --secondary-foreground: 220.9 39.3% 11%;
+    --muted: 220 14.3% 95.9%;
+    --muted-foreground: 220 8.9% 46.1%;
+    --accent: 220 14.3% 95.9%;
+    --accent-foreground: 220.9 39.3% 11%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 20% 98%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 224 71.4% 4.1%;
+    --radius: 0.75rem;
+  }
+
+  /* AlgoSphere Quant — gold-on-black luxury institutional palette
+     Derived from the brand logo: warm metallic gold (#D4A017) over deep black,
+     with platinum/silver as a quieter secondary text tone. */
+  .dark {
+    --background: 0 0% 4%;           /* pure deep black with a hair of warmth */
+    --foreground: 36 25% 95%;        /* warm off-white (champagne-tinted) */
+    --card: 30 8% 8%;                /* slightly lifted with subtle gold tint */
+    --card-foreground: 36 25% 95%;
+    --popover: 30 8% 8%;
+    --popover-foreground: 36 25% 95%;
+    --primary: 42 96% 55%;           /* warm metallic gold — the brand anchor */
+    --primary-foreground: 30 30% 8%; /* dark on gold for max contrast */
+    --secondary: 30 8% 13%;
+    --secondary-foreground: 36 25% 95%;
+    --muted: 30 6% 13%;
+    --muted-foreground: 36 10% 65%;  /* platinum-silver */
+    --accent: 30 10% 16%;
+    --accent-foreground: 42 96% 65%;
+    --destructive: 0 72% 56%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 38 12% 18%;            /* warm dark-bronze border tint */
+    --input: 38 12% 18%;
+    --ring: 42 96% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    /* Subtle gold ambient halo — top-center, very low intensity */
+    background-image:
+      radial-gradient(ellipse 90% 55% at 50% -10%,  hsl(42 96% 55% / 0.10), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 100% 100%, hsl(45 92% 65% / 0.05), transparent 60%);
+    background-attachment: fixed;
+  }
+
+  /* Display headings — luxury tracking */
+  h1, h2 {
+    letter-spacing: -0.02em;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.4);
+  }
+
+  /* Scrollbars */
+  ::-webkit-scrollbar              { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track        { background: transparent; }
+  ::-webkit-scrollbar-thumb        { background: hsl(var(--border)); border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover  { background: hsl(var(--muted-foreground) / 0.4); }
+}
+
+@layer utilities {
+  /* Glassmorphism panels */
+  .glass {
+    background: hsl(var(--card) / 0.55);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(140%);
+    border: 1px solid hsl(var(--border) / 0.6);
+  }
+
+  .glass-strong {
+    background: hsl(var(--card) / 0.78);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    backdrop-filter: blur(20px) saturate(150%);
+    border: 1px solid hsl(var(--border) / 0.7);
+  }
+
+  /* Premium card with hover lift */
+  .card-premium {
+    @apply rounded-xl border bg-card transition-all duration-300;
+    border-color: hsl(var(--border) / 0.7);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.06);
+  }
+  .card-premium:hover {
+    border-color: hsl(var(--primary) / 0.4);
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.04),
+      0 16px 40px rgb(0 0 0 / 0.12),
+      0 0 0 1px hsl(var(--primary) / 0.10);
+    transform: translateY(-1px);
+  }
+
+  /* Gradient text — metallic gold (champagne → gold → bronze) */
+  .text-gradient {
+    background: linear-gradient(135deg, #f5d97a 0%, #d4a017 50%, #b8860b 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    background-size: 200% 200%;
+    animation: gradient-shift 8s ease infinite;
+  }
+
+  .text-gradient-emerald {
+    background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .text-gradient-rose {
+    background: linear-gradient(135deg, #fb7185 0%, #e11d48 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .text-gradient-gold {
+    background: linear-gradient(135deg, #fde68a 0%, #f5c842 30%, #d4a017 65%, #92400e 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Glow text — subtle metallic shimmer */
+  .glow-text-gold    { text-shadow: 0 0 14px rgb(212 160 23 / 0.55); }
+  .glow-text-cyan    { text-shadow: 0 0 12px rgb(34 211 238 / 0.55); } /* legacy — kept for refs */
+  .glow-text-emerald { text-shadow: 0 0 12px rgb(16 185 129 / 0.55); }
+  .glow-text-rose    { text-shadow: 0 0 12px rgb(239 68 68 / 0.55); }
+  .glow-text-amber   { text-shadow: 0 0 12px rgb(245 158 11 / 0.55); }
+
+  /* Primary gradient button — gold luxury on near-black */
+  .btn-premium {
+    @apply relative inline-flex items-center justify-center gap-2 overflow-hidden rounded-lg px-4 py-2 text-sm font-bold transition-all duration-200;
+    color: hsl(30 30% 8%);
+    background: linear-gradient(135deg, #fde68a 0%, #f5c842 35%, #d4a017 70%, #b8860b 100%);
+    background-size: 180% 180%;
+    box-shadow:
+      0 4px 14px rgb(212 160 23 / 0.30),
+      inset 0 1px 0 rgb(255 255 255 / 0.25);
+  }
+  .btn-premium:hover {
+    background-position: 100% 0;
+    box-shadow:
+      0 6px 22px rgb(245 200 66 / 0.50),
+      inset 0 1px 0 rgb(255 255 255 / 0.35);
+    transform: translateY(-1px);
+  }
+  .btn-premium:active { transform: translateY(0); }
+
+  /* Glass button (secondary) */
+  .btn-glass {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold transition-all duration-200;
+    background: hsl(var(--card) / 0.5);
+    border-color: hsl(var(--border) / 0.8);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+  .btn-glass:hover {
+    background: hsl(var(--accent) / 0.8);
+    border-color: hsl(var(--primary) / 0.5);
+  }
+
+  /* Animated gold gradient strip — for hero headers + section dividers */
+  .gradient-strip {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgb(212 160 23 / 0.7) 30%,
+      rgb(245 200 66 / 0.9) 50%,
+      rgb(212 160 23 / 0.7) 70%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: gradient-shift 7s ease infinite;
+  }
+
+  /* Branded card with gold hairline accent on hover */
+  .card-brand {
+    @apply card-premium;
+    position: relative;
+  }
+  .card-brand:hover {
+    border-color: hsl(42 96% 55% / 0.40);
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.04),
+      0 16px 40px rgb(0 0 0 / 0.30),
+      0 0 0 1px hsl(42 96% 55% / 0.18);
+  }
+
+  /* No-motion fallback */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}
