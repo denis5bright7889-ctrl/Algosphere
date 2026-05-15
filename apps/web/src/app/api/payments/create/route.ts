@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as serviceClient } from '@supabase/supabase-js'
-import { BINANCE_CONFIG, PLAN_PRICES_USD } from '@/lib/payments/binance'
+import { BINANCE_CONFIG, priceFor } from '@/lib/payments/binance'
 
 const schema = z.object({
   plan: z.enum(['starter', 'premium', 'vip']),
+  interval: z.enum(['monthly', 'annual']).default('monthly'),
 })
 
 export async function POST(request: NextRequest) {
@@ -23,8 +24,9 @@ export async function POST(request: NextRequest) {
   const parsed = schema.safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: 'Invalid plan' }, { status: 422 })
 
-  const { plan } = parsed.data
-  const amount_usd = PLAN_PRICES_USD[plan]!
+  const { plan, interval } = parsed.data
+  // Server-authoritative price — never trust a client-sent total.
+  const amount_usd = priceFor(plan, interval)
 
   // Block if user already has an active/pending payment for this plan
   const { data: existing } = await supabase
@@ -60,6 +62,7 @@ export async function POST(request: NextRequest) {
     .insert({
       user_id: user.id,
       plan,
+      billing_interval: interval,
       amount_usd,
       currency: BINANCE_CONFIG.token,
       network: BINANCE_CONFIG.network,
@@ -77,6 +80,7 @@ export async function POST(request: NextRequest) {
     currency: BINANCE_CONFIG.token,
     network: BINANCE_CONFIG.network,
     plan,
+    interval,
     expires_at: data.expires_at,
   })
 }

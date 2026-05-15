@@ -1,7 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { PLAN_PRICES_USD } from '@/lib/payments/binance'
+import {
+  PLAN_PRICES_USD, priceFor, annualPrice, annualSavings,
+  ANNUAL_DISCOUNT_PCT, type BillingInterval,
+} from '@/lib/payments/binance'
 import { cn } from '@/lib/utils'
 import PaymentProofForm from './PaymentProofForm'
 import PaymentStatusDisplay from './PaymentStatusDisplay'
@@ -54,6 +57,7 @@ const PLANS = [
 export default function CryptoPaymentFlow({ currentTier }: Props) {
   const [step, setStep] = useState<FlowStep>('select')
   const [selectedPlan, setSelectedPlan] = useState<PlanId | null>(null)
+  const [interval, setBillingInterval] = useState<BillingInterval>('monthly')
   const [session, setSession] = useState<PaymentSession | null>(null)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -66,13 +70,13 @@ export default function CryptoPaymentFlow({ currentTier }: Props) {
       const res = await fetch('/api/payments/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ plan, interval }),
       })
       const data = await res.json()
       if (!res.ok) {
         if (res.status === 409 && data.payment_id) {
           // Existing pending payment
-          setSession({ ...data, plan, amount_usd: PLAN_PRICES_USD[plan]! })
+          setSession({ ...data, plan, amount_usd: priceFor(plan, interval) })
           setStep('status')
           return
         }
@@ -114,6 +118,28 @@ export default function CryptoPaymentFlow({ currentTier }: Props) {
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>
       )}
+
+      {/* Billing-interval toggle */}
+      <div className="flex justify-center">
+        <div className="inline-flex items-center gap-1 rounded-full border border-border bg-card p-1">
+          {(['monthly', 'annual'] as const).map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => setBillingInterval(opt)}
+              className={cn(
+                'rounded-full px-4 py-1.5 text-xs font-semibold transition-all touch-manipulation',
+                interval === opt
+                  ? 'bg-gradient-gold text-black shadow-glow-gold'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {opt === 'monthly' ? 'Monthly' : `Annual · save ${ANNUAL_DISCOUNT_PCT}%`}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="grid gap-5 md:grid-cols-3">
         {PLANS.map((plan) => {
           const isCurrent = plan.id === currentTier
@@ -145,12 +171,19 @@ export default function CryptoPaymentFlow({ currentTier }: Props) {
               <h3 className={cn('text-lg font-bold tracking-tight', (plan.highlight || isVip) && 'text-gradient')}>
                 {plan.name}
               </h3>
-              <div className="mt-1 mb-4 flex items-end gap-1">
+              <div className="mt-1 mb-1 flex items-end gap-1">
                 <span className={cn('text-3xl font-extrabold tabular-nums', (plan.highlight || isVip) && 'text-gradient')}>
-                  ${plan.price}
+                  ${interval === 'annual' ? annualPrice(plan.id) : plan.price}
                 </span>
-                <span className="mb-0.5 text-sm text-muted-foreground">/month</span>
+                <span className="mb-0.5 text-sm text-muted-foreground">
+                  {interval === 'annual' ? '/year' : '/month'}
+                </span>
               </div>
+              <p className="mb-4 h-4 text-[11px] text-emerald-400">
+                {interval === 'annual'
+                  ? `You save $${annualSavings(plan.id)}/yr vs monthly`
+                  : ''}
+              </p>
               <ul className="flex-1 space-y-1.5 mb-5">
                 {plan.features.map((f) => (
                   <li key={f} className="flex items-start gap-2 text-sm">

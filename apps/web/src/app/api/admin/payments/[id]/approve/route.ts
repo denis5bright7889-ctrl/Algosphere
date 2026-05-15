@@ -32,7 +32,7 @@ export async function POST(
   // Fetch payment — must be pending_review
   const { data: payment } = await db
     .from('crypto_payments')
-    .select('id, user_id, plan, status, txid')
+    .select('id, user_id, plan, status, txid, billing_interval, amount_usd')
     .eq('id', id)
     .single()
 
@@ -46,8 +46,9 @@ export async function POST(
 
   // Activate subscription
   const planTier = payment.plan as 'starter' | 'premium' | 'vip'
+  const interval = (payment.billing_interval ?? 'monthly') as 'monthly' | 'annual'
   const periodEnd = new Date()
-  periodEnd.setMonth(periodEnd.getMonth() + 1)
+  periodEnd.setMonth(periodEnd.getMonth() + (interval === 'annual' ? 12 : 1))
 
   const [approveResult, profileResult, subResult] = await Promise.all([
     db.from('crypto_payments').update({
@@ -69,6 +70,7 @@ export async function POST(
       user_id: payment.user_id,
       plan: planTier,
       status: 'active',
+      billing_interval: interval,
       current_period_end: periodEnd.toISOString(),
       cancel_at_period_end: false,
     }, { onConflict: 'user_id' }),
@@ -88,12 +90,17 @@ export async function POST(
       .maybeSingle()
 
     if (ref) {
+      const pct = ref.commission_pct ?? 20
+      // Commission on the ACTUAL amount paid (annual = larger first payment).
+      const amount = typeof payment.amount_usd === 'number'
+        ? Math.round(payment.amount_usd * (pct / 100) * 100) / 100
+        : commissionFor(planTier, pct)
       await db
         .from('referrals')
         .update({
           status:            'converted',
           plan:              planTier,
-          commission_amount: commissionFor(planTier, ref.commission_pct ?? 20),
+          commission_amount: amount,
           converted_at:      new Date().toISOString(),
         })
         .eq('id', ref.id)
