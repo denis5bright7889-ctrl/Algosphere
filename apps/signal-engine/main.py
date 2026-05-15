@@ -102,36 +102,48 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info(f"Starting AlgoSphere Signal Engine — symbols: {settings.symbol_list}")
 
-    # Build worker and register globally
-    worker_instance = SignalWorker()
-    from worker.registry import set_worker
-    set_worker(worker_instance)
+    scheduler = None
 
-    # Inject WebSocket broadcaster
-    async def _ws_broadcast(symbol: str, signal_id: str, tier_required: str) -> None:
-        n = await ws_manager.broadcast_signal(symbol, signal_id, tier_required)
-        logger.debug(f"[{symbol}] WS broadcast → {n} client(s)")
+    # The whole worker/scheduler bring-up is wrapped so that ANY failure
+    # (missing Supabase creds, no market-data key, etc.) still lets FastAPI
+    # serve /health and the REST API. The service must never fail to boot.
+    try:
+        if not settings.has_supabase:
+            logger.warning(
+                "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set — booting in "
+                "DEGRADED mode: API + /health up, signal scanning disabled until "
+                "credentials are configured."
+            )
 
-    worker_instance.set_ws_broadcaster(_ws_broadcast)
+        worker_instance = SignalWorker()
+        from worker.registry import set_worker
+        set_worker(worker_instance)
 
-    # Build lifecycle monitor (shares the same provider)
-    monitor = LifecycleMonitor(provider=worker_instance.provider())
+        async def _ws_broadcast(symbol: str, signal_id: str, tier_required: str) -> None:
+            n = await ws_manager.broadcast_signal(symbol, signal_id, tier_required)
+            logger.debug(f"[{symbol}] WS broadcast → {n} client(s)")
 
-    # Start WebSocket manager
-    await ws_manager.start()
+        worker_instance.set_ws_broadcaster(_ws_broadcast)
 
-    # Start scheduler
-    scheduler = _build_scheduler(worker_instance, monitor)
-    scheduler.start()
-    logger.info(f"Scheduler started — scan every {settings.scan_interval_minutes}m")
+        await ws_manager.start()
 
-    # Run an initial scan on startup (non-blocking)
-    asyncio.create_task(worker_instance.scan_all())
+        # Only run the scanner/scheduler when fully configured
+        if settings.has_supabase:
+            monitor = LifecycleMonitor(provider=worker_instance.provider())
+            scheduler = _build_scheduler(worker_instance, monitor)
+            scheduler.start()
+            logger.info(f"Scheduler started — scan every {settings.scan_interval_minutes}m")
+            asyncio.create_task(worker_instance.scan_all())
+        else:
+            logger.info("Scheduler NOT started (degraded mode).")
+    except Exception as e:
+        logger.critical(f"Worker bring-up failed ({e!r}) — serving API in degraded mode")
 
     yield
 
     # Shutdown
-    scheduler.shutdown(wait=False)
+    if scheduler is not None:
+        scheduler.shutdown(wait=False)
     await ws_manager.stop()
     logger.info("Signal engine shut down")
 

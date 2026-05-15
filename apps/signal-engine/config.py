@@ -6,9 +6,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file='.env', extra='ignore')
 
-    # Supabase
-    supabase_url: str
-    supabase_service_role_key: str
+    # Supabase — default to '' so the service still BOOTS and /health responds
+    # even if env vars are absent/misconfigured. Signal scanning + persistence
+    # degrade gracefully (skipped) until these are set; they are validated
+    # lazily by has_supabase, not at import time.
+    supabase_url: str = ''
+    supabase_service_role_key: str = ''
 
     # Market data providers (at least one required)
     twelve_data_api_key: str = ''
@@ -38,6 +41,10 @@ class Settings(BaseSettings):
     @property
     def symbol_list(self) -> list[str]:
         return [s.strip().upper() for s in self.symbols.split(',') if s.strip()]
+
+    @property
+    def has_supabase(self) -> bool:
+        return bool(self.supabase_url and self.supabase_service_role_key)
 
     @property
     def has_market_data(self) -> bool:
