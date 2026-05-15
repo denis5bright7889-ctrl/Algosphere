@@ -1,6 +1,8 @@
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
-websockets==14.1
+# Pinned <13 to satisfy supabase 2.4.6 -> realtime (websockets>=11,<13);
+# uvicorn[standard] only needs >=10.4, FastAPI WS works fine on 12.x.
+websockets==12.0
 python-dotenv==1.0.1
 supabase==2.4.6
 httpx==0.27.0
