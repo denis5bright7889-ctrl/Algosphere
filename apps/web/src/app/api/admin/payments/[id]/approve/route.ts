@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as serviceClient } from '@supabase/supabase-js'
 import { isAdmin } from '@/lib/admin'
+import { commissionFor } from '@/lib/referrals'
 import { z } from 'zod'
 
 const schema = z.object({ note: z.string().max(500).optional() })
@@ -74,6 +75,32 @@ export async function POST(
   ])
 
   if (approveResult.error) return NextResponse.json({ error: approveResult.error.message }, { status: 500 })
+
+  // ─── Referral conversion (best-effort, never blocks approval) ──────────────
+  // If this user signed up via a referral and hasn't converted yet, accrue the
+  // affiliate commission off this first paid plan.
+  try {
+    const { data: ref } = await db
+      .from('referrals')
+      .select('id, commission_pct, status')
+      .eq('referred_id', payment.user_id)
+      .eq('status', 'signed_up')
+      .maybeSingle()
+
+    if (ref) {
+      await db
+        .from('referrals')
+        .update({
+          status:            'converted',
+          plan:              planTier,
+          commission_amount: commissionFor(planTier, ref.commission_pct ?? 20),
+          converted_at:      new Date().toISOString(),
+        })
+        .eq('id', ref.id)
+    }
+  } catch {
+    // Commission accrual is non-critical — approval already succeeded
+  }
 
   return NextResponse.json({ ok: true, message: `Payment approved — ${planTier} plan activated.` })
 }

@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: '/risk',       label: 'Risk Engine',         icon: '🛡️' },
   { href: '/analytics',  label: 'Performance',         icon: '📊' },
   { href: '/journal',    label: 'Trade Log',           icon: '📓' },
+  { href: '/referrals',  label: 'Affiliate',           icon: '🤝' },
 ]
 
 interface Props {
