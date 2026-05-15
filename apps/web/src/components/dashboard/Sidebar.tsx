@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: '/analytics',  label: 'Performance',         icon: '📊' },
   { href: '/journal',    label: 'Trade Log',           icon: '📓' },
   { href: '/referrals',  label: 'Affiliate',           icon: '🤝' },
+  { href: '/api-keys',   label: 'API Access',          icon: '🔑' },
 ]
 
 interface Props {
