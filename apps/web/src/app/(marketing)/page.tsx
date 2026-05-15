@@ -1,6 +1,7 @@
 import { PLANS } from '@/lib/stripe/plans'
 import LeadCaptureForm from '@/components/marketing/LeadCaptureForm'
 import PricingCard from '@/components/marketing/PricingCard'
+import FeatureMatrix from '@/components/marketing/FeatureMatrix'
 import Logo from '@/components/brand/Logo'
 
 export const metadata = {
@@ -219,6 +220,11 @@ export default function HomePage() {
             <PricingCard key={plan.id} plan={plan} />
           ))}
         </div>
+
+        <p className="mt-10 mb-2 text-center text-sm text-muted-foreground">
+          Full feature comparison
+        </p>
+        <FeatureMatrix />
       </section>
 
       {/* FAQ */}

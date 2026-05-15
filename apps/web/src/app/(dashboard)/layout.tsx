@@ -21,20 +21,28 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('subscription_tier, subscription_status, account_type')
+    .select('subscription_tier, subscription_status, account_type, created_at')
     .eq('id', user.id)
     .single()
 
   const demo = isDemo(profile?.account_type)
   const betaOpen = isBetaFreeAccessEnabled()
 
-  // Admin, demo, and open-beta accounts bypass the trial-expired redirect
+  // 7-day free trial: a free user is locked once 7 days have elapsed since
+  // signup (deterministic from created_at — no cron needed), OR if their
+  // status was explicitly canceled. Admin / demo / open-beta bypass.
+  const TRIAL_DAYS = 7
+  const onFreeTier = profile?.subscription_tier === 'free'
+  const trialAgeMs = profile?.created_at
+    ? Date.now() - new Date(profile.created_at).getTime()
+    : 0
+  const trialElapsed = trialAgeMs > TRIAL_DAYS * 24 * 60 * 60 * 1000
   const isTrialExpired =
     !admin &&
     !demo &&
     !betaOpen &&
-    profile?.subscription_tier === 'free' &&
-    profile?.subscription_status === 'canceled'
+    onFreeTier &&
+    (profile?.subscription_status === 'canceled' || trialElapsed)
 
   if (isTrialExpired) redirect('/upgrade?reason=trial_expired')
 
