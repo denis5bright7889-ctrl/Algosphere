@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import AccountForm from './AccountForm'
 import TelegramLinkForm from './TelegramLinkForm'
+import PublicProfileForm from './PublicProfileForm'
 import BillingPortalButton from '../upgrade/BillingPortalButton'
 import { formatDate } from '@/lib/utils'
 
@@ -14,7 +15,7 @@ export default async function SettingsPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('full_name, telegram_chat_id, whatsapp_number, subscription_tier, subscription_status, stripe_customer_id, created_at')
+    .select('full_name, telegram_chat_id, whatsapp_number, subscription_tier, subscription_status, stripe_customer_id, created_at, public_profile, public_handle, bio')
     .eq('id', user!.id)
     .single()
 
@@ -74,6 +75,21 @@ export default async function SettingsPage() {
             </a>
           )}
         </div>
+      </section>
+
+      {/* Public profile / leaderboard */}
+      <section className="rounded-xl border border-border bg-card p-5 space-y-4">
+        <div>
+          <h2 className="font-semibold">Public Profile &amp; Leaderboard</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Opt in to showcase verified journal stats and rank on the public leaderboard.
+          </p>
+        </div>
+        <PublicProfileForm
+          initialEnabled={profile?.public_profile ?? false}
+          initialHandle={profile?.public_handle ?? ''}
+          initialBio={profile?.bio ?? ''}
+        />
       </section>
 
       {/* Telegram */}

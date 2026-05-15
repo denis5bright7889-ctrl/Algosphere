@@ -91,6 +91,7 @@ export default function HomePage() {
           <nav className="hidden gap-6 text-sm md:flex">
             <a href="#features" className="text-muted-foreground hover:text-foreground">Features</a>
             <a href="#pricing" className="text-muted-foreground hover:text-foreground">Pricing</a>
+            <a href="/traders" className="text-muted-foreground hover:text-foreground">Leaderboard</a>
             <a href="#faq" className="text-muted-foreground hover:text-foreground">FAQ</a>
           </nav>
           <div className="flex items-center gap-3">
