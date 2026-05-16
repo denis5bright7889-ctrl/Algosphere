@@ -5,6 +5,7 @@ import { createClient as serviceClient } from '@supabase/supabase-js'
 import { isAdmin } from '@/lib/admin'
 import { computeQualityScore } from '@/lib/signals/quality'
 import { relayLeaderSignal } from '@/lib/copy-relay'
+import { autoPostSignalCommentary } from '@/lib/ai-signal-commentary'
 
 const createSchema = z.object({
   pair: z.string().min(3).max(10).toUpperCase(),
@@ -119,6 +120,22 @@ export async function POST(request: NextRequest) {
     strategy_id:   data.strategy_id,
     tier_required: data.tier_required,
   }).catch(err => console.error('Copy relay failed:', err))
+
+  // AI auto-commentary on the leader's social feed (non-blocking)
+  autoPostSignalCommentary({
+    id:               data.id,
+    pair:             data.pair,
+    direction:        data.direction,
+    entry_price:      data.entry_price,
+    stop_loss:        data.stop_loss,
+    take_profit_1:    data.take_profit_1,
+    risk_reward:      data.risk_reward,
+    confidence_score: data.confidence_score,
+    regime:           data.regime,
+    session:          data.session,
+    tier_required:    data.tier_required,
+    created_by:       data.created_by,
+  }).catch(err => console.error('Auto-commentary failed:', err))
 
   return NextResponse.json({ data }, { status: 201 })
 }

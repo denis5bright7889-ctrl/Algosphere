@@ -10,6 +10,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { closeShadowExecution } from '@/lib/shadow-log'
 
 const PLATFORM_SHARE_PCT = 5     // platform always takes 5% of shared profit
 const PIP_VALUE_USD       = 10   // conservative default per lot per pip
@@ -81,6 +82,13 @@ export async function settleCopyTradesForSignal(
         .eq('id', copy.id)
 
       result.copies_settled += 1
+
+      // Close out any open shadow-log row for this copy (drift vs leader)
+      await closeShadowExecution(db, {
+        copy_trade_id: copy.id,
+        leader_pnl:    realizedPips * lot * PIP_VALUE_USD,  // leader's notional PnL at same scale
+        follower_pnl:  followerPnl,
+      })
 
       // Accrue creator profit-share only on profitable copies
       if (followerPnl > 0) {

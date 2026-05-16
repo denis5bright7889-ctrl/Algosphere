@@ -14,6 +14,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import type { CopyMode } from '@/lib/strategies'
 import { sendPushToUser } from '@/lib/notify/push'
 import { sendEmail, signalAlertEmail } from '@/lib/notify/email'
+import { recordShadowExecution } from '@/lib/shadow-log'
 
 interface RelaySignal {
   id:              string
@@ -258,6 +259,25 @@ async function handleSubscriber(
             opened_at:       new Date().toISOString(),
           })
           .eq('id', ct.id)
+
+        // Shadow log — testnet fills count as a "shadow" record so we can
+        // later compute drift vs leader once both close.
+        await recordShadowExecution(supabase, {
+          user_id:           sub.subscriber_id,
+          signal_id:         signal.id,
+          copy_trade_id:     ct.id,
+          broker:            exec.broker,
+          symbol:            signal.pair,
+          direction:         signal.direction,
+          intended_lot:      scaledLot,
+          intended_entry:    signal.entry_price,
+          intended_sl:       sub.copy_sl ? signal.stop_loss     : null,
+          intended_tp:       sub.copy_tp ? signal.take_profit_1 : null,
+          actual_status:     exec.testnet ? 'testnet' : 'mirrored',
+          actual_fill_price: exec.avg_fill_price,
+          actual_lot:        exec.filled_qty,
+          slippage_pct:      exec.slippage_pct,
+        })
       } else {
         executionStatus = 'failed'
         executionNote   = exec.error ?? 'broker rejection'
@@ -265,6 +285,20 @@ async function handleSubscriber(
           .from('copy_trades')
           .update({ status: 'failed', skip_reason: executionNote })
           .eq('id', ct.id)
+        await recordShadowExecution(supabase, {
+          user_id:        sub.subscriber_id,
+          signal_id:      signal.id,
+          copy_trade_id:  ct.id,
+          broker:         'binance',
+          symbol:         signal.pair,
+          direction:      signal.direction,
+          intended_lot:   scaledLot,
+          intended_entry: signal.entry_price,
+          intended_sl:    sub.copy_sl ? signal.stop_loss     : null,
+          intended_tp:    sub.copy_tp ? signal.take_profit_1 : null,
+          actual_status:  'failed',
+          skip_reason:    executionNote,
+        })
       }
     } catch (err) {
       executionStatus = 'failed'
