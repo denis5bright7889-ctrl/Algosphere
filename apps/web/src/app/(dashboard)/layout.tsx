@@ -3,11 +3,10 @@ import { createClient } from '@/lib/supabase/server'
 import { isAdmin } from '@/lib/admin'
 import { isDemo } from '@/lib/demo'
 import { isBetaFreeAccessEnabled } from '@/lib/beta-access'
-import Sidebar from '@/components/dashboard/Sidebar'
+import DesktopSidebar from '@/components/dashboard/DesktopSidebar'
 import TopBar from '@/components/dashboard/TopBar'
 import MobileBottomNav from '@/components/dashboard/MobileBottomNav'
 import DemoBanner from '@/components/demo/DemoBanner'
-import Logo from '@/components/brand/Logo'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -56,43 +55,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="flex min-h-screen bg-background">
-      <aside className="hidden md:flex w-60 shrink-0 flex-col border-r border-border bg-card/70 backdrop-blur-md py-6">
-        <div className="px-4 mb-6">
-          <a href="/overview" className="flex items-center gap-2 group">
-            <Logo size="sm" alt="" priority />
-            <span className="text-base font-bold tracking-tight">
-              <span className="text-gradient">AlgoSphere</span>{' '}
-              <span className="text-foreground/90">Quant</span>
-            </span>
-          </a>
-          {admin && (
-            <span className="mt-2 inline-block rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-[10px] font-bold tracking-wider text-red-400 uppercase">
-              Admin
-            </span>
-          )}
-        </div>
-        <Sidebar />
-        {admin && (
-          <div className="mt-2 px-4">
-            <a
-              href="/admin/dashboard"
-              className="block rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-center text-xs font-semibold text-red-300 transition-all hover:bg-red-500/20 hover:shadow-glow-red"
-            >
-              Admin Dashboard
-            </a>
-          </div>
-        )}
-        {showUpgradePrompt && (
-          <div className="mt-auto px-4 pt-4">
-            <a
-              href="/upgrade"
-              className="btn-premium w-full !text-xs"
-            >
-              Upgrade to Pro
-            </a>
-          </div>
-        )}
-      </aside>
+      <DesktopSidebar admin={admin} showUpgradePrompt={showUpgradePrompt} />
 
       <div className="flex flex-1 flex-col min-w-0">
         <TopBar />
