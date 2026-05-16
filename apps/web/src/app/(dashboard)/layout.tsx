@@ -63,8 +63,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <main
           className={
             'flex-1 overflow-y-auto p-4 md:p-6 ' +
-            // Leave room for the fixed mobile bottom nav (≈56px tap + safe area)
-            'pb-[calc(72px+env(safe-area-inset-bottom))] md:pb-6'
+            // Clearance for the floating mobile bottom bar (~60px bar + gap + safe area)
+            'pb-[calc(88px+env(safe-area-inset-bottom))] md:pb-6'
           }
         >
           {children}

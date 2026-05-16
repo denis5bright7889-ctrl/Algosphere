@@ -1,7 +1,12 @@
+import {
+  Radar, ShieldCheck, ScrollText, BarChart3, Cpu, Globe,
+  ShieldHalf, LineChart, Lock, type LucideIcon,
+} from 'lucide-react'
 import { PLANS } from '@/lib/stripe/plans'
 import LeadCaptureForm from '@/components/marketing/LeadCaptureForm'
 import PricingCard from '@/components/marketing/PricingCard'
 import FeatureMatrix from '@/components/marketing/FeatureMatrix'
+import BrandLockup from '@/components/brand/BrandLockup'
 import Logo from '@/components/brand/Logo'
 
 export const metadata = {
@@ -10,40 +15,58 @@ export const metadata = {
     'Get daily trading signals, risk management tools, and a trade journal — all in one platform. Start free, upgrade when ready.',
 }
 
-const FEATURES = [
+const FEATURES: { icon: LucideIcon; title: string; description: string }[] = [
   {
-    icon: '📡',
-    title: 'Daily Trading Signals',
+    icon: Radar,
+    title: 'AI Signal Engine',
     description:
-      'Receive curated buy/sell signals for Forex and Gold with entry, SL, and multiple TPs.',
+      'Multi-timeframe regime-aware buy/sell signals for Forex, Gold and Crypto with entry, SL and layered TPs.',
   },
   {
-    icon: '🛡️',
-    title: 'Risk Management',
+    icon: ShieldCheck,
+    title: 'Institutional Risk Engine',
     description:
-      'Position size calculator, daily loss tracker, and risk/reward visualiser built-in.',
+      'Position sizing, daily-loss and drawdown limits, kill-switch and a 12-gate capital guard.',
   },
   {
-    icon: '📓',
+    icon: ScrollText,
     title: 'Trade Journal',
     description:
-      'Log trades with screenshots, tags, and notes. Automatically calculate win rate and P&L.',
+      'Log trades with screenshots, tags and notes. Win rate, R:R and P&L computed automatically.',
   },
   {
-    icon: '📊',
-    title: 'Analytics Dashboard',
+    icon: BarChart3,
+    title: 'Performance Analytics',
     description:
-      'Track performance by pair, setup, and time period. Identify what works for your style.',
+      'Break down results by pair, setup, session and regime. See exactly what edges hold.',
   },
   {
-    icon: '🤖',
-    title: 'Telegram & WhatsApp Bot',
-    description: 'Receive signals and account alerts directly in Telegram or WhatsApp.',
+    icon: Cpu,
+    title: 'Live Execution',
+    description: 'Auto-mirror signals to Binance, Bybit, OKX or MT5 — shadow-validated before going live.',
   },
   {
-    icon: '🌍',
-    title: 'Africa-Friendly Payments',
-    description: 'Pay via M-Pesa, mobile money, bank transfer, card, or crypto — no USD card needed.',
+    icon: Globe,
+    title: 'Multi-Channel Delivery',
+    description: 'Signals and account alerts via Web Push, email and Telegram — never miss an entry.',
+  },
+]
+
+const TRUST: { icon: LucideIcon; title: string; description: string }[] = [
+  {
+    icon: ShieldHalf,
+    title: 'Shadow-validated execution',
+    description: 'No connection goes live until 50+ executions prove ≥95% fill, <0.1% slippage and <2% drift.',
+  },
+  {
+    icon: LineChart,
+    title: 'Truthful performance',
+    description: 'Win rate is computed from real closed trades and shown live — never cherry-picked.',
+  },
+  {
+    icon: Lock,
+    title: 'Encrypted credentials',
+    description: 'Broker API keys are AES-256-GCM encrypted at the app layer; withdrawal scope stays disabled.',
   },
 ]
 
@@ -70,11 +93,6 @@ const FAQS = [
   },
 ]
 
-const SOCIAL_PROOF = [
-  { name: 'James O.', role: 'Forex trader, Nigeria', quote: 'The signals are clean and the risk dashboard saved me from over-leveraging twice already.' },
-  { name: 'Sarah M.', role: 'Part-time trader, Kenya', quote: 'M-Pesa payment made it easy. The Telegram bot alerts are fast — I never miss an entry.' },
-  { name: 'David K.', role: 'Prop firm funded, Ghana', quote: 'The journal and analytics helped me identify that I was losing on reversal setups. Fixed that, now profitable.' },
-]
 
 export default function HomePage() {
   return (
@@ -82,12 +100,7 @@ export default function HomePage() {
       {/* Nav */}
       <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <a href="/" className="flex items-center gap-2 text-lg font-bold tracking-tight">
-            <Logo size="sm" alt="" priority />
-            <span>
-              <span className="text-gradient">AlgoSphere</span> Quant
-            </span>
-          </a>
+          <BrandLockup priority />
           <nav className="hidden gap-6 text-sm md:flex">
             <a href="#features" className="text-muted-foreground hover:text-foreground">Features</a>
             <a href="#pricing" className="text-muted-foreground hover:text-foreground">Pricing</a>
@@ -172,33 +185,42 @@ export default function HomePage() {
           </p>
         </div>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {FEATURES.map((f) => (
-            <div
-              key={f.title}
-              className="rounded-xl border border-border bg-card p-6 space-y-2"
-            >
-              <span className="text-2xl">{f.icon}</span>
-              <h3 className="font-semibold">{f.title}</h3>
-              <p className="text-sm text-muted-foreground">{f.description}</p>
-            </div>
-          ))}
+          {FEATURES.map((f) => {
+            const Icon = f.icon
+            return (
+              <div
+                key={f.title}
+                className="rounded-xl border border-border/70 glass p-6 space-y-3 transition-colors hover:border-amber-500/30"
+              >
+                <Icon className="h-6 w-6 text-amber-300/90" strokeWidth={1.75} aria-hidden />
+                <h3 className="font-semibold">{f.title}</h3>
+                <p className="text-sm text-muted-foreground">{f.description}</p>
+              </div>
+            )
+          })}
         </div>
       </section>
 
-      {/* Social proof */}
-      <section className="bg-muted/40 border-y border-border py-16">
-        <div className="mx-auto max-w-4xl px-4">
-          <h2 className="text-center text-2xl font-bold mb-10">Traders who switched</h2>
+      {/* Trust band — factual platform guarantees, not fabricated testimonials */}
+      <section className="border-y border-border bg-muted/30 py-16">
+        <div className="mx-auto max-w-5xl px-4">
+          <h2 className="mb-2 text-center text-2xl font-bold tracking-tight">
+            Built to <span className="text-gradient">institutional standards</span>
+          </h2>
+          <p className="mx-auto mb-10 max-w-2xl text-center text-sm text-muted-foreground">
+            No paid reviews, no invented track records. These are guarantees enforced in the code.
+          </p>
           <div className="grid gap-6 md:grid-cols-3">
-            {SOCIAL_PROOF.map((t) => (
-              <div key={t.name} className="rounded-xl bg-card border border-border p-6 space-y-3">
-                <p className="text-sm text-muted-foreground italic">&ldquo;{t.quote}&rdquo;</p>
-                <div>
-                  <p className="text-sm font-semibold">{t.name}</p>
-                  <p className="text-xs text-muted-foreground">{t.role}</p>
+            {TRUST.map((t) => {
+              const Icon = t.icon
+              return (
+                <div key={t.title} className="rounded-xl border border-border/70 glass p-6 space-y-3">
+                  <Icon className="h-6 w-6 text-amber-300/90" strokeWidth={1.75} aria-hidden />
+                  <p className="font-semibold">{t.title}</p>
+                  <p className="text-sm text-muted-foreground">{t.description}</p>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       </section>

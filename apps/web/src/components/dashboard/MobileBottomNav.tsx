@@ -1,17 +1,17 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Activity, ShieldCheck, ScrollText, MessagesSquare, type LucideIcon } from 'lucide-react'
+import { LayoutDashboard, Globe, Activity, Users, UserCircle, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Item { href: string; label: string; icon: LucideIcon }
 
 const ITEMS: Item[] = [
-  { href: '/overview', label: 'Home',    icon: LayoutDashboard },
-  { href: '/signals',  label: 'Signals', icon: Activity },
-  { href: '/risk',     label: 'Risk',    icon: ShieldCheck },
-  { href: '/journal',  label: 'Journal', icon: ScrollText },
-  { href: '/social',   label: 'Social',  icon: MessagesSquare },
+  { href: '/overview',  label: 'Home',      icon: LayoutDashboard },
+  { href: '/market',    label: 'Markets',   icon: Globe },
+  { href: '/signals',   label: 'Signals',   icon: Activity },
+  { href: '/community', label: 'Community', icon: Users },
+  { href: '/settings',  label: 'Profile',   icon: UserCircle },
 ]
 
 export default function MobileBottomNav() {
@@ -21,14 +21,15 @@ export default function MobileBottomNav() {
     <nav
       aria-label="Primary"
       className={cn(
-        'fixed inset-x-0 bottom-0 z-40 md:hidden glass-strong',
-        'pb-[max(env(safe-area-inset-bottom),0.25rem)]',
+        'fixed inset-x-0 bottom-0 z-40 md:hidden',
+        'px-3 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-1',
       )}
     >
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-primary opacity-50" aria-hidden />
-      <ul className="grid grid-cols-5">
+      {/* Floating rounded glass bar */}
+      <ul className="mx-auto grid max-w-md grid-cols-5 rounded-2xl border border-border/70 glass-strong p-1 shadow-glow">
         {ITEMS.map((item) => {
-          const active = pathname === item.href || pathname.startsWith(`${item.href}/`)
+          const active =
+            pathname === item.href || pathname.startsWith(`${item.href}/`)
           const Icon = item.icon
           return (
             <li key={item.href}>
@@ -36,17 +37,18 @@ export default function MobileBottomNav() {
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'relative flex min-h-[56px] flex-col items-center justify-center gap-1 px-1 py-1.5',
-                  'text-[10px] font-medium leading-none touch-manipulation transition-colors',
+                  'relative flex min-h-[52px] flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5',
+                  'text-[10px] font-medium leading-none touch-manipulation transition-all duration-200',
                   active
-                    ? 'text-amber-300 glow-text-gold'
-                    : 'text-muted-foreground active:bg-accent/50',
+                    ? 'bg-gradient-primary text-white shadow-glow'
+                    : 'text-muted-foreground active:scale-95 active:bg-accent/40',
                 )}
               >
-                {active && (
-                  <span className="absolute inset-x-3 top-0 h-0.5 rounded-b-full bg-gradient-primary" aria-hidden />
-                )}
-                <Icon className="h-5 w-5 shrink-0" strokeWidth={active ? 2.25 : 1.75} aria-hidden />
+                <Icon
+                  className={cn('h-5 w-5 shrink-0 transition-transform', active && 'scale-110')}
+                  strokeWidth={active ? 2.25 : 1.75}
+                  aria-hidden
+                />
                 <span className="truncate">{item.label}</span>
               </a>
             </li>
