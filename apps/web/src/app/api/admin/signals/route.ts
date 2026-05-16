@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as serviceClient } from '@supabase/supabase-js'
 import { isAdmin } from '@/lib/admin'
 import { computeQualityScore } from '@/lib/signals/quality'
+import { relayLeaderSignal } from '@/lib/copy-relay'
 
 const createSchema = z.object({
   pair: z.string().min(3).max(10).toUpperCase(),
@@ -102,6 +103,22 @@ export async function POST(request: NextRequest) {
     resource_id: data.id,
     after_state: data,
   })
+
+  // Fan out to copy-trading subscribers (non-blocking)
+  relayLeaderSignal({
+    id:            data.id,
+    pair:          data.pair,
+    direction:     data.direction,
+    entry_price:   data.entry_price,
+    stop_loss:     data.stop_loss,
+    take_profit_1: data.take_profit_1,
+    take_profit_2: data.take_profit_2,
+    take_profit_3: data.take_profit_3,
+    risk_reward:   data.risk_reward,
+    created_by:    data.created_by,
+    strategy_id:   data.strategy_id,
+    tier_required: data.tier_required,
+  }).catch(err => console.error('Copy relay failed:', err))
 
   return NextResponse.json({ data }, { status: 201 })
 }

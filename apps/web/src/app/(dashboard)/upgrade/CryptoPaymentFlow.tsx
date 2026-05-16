@@ -299,7 +299,7 @@ function PaymentInstructions({
         onClick={onContinue}
         className="w-full rounded-md bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
       >
-        I've sent the payment — submit proof →
+        I&apos;ve sent the payment — submit proof →
       </button>
     </div>
   )

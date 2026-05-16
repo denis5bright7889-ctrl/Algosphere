@@ -14,3 +14,6 @@ pydantic==2.10.2
 pydantic-settings==2.6.1
 redis==5.2.0
 python-multipart==0.0.18
+
+# Broker adapters (optional — only required if BINANCE_API_KEY is set)
+python-binance==1.0.29

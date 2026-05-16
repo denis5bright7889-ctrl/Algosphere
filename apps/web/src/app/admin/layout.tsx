@@ -20,9 +20,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </a>
           <span className="text-muted-foreground">|</span>
           {[
-            { href: '/admin/dashboard', label: 'Platform Intelligence' },
-            { href: '/admin/signals',   label: 'Signal Management' },
-            { href: '/admin/payments',  label: 'Payments' },
+            { href: '/admin/dashboard',    label: 'Platform Intelligence' },
+            { href: '/admin/signals',      label: 'Signal Management' },
+            { href: '/admin/payments',     label: 'Payments' },
+            { href: '/admin/verification', label: 'Verifications' },
+            { href: '/admin/compliance',   label: 'Compliance & Audit' },
           ].map(link => (
             <a key={link.href} href={link.href} className="text-sm text-muted-foreground hover:text-foreground">
               {link.label}

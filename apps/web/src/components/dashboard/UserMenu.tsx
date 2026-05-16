@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
-import type { SubscriptionTier } from '@/lib/types'
 
 interface Props {
   email: string

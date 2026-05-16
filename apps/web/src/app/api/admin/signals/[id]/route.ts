@@ -4,7 +4,12 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as serviceClient } from '@supabase/supabase-js'
 import { isAdmin } from '@/lib/admin'
 import { canTransition, LIFECYCLE_TO_RESULT } from '@/lib/signals/lifecycle'
+import { settleCopyTradesForSignal } from '@/lib/copy-settlement'
 import type { SignalLifecycleState } from '@/lib/types'
+
+const TERMINAL_STATES = [
+  'tp1_hit','tp2_hit','tp3_hit','stopped','invalidated','expired','breakeven',
+]
 
 const updateSchema = z.object({
   lifecycle_state: z.enum([
@@ -64,7 +69,7 @@ export async function PATCH(
     if (result) update.result = result
 
     // Set terminal status
-    if (['tp1_hit','tp2_hit','tp3_hit','stopped','invalidated','expired','breakeven'].includes(newState)) {
+    if (TERMINAL_STATES.includes(newState)) {
       update.status = 'closed'
     }
 
@@ -95,6 +100,16 @@ export async function PATCH(
     before_state: existing,
     after_state: update,
   })
+
+  // If the signal just went terminal, settle all linked copy trades
+  if (
+    parsed.data.lifecycle_state &&
+    TERMINAL_STATES.includes(parsed.data.lifecycle_state) &&
+    existing.status !== 'closed'
+  ) {
+    settleCopyTradesForSignal(svc, id)
+      .catch(err => console.error('Copy settlement failed:', err))
+  }
 
   return NextResponse.json({ data })
 }

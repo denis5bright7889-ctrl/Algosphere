@@ -1,5 +1,4 @@
 import { createClient } from '@/lib/supabase/server'
-import { formatDate } from '@/lib/utils'
 import RegimeBadge from '@/components/algo/RegimeBadge'
 import { ConfidencePill } from '@/components/algo/ConfidenceGauge'
 import { isDemo } from '@/lib/demo'

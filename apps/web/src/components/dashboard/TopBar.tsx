@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { isAdmin } from '@/lib/admin'
 import MobileNav from './MobileNav'
 import UserMenu from './UserMenu'
+import NotificationBell from '@/components/social/NotificationBell'
 
 export default async function TopBar() {
   const supabase = await createClient()
@@ -30,11 +31,14 @@ export default async function TopBar() {
           </a>
         )}
       </div>
-      <UserMenu
-        email={user!.email ?? ''}
-        name={profile?.full_name ?? ''}
-        tier={profile?.subscription_tier ?? 'free'}
-      />
+      <div className="flex items-center gap-1">
+        <NotificationBell />
+        <UserMenu
+          email={user!.email ?? ''}
+          name={profile?.full_name ?? ''}
+          tier={profile?.subscription_tier ?? 'free'}
+        />
+      </div>
     </header>
   )
 }

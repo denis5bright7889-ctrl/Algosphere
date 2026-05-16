@@ -9,8 +9,6 @@ interface Props {
   todayTrades: number
 }
 
-const DAILY_LIMIT_PCT = 3
-
 export default function DailyLossTracker({ todayPnl, todayRisked, todayTrades }: Props) {
   const isNegative = todayPnl < 0
   const limitAmount = 300 // $300 default daily loss limit — user can later configure

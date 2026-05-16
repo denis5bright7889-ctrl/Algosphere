@@ -102,6 +102,14 @@ export async function authenticateApiKey(
     }
   }
 
+  // Monthly metered usage (quota + overage accrual). Non-blocking — a
+  // metering failure must never reject an otherwise-valid API call.
+  const monthlyQuota = tier === 'vip' ? 100_000 : 10_000
+  db.rpc('bump_api_monthly_usage', {
+    p_user_id: key.user_id,
+    p_quota:   monthlyQuota,
+  }).then(() => {}, () => {})
+
   return {
     userId:      key.user_id,
     tier,

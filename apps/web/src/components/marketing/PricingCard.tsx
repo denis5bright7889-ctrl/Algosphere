@@ -19,7 +19,6 @@ const SHORT_DESC: Record<string, string> = {
 
 export default function PricingCard({ plan }: Props) {
   const isFree    = plan.id === 'free'
-  const isStarter = plan.id === 'starter'
   const isPremium = plan.id === 'premium'   // marked "Most popular"
   const isVip     = plan.id === 'vip'
 

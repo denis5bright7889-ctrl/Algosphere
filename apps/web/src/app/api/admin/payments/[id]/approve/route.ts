@@ -50,7 +50,7 @@ export async function POST(
   const periodEnd = new Date()
   periodEnd.setMonth(periodEnd.getMonth() + (interval === 'annual' ? 12 : 1))
 
-  const [approveResult, profileResult, subResult] = await Promise.all([
+  const [approveResult, _profileResult, _subResult] = await Promise.all([
     db.from('crypto_payments').update({
       status: 'approved',
       admin_note: note ?? null,

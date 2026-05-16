@@ -28,7 +28,7 @@ export async function GET() {
     { data: payments },
     { data: signals },
     { data: journal },
-    { data: authUsers },
+    { data: _authUsers },
   ] = await Promise.all([
     svc.from('profiles').select('id, subscription_tier, subscription_status, created_at'),
     svc.from('subscriptions').select('id, plan, status, current_period_end, created_at'),
@@ -39,7 +39,7 @@ export async function GET() {
   ])
 
   const p = profiles ?? []
-  const sub = subscriptions ?? []
+  const _sub = subscriptions ?? []
   const pay = payments ?? []
   const sig = signals ?? []
   const trades = journal ?? []
