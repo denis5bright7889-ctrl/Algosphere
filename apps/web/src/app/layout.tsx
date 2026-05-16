@@ -12,6 +12,13 @@ export const metadata: Metadata = {
   description:
     'Professional trading signals, risk management, and analytics — all in one platform.',
   keywords: ['trading signals', 'forex', 'risk management', 'trade journal', 'AI trading'],
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    title:   'AlgoSphere',
+    statusBarStyle: 'black-translucent',
+  },
+  formatDetection: { telephone: false },
 }
 
 export const viewport: Viewport = {

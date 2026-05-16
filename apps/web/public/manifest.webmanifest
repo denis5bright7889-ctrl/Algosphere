@@ -1,0 +1,22 @@
+{
+  "name":              "AlgoSphere Quant",
+  "short_name":        "AlgoSphere",
+  "description":       "Institutional-grade AI trading platform — signals, risk, copy trading.",
+  "start_url":         "/overview",
+  "scope":             "/",
+  "display":           "standalone",
+  "orientation":       "portrait-primary",
+  "background_color":  "#0a0a0a",
+  "theme_color":       "#D4A017",
+  "categories":        ["finance", "business", "productivity"],
+  "icons": [
+    { "src": "/icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Signals",  "short_name": "Signals",  "url": "/signals",  "description": "Live signal feed" },
+    { "name": "Journal",  "short_name": "Journal",  "url": "/journal",  "description": "Log a trade" },
+    { "name": "Overview", "short_name": "Home",     "url": "/overview", "description": "Command Center" }
+  ],
+  "prefer_related_applications": false
+}

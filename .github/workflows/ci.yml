@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same PR
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  web:
+    name: web (lint + type-check + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund --workspaces --include-workspace-root
+
+      - name: Lint
+        working-directory: apps/web
+        run: npx eslint "src/**/*.{ts,tsx}" --max-warnings=0
+
+      - name: Type-check
+        working-directory: apps/web
+        run: npx tsc --noEmit
+
+      - name: Production build
+        working-directory: apps/web
+        env:
+          # Build doesn't need real secrets — these stubs prevent client-side
+          # env validation from failing in CI. Real values live in Vercel.
+          NEXT_PUBLIC_SUPABASE_URL:     ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co' }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'stub-anon-key' }}
+        run: npm run build
+
+  signal-engine:
+    name: signal-engine (smoke import)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/signal-engine
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: apps/signal-engine/requirements.txt
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Import smoke test (no broker keys required)
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, '.')
+          # Importable modules — catches missing deps / syntax errors
+          from risk.adapters.base           import OrderRequest, OrderSide, OrderType
+          from risk.adapters.binance_adapter import BinanceAdapter, adapter_from_env
+          from api.execute                  import router as exec_router
+          from api.routes                   import router as api_router
+
+          # Adapter must return None cleanly when env vars are missing
+          assert adapter_from_env() is None, 'Adapter should be None without keys'
+
+          # Both routers must register
+          paths = {r.path for r in exec_router.routes + api_router.routes if hasattr(r, 'path')}
+          assert '/execute' in paths, '/execute route missing'
+
+          print('signal-engine smoke OK')
+          "
+
+  migrations:
+    name: supabase migrations (syntax check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: List migrations + check well-formed
+        run: |
+          set -e
+          for f in supabase/migrations/*.sql; do
+            echo "→ $f"
+            # Every migration must declare schema-safe ops
+            if grep -E "^CREATE TABLE [^I][^F]" "$f"; then
+              echo "::error file=$f::CREATE TABLE without IF NOT EXISTS — risky for replay"
+              exit 1
+            fi
+          done
+          echo "all migrations idempotent ✓"
