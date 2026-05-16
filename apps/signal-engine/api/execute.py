@@ -1,16 +1,21 @@
 """
-/execute — broker order routing endpoint.
+/execute — multi-broker order routing endpoint.
 
 Pre-checks (in order):
   1. Engine API key auth (same header used by other admin routes)
-  2. Risk engine refresh + kill-switch check
-  3. Slippage / spread guard delegated to the adapter
-  4. Submit to broker
-  5. Log + return result
+  2. Resolve adapter for (user_id, broker) — either per-user from
+     broker_connections (Phase 2 multi-tenant) or env-based singleton
+     (Phase 1 single-user paper mode)
+  3. Risk engine refresh + kill-switch check via adapter.refresh_state()
+  4. Slippage / spread guard delegated to the adapter
+  5. Submit to broker
+  6. Return result
 
-For the v1 (paper-mode) deployment a single Binance adapter is built from
-BINANCE_API_KEY / BINANCE_API_SECRET env vars. Multi-user routing reads
-encrypted credentials from broker_connections (Phase 2).
+Routing rule for `user_id`:
+  • If `user_id` is provided AND a broker_connections row exists for it,
+    the per-user adapter wins.
+  • Else fall back to the env-based singleton for the requested broker
+    (paper-mode deployments).
 """
 from __future__ import annotations
 import os
@@ -19,16 +24,20 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel, Field
 from loguru import logger
 
-from risk.adapters.binance_adapter import (
-    BinanceAdapter, adapter_from_env,
-)
 from risk.adapters.base import (
+    ExecutionAdapter,
     OrderRequest, OrderSide, OrderType, OrderRejected, SlippageExceeded,
 )
+from risk.adapters.factory import (
+    get_adapter_for_user, BrokerNotConnected, BrokerDecryptError, cache_size,
+)
+from risk.adapters import binance_adapter, bybit_adapter, okx_adapter, mt5_adapter
 
 router = APIRouter()
 
-# ─── Auth (same pattern as the rest of the engine API) ──────────────
+SUPPORTED_BROKERS = {'binance', 'bybit', 'okx', 'mt5'}
+
+# ─── Auth ────────────────────────────────────────────────────────────
 
 def _verify_engine_key(x_engine_key: Optional[str] = Header(default=None)):
     expected = os.environ.get('ENGINE_API_KEY', '')
@@ -36,27 +45,70 @@ def _verify_engine_key(x_engine_key: Optional[str] = Header(default=None)):
         raise HTTPException(status_code=403, detail='Invalid or missing engine key')
 
 
-# ─── Per-process adapter cache ──────────────────────────────────────
-# One adapter instance per "login" — for paper mode this is one shared
-# instance. For multi-user it becomes one per user.
+# ─── Singleton (paper-mode) adapter cache ─────────────────────────────
 
-_adapters: dict[str, BinanceAdapter] = {}
+_env_adapters: dict[str, ExecutionAdapter] = {}
 
 
-async def get_adapter(login: str = 'binance_paper') -> Optional[BinanceAdapter]:
-    if login not in _adapters:
-        ad = adapter_from_env(login=login)
-        if ad is None:
-            return None
-        await ad.connect()
-        _adapters[login] = ad
-    return _adapters[login]
+async def _get_env_adapter(broker: str) -> Optional[ExecutionAdapter]:
+    """Build a single env-based adapter for the requested broker. None
+    if its env vars aren't set."""
+    if broker in _env_adapters:
+        return _env_adapters[broker]
+
+    builder = {
+        'binance': binance_adapter.adapter_from_env,
+        'bybit':   bybit_adapter.adapter_from_env,
+        'okx':     okx_adapter.adapter_from_env,
+        'mt5':     mt5_adapter.adapter_from_env,
+    }.get(broker)
+    if builder is None:
+        return None
+
+    ad = builder()
+    if ad is None:
+        return None
+    await ad.connect()
+    _env_adapters[broker] = ad
+    return ad
 
 
-# ─── Request / response schemas ─────────────────────────────────────
+async def _resolve_adapter(
+    broker: str, user_id: Optional[str],
+) -> ExecutionAdapter:
+    """Per-user lookup first, then env fallback."""
+    if user_id:
+        try:
+            # Lazy supabase import keeps cold-start light
+            from config import get_settings
+            from supabase import create_client
+            s  = get_settings()
+            db = create_client(s.supabase_url, s.supabase_service_role_key)
+            return await get_adapter_for_user(db, user_id, broker)
+        except BrokerNotConnected:
+            logger.debug(f"No broker_connections row for {user_id[:8]}/{broker} — trying env fallback")
+        except BrokerDecryptError as e:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Vault decrypt failed: {e}. Rotate CREDENTIAL_ENCRYPTION_KEY?",
+            )
+
+    env_ad = await _get_env_adapter(broker)
+    if env_ad is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"No adapter available for broker={broker}. "
+                f"Either connect via /brokers UI or set {broker.upper()}_* env vars."
+            ),
+        )
+    return env_ad
+
+
+# ─── Request / response schemas ───────────────────────────────────────
 
 class ExecuteIn(BaseModel):
-    broker:           str            = Field('binance', description='binance|bybit|okx|mt5|ctrader')
+    broker:           str            = Field('binance', description='binance|bybit|okx|mt5')
     symbol:           str
     side:             str            = Field(..., pattern='^(buy|sell)$')
     order_type:       str            = Field('market', pattern='^(market|limit)$')
@@ -67,7 +119,6 @@ class ExecuteIn(BaseModel):
     client_order_id:  Optional[str]   = None
     max_slippage_pct: float           = 0.001
     reduce_only:      bool            = False
-    # User identity for multi-tenant routing (Phase 2). v1 ignores.
     user_id:          Optional[str]   = None
 
 
@@ -83,22 +134,17 @@ class ExecuteOut(BaseModel):
     testnet:         bool          = True
 
 
-# ─── Route ──────────────────────────────────────────────────────────
+# ─── Route ────────────────────────────────────────────────────────────
 
 @router.post('/execute', dependencies=[Depends(_verify_engine_key)])
 async def execute(payload: ExecuteIn) -> ExecuteOut:
-    if payload.broker != 'binance':
+    if payload.broker not in SUPPORTED_BROKERS:
         raise HTTPException(
-            status_code=501,
-            detail=f"Broker '{payload.broker}' adapter not yet enabled. Use 'binance'.",
+            status_code=400,
+            detail=f"Broker '{payload.broker}' not supported. Choose: {sorted(SUPPORTED_BROKERS)}",
         )
 
-    adapter = await get_adapter()
-    if adapter is None:
-        raise HTTPException(
-            status_code=503,
-            detail='Binance adapter not configured. Set BINANCE_API_KEY + BINANCE_API_SECRET.',
-        )
+    adapter = await _resolve_adapter(payload.broker, payload.user_id)
 
     # Refresh equity / positions snapshot for any downstream risk gates
     await adapter.refresh_state()
@@ -119,15 +165,15 @@ async def execute(payload: ExecuteIn) -> ExecuteOut:
     try:
         result = await adapter.submit_order(req)
     except SlippageExceeded as e:
-        logger.warning(f"Slippage veto for {payload.symbol}: {e}")
+        logger.warning(f"Slippage veto [{payload.broker} {payload.symbol}]: {e}")
         return ExecuteOut(
-            ok=False, broker='binance', testnet=adapter.testnet,
+            ok=False, broker=payload.broker, testnet=adapter.testnet,
             error=f'slippage_veto: {e}',
         )
     except OrderRejected as e:
-        logger.warning(f"Order rejected: {e}")
+        logger.warning(f"Order rejected [{payload.broker}]: {e}")
         return ExecuteOut(
-            ok=False, broker='binance', testnet=adapter.testnet,
+            ok=False, broker=payload.broker, testnet=adapter.testnet,
             error=f'rejected: {e}',
         )
 
@@ -138,26 +184,44 @@ async def execute(payload: ExecuteIn) -> ExecuteOut:
         filled_qty      = result.filled_qty,
         avg_fill_price  = result.avg_fill_price,
         slippage_pct    = result.slippage_pct,
-        broker          = 'binance',
+        broker          = payload.broker,
         testnet         = adapter.testnet,
     )
 
 
 @router.get('/execute/status', dependencies=[Depends(_verify_engine_key)])
-async def execute_status() -> dict:
-    """Quick liveness check for the broker leg of the engine."""
-    adapter = await get_adapter()
+async def execute_status(broker: str = 'binance') -> dict:
+    """Quick liveness check for one broker leg. user_id-less so it only
+    probes env-based singletons — for per-user health, query the
+    broker_connections.status column from the web app."""
+    if broker not in SUPPORTED_BROKERS:
+        return {'configured': False, 'reason': f"unsupported broker {broker}"}
+
+    adapter = await _get_env_adapter(broker)
     if adapter is None:
         return {
             'configured': False,
-            'reason':     'BINANCE_API_KEY / BINANCE_API_SECRET not set',
+            'reason':     f"{broker.upper()}_* env vars not set",
+            'broker':     broker,
         }
+
     await adapter.refresh_state()
     return {
-        'configured':       True,
-        'broker':           'binance',
-        'testnet':          adapter.testnet,
-        'connected':        adapter.is_connected(),
-        'equity_usdt':      adapter.get_equity(),
-        'open_positions':   adapter.open_position_count(),
+        'configured':     True,
+        'broker':         broker,
+        'testnet':        adapter.testnet,
+        'connected':      adapter.is_connected(),
+        'equity':         adapter.get_equity(),
+        'open_positions': adapter.open_position_count(),
+        'session_cache':  cache_size(),
     }
+
+
+@router.post('/execute/invalidate', dependencies=[Depends(_verify_engine_key)])
+async def invalidate_cache(user_id: str, broker: str) -> dict:
+    """Web app calls this after a user rotates a broker key in /brokers."""
+    if broker not in SUPPORTED_BROKERS:
+        raise HTTPException(status_code=400, detail=f"unsupported broker {broker}")
+    from risk.adapters.factory import drop_cache
+    await drop_cache(user_id, broker)
+    return {'ok': True}

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AlgoSphere Quant",
+  "version": "0.1.0",
+  "identifier": "com.algospherequant.desktop",
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "devUrl": "https://algospherequant.com",
+    "frontendDist": "https://algospherequant.com"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "AlgoSphere Quant",
+        "url": "https://algospherequant.com",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "decorations": true,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "shadow": true,
+        "transparent": false
+      }
+    ],
+    "security": {
+      "csp": null,
+      "capabilities": ["default"]
+    },
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true,
+      "title": "AlgoSphere Quant",
+      "tooltip": "AlgoSphere Quant"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "publisher": "AlgoSphere Quant",
+    "copyright": "© 2026 AlgoSphere Quant",
+    "category": "Finance",
+    "shortDescription": "Institutional-grade trading terminal",
+    "longDescription": "AlgoSphere Quant brings the full algospherequant.com platform into a native desktop window with system tray, push notifications, and offline alert caching.",
+    "windows": {
+      "wix": {
+        "language": "en-US"
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": false,
+      "endpoints": [
+        "https://algospherequant.com/api/desktop/update/{{target}}/{{current_version}}"
+      ],
+      "dialog": true,
+      "pubkey": ""
+    },
+    "notification": {
+      "all": true
+    }
+  }
+}

@@ -15,5 +15,13 @@ pydantic-settings==2.6.1
 redis==5.2.0
 python-multipart==0.0.18
 
-# Broker adapters (optional — only required if BINANCE_API_KEY is set)
+# Credential vault — matches the Node lib/vault.ts AES-256-GCM byte-for-byte
+cryptography==43.0.3
+
+# Broker adapters (lazy-imported — only required if the matching API keys are set)
 python-binance==1.0.29
+pybit==5.8.0
+python-okx==0.3.5
+# MetaTrader5 is Windows-only and is installed on the MT5 host VPS, not Railway.
+# Uncomment if you deploy this engine to a Windows runtime that drives MT5.
+# MetaTrader5==5.0.45

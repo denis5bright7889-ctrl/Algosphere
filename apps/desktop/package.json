@@ -1,0 +1,21 @@
+{
+  "name": "@algosphere/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AlgoSphere Quant native desktop terminal (Tauri 2 + Rust). Thin wrapper over the production web app — adds an OS-level always-on-top quick-bar, native push, system-tray, and offline alert caching.",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "echo \"desktop bundle is built explicitly with `npm run tauri:build` — skipping in monorepo build\"",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "lint": "echo \"lint deferred to web app\"",
+    "type-check": "echo \"type-check deferred to web app\""
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.1.1"
+  }
+}

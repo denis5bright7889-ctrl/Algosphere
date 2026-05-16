@@ -236,6 +236,17 @@ async function handleSubscriber(
   let executionNote = ''
   if (mode === 'full_auto' && ct?.id) {
     try {
+      // Pick the follower's preferred broker — falls back to env default
+      // server-side if no row exists.
+      const { data: defaultBroker } = await supabase
+        .from('broker_connections')
+        .select('broker')
+        .eq('user_id', sub.subscriber_id)
+        .eq('is_default', true)
+        .maybeSingle()
+      const brokerHint = (defaultBroker?.broker ?? undefined) as
+        | 'binance' | 'bybit' | 'okx' | 'mt5' | undefined
+
       const exec = await executeOnBroker({
         symbol:          signal.pair,
         side:            signal.direction,
@@ -244,6 +255,7 @@ async function handleSubscriber(
         take_profit:     sub.copy_tp ? signal.take_profit_1 ?? undefined : undefined,
         client_order_id: `copy_${ct.id.slice(0, 24)}`,
         user_id:         sub.subscriber_id,
+        broker:          brokerHint,
       })
       if (exec.ok) {
         executionStatus = 'mirrored'
@@ -289,7 +301,7 @@ async function handleSubscriber(
           user_id:        sub.subscriber_id,
           signal_id:      signal.id,
           copy_trade_id:  ct.id,
-          broker:         'binance',
+          broker:         exec.broker || brokerHint || 'binance',
           symbol:         signal.pair,
           direction:      signal.direction,
           intended_lot:   scaledLot,
@@ -349,6 +361,9 @@ interface ExecuteRequest {
   take_profit?:    number | null
   client_order_id: string
   user_id:         string
+  /** Optional broker hint — if omitted, engine reads the user's default
+   *  broker_connections row (or falls back to env-based singleton). */
+  broker?:         'binance' | 'bybit' | 'okx' | 'mt5'
 }
 
 interface ExecuteResponse {
@@ -388,7 +403,7 @@ async function executeOnBroker(req: ExecuteRequest): Promise<ExecuteResponse> {
         'X-Engine-Key':   key,
       },
       body: JSON.stringify({
-        broker:           'binance',
+        broker:           req.broker ?? 'binance',
         symbol:           req.symbol,
         side:             req.side,
         order_type:       'market',
