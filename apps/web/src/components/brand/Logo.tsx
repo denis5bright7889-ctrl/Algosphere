@@ -40,11 +40,10 @@ export default function Logo({
       height={px}
       quality={100}
       priority={priority}
-      // The source PNG is RGB (no alpha) with a baked black background.
-      // On the dark theme, `mix-blend-screen` makes the pure-black pixels
-      // render transparent — a real fix until the asset is re-exported
-      // as an RGBA/SVG with a true alpha channel.
-      className={cn('object-contain shrink-0 select-none mix-blend-screen', className)}
+      // Source is RGBA — true alpha (re-exported 2026-05-16 via PIL
+      // luminance-keyed alpha). Original RGB version preserved at
+      // /logo-algosphere.original.png.
+      className={cn('object-contain shrink-0 select-none', className)}
       draggable={false}
     />
   )

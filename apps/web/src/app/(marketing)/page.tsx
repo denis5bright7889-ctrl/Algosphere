@@ -154,9 +154,6 @@ export default function HomePage() {
               See how it works
             </a>
           </div>
-          <p className="mt-4 text-xs text-muted-foreground">
-            Pay with USDT (TRC20), BTC, ETH or Binance Pay
-          </p>
         </div>
       </section>
 
