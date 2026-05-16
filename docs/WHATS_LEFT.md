@@ -17,17 +17,22 @@
 | Tauri 2 desktop wrapper scaffold (system tray, hide-to-tray, native push) | Shipped — needs `cargo tauri icon …` + a Rust toolchain to bundle |
 | Production deploy + smoke test 13/13 green | Done |
 
+## ✅ Closed in commit `6592549` (2026-05-16)
+
+| # | Gap | How |
+|---|---|---|
+| 1 | Tauri auto-update route | `GET /api/desktop/update/[target]/[version]` serves Tauri v2 JSON from a static `public/releases/desktop.json`; 204 when absent/current. Verified live (204). |
+| 2 | OKX passphrase UI | `/brokers` form now broker-aware; OKX shows the passphrase field, API validates it. |
+| 3 | MT5 connection UI | Reconciled to the **$0 direct MetaTrader5** path — form collects login/password/server (mapped to api_key/api_secret/passphrase the factory expects). Dropped the paid MetaApi token requirement. |
+| 5 | Per-user broker health probe | `worker/broker_health.py`, scheduled every 10 min — builds each adapter, `refresh_state()`, writes status/equity/error back to `broker_connections`. |
+| 6 | Drift-monitor for engine closes | `lifecycle_monitor` now calls `/api/internal/settle-signal` (idempotent, X-Engine-Key auth) on every terminal auto-transition → settles copies + closes shadow rows + computes drift. Previously only admin closes did. |
+| 7 | Live-mode flip safety gate | migration 22 `broker_execution_readiness()` RPC + `POST /api/brokers/[id]/promote-live` (only path that can set `is_testnet=false`, no override) + live gauge on each `/brokers` card. |
+
 ## ⏳ Code-side gaps you can still ship in chat (1–3 hours each)
 
 | # | Gap | Why it matters | What it takes |
 |---|---|---|---|
-| 1 | **`/api/desktop/update/[target]/[version]`** Next route returning Tauri's signed-update JSON | Without it, the desktop binary has no auto-update path. Currently disabled in `tauri.conf.json`. | One route + a `releases` table or a static `releases.json` in `apps/web/public`. |
-| 2 | **Web UI for OKX passphrase field** in `/brokers` connection form | OKX won't connect without it; the API exists and table has `passphrase_enc`. | Add a third password input + extend the encrypt-and-store handler. |
-| 3 | **Web UI for MT5 connection (login + password + server + path)** | MT5 uses different credentials than the crypto trio; the factory expects login in `api_key_enc`, server in `passphrase_enc`. | New form variant under `/brokers`, plus the broker-type chooser already exists. |
 | 4 | **cTrader OAuth adapter** | We declared `'ctrader'` in the table check constraint but there's no Python adapter. cTrader uses OAuth refresh tokens (in `access_token_enc`), different shape from API-key brokers. | Implement `cTraderAdapter` + add to factory. ~2 hrs once you have a developer app at connect.spotware.com. |
-| 5 | **Engine `/health/per-user`** endpoint that probes each user's broker on a cron | Lets `/brokers` show the live red/green dot we already have a column for (`status`, `equity_usd`, `error_message`). | One scheduled job in `worker/`, iterates connections, calls `adapter.refresh_state()`, writes back. |
-| 6 | **Drift-monitor cron** that pairs shadow_executions with their leader signals and computes `pnl_drift_pct` once both close | Required for the live-mode readiness gate the runbook references. | Schedule + JOIN on `signal_id`, write back to `shadow_executions.pnl_drift_pct + closed_at`. |
-| 7 | **Live-mode flip safety gate** (`/admin/execution-readiness`) | Surfaces the four criteria — 50+ execs, ≥95% fill, <0.1% slip, <2% drift — and refuses to flip `is_testnet → false` until they're all green. | One admin page + an RPC. |
 | 8 | **Rate-limit per broker connection** in the execute router | Right now a runaway full_auto loop could DOS your Binance/Bybit API key. | Token bucket keyed on `(user_id, broker)`. |
 | 9 | **Bot-side `/brokers` deep-link** from Telegram | Reduces friction for users connecting their first account. | A keyboard button in `subscription.py` that opens the web `/brokers` URL with a session-token query param. |
 | 10 | **`apps/web/api/desktop/checksums`** for download-page integrity | When you ship the Tauri binaries, the download page should publish SHA-256s. | Static route reading from R2/S3 or just `public/releases/`. |
@@ -50,12 +55,19 @@
 
 ## What you should actually do next (in order)
 
-1. **Set `CREDENTIAL_ENCRYPTION_KEY`** in Railway env if not already there — the new Python vault helper reads it. (`docs/DEPLOYMENT_RUNBOOK.md §1`)
-2. **Add `pybit==5.8.0` and `python-okx==0.3.5`** are now in `requirements.txt`. Re-deploy signal-engine on Railway so they install.
-3. **Apply for Bybit testnet key** at testnet.bybit.com → derivatives → no withdraw → IP whitelist to your Railway egress IP.
-4. **Connect a test Bybit account through `/brokers`** in the web app. Then watch `shadow_executions` accumulate.
-5. **Build gap #1 (Tauri update endpoint)** before you cut the first desktop release.
-6. **Build gap #7 (live-mode readiness gate)** before you flip *any* `is_testnet=false`.
+1. **Set `ENGINE_API_KEY` on the web app (Vercel) too.** It was previously
+   only web→engine; the new settlement callback is engine→web with the
+   *same* shared secret. Until it's set on Vercel,
+   `/api/internal/settle-signal` returns 503 (verified) and
+   engine-autonomous closes won't settle copy-trades. Use the exact same
+   value already in Railway's `ENGINE_API_KEY`.
+2. **Set `WEB_APP_URL` in Railway** = `https://algospherequant.com` (the
+   engine default already is this, so only needed if you use a custom domain).
+3. **Set `CREDENTIAL_ENCRYPTION_KEY`** in Railway env if not already there — the Python vault helper reads it. (`docs/DEPLOYMENT_RUNBOOK.md §1`)
+4. **`pybit==5.8.0`, `python-okx==0.3.5`, `cryptography==43.0.3`** are now in `requirements.txt`. Re-deploy signal-engine on Railway so they install.
+5. **Apply for Bybit testnet key** at testnet.bybit.com → derivatives → no withdraw → IP whitelist to your Railway egress IP.
+6. **Connect a test Bybit account through `/brokers`** in the web app. The health probe will turn the dot green within 10 min; `shadow_executions` accumulate as the relay fires.
+7. Only after the `/brokers` readiness gauge is **all-green** for a connection, the **Go Live** button appears — that is the *only* way to flip to real money.
 
 ## Out-of-scope reminders
 
