@@ -1,4 +1,9 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "turbo run build --filter=@ai-trading-hub/web",
+  "installCommand": "npm install",
+  "outputDirectory": "apps/web/.next",
   "git": {
     "deploymentEnabled": false
   }
