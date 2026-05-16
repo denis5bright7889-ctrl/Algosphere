@@ -19,6 +19,7 @@ from api.routes import router as api_router
 from api.execute import router as execute_router
 from worker.signal_worker import SignalWorker
 from worker.lifecycle_monitor import LifecycleMonitor
+from worker.broker_health import BrokerHealthProbe
 from observability import configure_logging, RequestLoggingMiddleware, RateLimitMiddleware
 
 
@@ -69,6 +70,19 @@ def _build_scheduler(worker: SignalWorker, monitor: LifecycleMonitor):
         minute=0,
         id='daily_reset',
         args=[worker],
+    )
+
+    # Broker connection health probe — every 10 minutes, writes
+    # status/equity back to broker_connections for the /brokers UI.
+    health = BrokerHealthProbe()
+    scheduler.add_job(
+        health.probe_all,
+        trigger='interval',
+        minutes=10,
+        id='broker_health',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=120,
     )
 
     return scheduler

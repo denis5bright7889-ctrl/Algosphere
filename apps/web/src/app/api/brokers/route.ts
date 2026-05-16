@@ -25,14 +25,18 @@ export async function GET() {
   })
 }
 
+// For MT5 the three generic fields are repurposed (the engine uses the
+// direct MetaTrader5 library — $0, no MetaApi cloud bridge):
+//   api_key    → MT5 login (numeric account number)
+//   api_secret → MT5 password
+//   passphrase → broker server label, e.g. "Pepperstone-Demo"
 const createSchema = z.object({
   broker:        z.enum(['binance','bybit','okx','mt5','ctrader']),
   label:         z.string().max(80).optional(),
   account_id:    z.string().max(60).optional(),
-  api_key:       z.string().min(8).max(200),
-  api_secret:    z.string().min(8).max(200),
+  api_key:       z.string().min(1).max(200),
+  api_secret:    z.string().min(1).max(200),
   passphrase:    z.string().max(200).optional(),
-  metaapi_token: z.string().max(500).optional(),
   is_testnet:    z.boolean().default(true),
   is_default:    z.boolean().default(false),
 })
@@ -58,11 +62,21 @@ export async function POST(req: Request) {
 
   // OKX needs a passphrase; reject if missing
   if (parsed.data.broker === 'okx' && !parsed.data.passphrase) {
-    return NextResponse.json({ error: 'OKX requires passphrase' }, { status: 422 })
+    return NextResponse.json({ error: 'OKX requires a passphrase' }, { status: 422 })
   }
-  // MT5 needs MetaApi token
-  if (parsed.data.broker === 'mt5' && !parsed.data.metaapi_token) {
-    return NextResponse.json({ error: 'MT5 requires metaapi_token' }, { status: 422 })
+  // MT5: api_key must be the numeric login, passphrase must be the server
+  if (parsed.data.broker === 'mt5') {
+    if (!/^\d+$/.test(parsed.data.api_key)) {
+      return NextResponse.json(
+        { error: 'MT5 login must be the numeric account number' }, { status: 422 },
+      )
+    }
+    if (!parsed.data.passphrase) {
+      return NextResponse.json(
+        { error: 'MT5 requires the broker server (e.g. "Pepperstone-Demo")' },
+        { status: 422 },
+      )
+    }
   }
 
   const d = parsed.data
@@ -76,8 +90,7 @@ export async function POST(req: Request) {
       account_id:        d.account_id ?? null,
       api_key_enc:       encrypt(d.api_key),
       api_secret_enc:    encrypt(d.api_secret),
-      passphrase_enc:    d.passphrase    ? encrypt(d.passphrase)    : null,
-      metaapi_token_enc: d.metaapi_token ? encrypt(d.metaapi_token) : null,
+      passphrase_enc:    d.passphrase ? encrypt(d.passphrase) : null,
       is_testnet:        d.is_testnet,
       is_live:           !d.is_testnet,
       is_default:        d.is_default,

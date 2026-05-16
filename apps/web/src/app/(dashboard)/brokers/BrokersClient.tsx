@@ -16,12 +16,40 @@ interface Conn {
   created_at:  string
 }
 
+// `labels` overrides the generic API Key / API Secret / Passphrase
+// captions per broker. MT5 reuses the three generic columns as
+// login / password / server (engine drives the direct MetaTrader5 lib —
+// no paid MetaApi bridge).
 const BROKERS = [
-  { key: 'binance', label: 'Binance Futures',  fields: ['api_key','api_secret'] },
-  { key: 'bybit',   label: 'Bybit Unified',    fields: ['api_key','api_secret'] },
-  { key: 'okx',     label: 'OKX',              fields: ['api_key','api_secret','passphrase'] },
-  { key: 'mt5',     label: 'MetaTrader 5',     fields: ['api_key','api_secret','metaapi_token','account_id'] },
-  { key: 'ctrader', label: 'cTrader',          fields: ['api_key','api_secret'] },
+  {
+    key: 'binance', label: 'Binance Futures',
+    fields: ['api_key', 'api_secret'],
+    labels: { api_key: 'API Key', api_secret: 'API Secret' },
+  },
+  {
+    key: 'bybit', label: 'Bybit Unified',
+    fields: ['api_key', 'api_secret'],
+    labels: { api_key: 'API Key', api_secret: 'API Secret' },
+  },
+  {
+    key: 'okx', label: 'OKX',
+    fields: ['api_key', 'api_secret', 'passphrase'],
+    labels: { api_key: 'API Key', api_secret: 'API Secret', passphrase: 'Passphrase' },
+  },
+  {
+    key: 'mt5', label: 'MetaTrader 5',
+    fields: ['api_key', 'api_secret', 'passphrase'],
+    labels: {
+      api_key:    'MT5 Login (numeric account #)',
+      api_secret: 'MT5 Password',
+      passphrase: 'Broker Server (e.g. Pepperstone-Demo)',
+    },
+  },
+  {
+    key: 'ctrader', label: 'cTrader',
+    fields: ['api_key', 'api_secret'],
+    labels: { api_key: 'API Key', api_secret: 'API Secret' },
+  },
 ] as const
 
 const STATUS_CLS: Record<string, string> = {
@@ -46,6 +74,11 @@ export default function BrokersClient({ initialConnections }: { initialConnectio
   function onRemoved(id: string) {
     setConns(arr => arr.filter(c => c.id !== id))
   }
+  function onPromoted(id: string) {
+    setConns(arr => arr.map(c =>
+      c.id === id ? { ...c, is_testnet: false, is_live: true } : c,
+    ))
+  }
 
   return (
     <>
@@ -68,7 +101,7 @@ export default function BrokersClient({ initialConnections }: { initialConnectio
         <>
           <div className="space-y-3 mb-4">
             {conns.map(c => (
-              <ConnectionCard key={c.id} c={c} onRemoved={onRemoved} />
+              <ConnectionCard key={c.id} c={c} onRemoved={onRemoved} onPromoted={onPromoted} />
             ))}
           </div>
           {!adding && (
@@ -88,9 +121,57 @@ export default function BrokersClient({ initialConnections }: { initialConnectio
   )
 }
 
-function ConnectionCard({ c, onRemoved }: { c: Conn; onRemoved: (id: string) => void }) {
+interface Readiness {
+  attempts:          number
+  filled:            number
+  fill_rate_pct:     number
+  avg_abs_slip_pct:  number
+  closed_count:      number
+  avg_abs_drift_pct: number
+  passes:            boolean
+  reasons:           string[]
+}
+
+function ConnectionCard({
+  c, onRemoved, onPromoted,
+}: {
+  c: Conn
+  onRemoved: (id: string) => void
+  onPromoted: (id: string) => void
+}) {
   const [pending, startTransition] = useTransition()
   const [confirming, setConfirming] = useState(false)
+  const [readiness, setReadiness] = useState<Readiness | null>(null)
+  const [showGate, setShowGate] = useState(false)
+  const [goLiveErr, setGoLiveErr] = useState<string | null>(null)
+
+  function loadReadiness() {
+    setShowGate(true)
+    fetch(`/api/brokers/${c.id}/readiness`)
+      .then(r => r.json())
+      .then(d => setReadiness(d.readiness ?? null))
+      .catch(() => { /* gauge stays empty */ })
+  }
+
+  function promoteLive() {
+    setGoLiveErr(null)
+    startTransition(async () => {
+      try {
+        const res = await fetch(`/api/brokers/${c.id}/promote-live`, { method: 'POST' })
+        const d = await res.json()
+        if (!res.ok) {
+          setGoLiveErr(
+            d.reasons?.length ? d.reasons.join(' · ') : (d.error ?? 'Blocked'),
+          )
+          if (d.metrics) setReadiness(d.metrics)
+          return
+        }
+        onPromoted(c.id)
+      } catch {
+        setGoLiveErr('Network error')
+      }
+    })
+  }
 
   function remove() {
     startTransition(async () => {
@@ -135,6 +216,56 @@ function ConnectionCard({ c, onRemoved }: { c: Conn; onRemoved: (id: string) => 
         </p>
       )}
 
+      {c.is_testnet && (
+        <div className="mt-3 rounded-lg border border-border bg-muted/20 p-3">
+          {!showGate ? (
+            <button
+              type="button"
+              onClick={loadReadiness}
+              className="text-xs font-semibold text-amber-300 hover:underline"
+            >
+              ▸ Check live-execution readiness
+            </button>
+          ) : (
+            <>
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">
+                Live-readiness gate
+              </p>
+              {readiness ? (
+                <div className="space-y-1.5">
+                  <Metric label="Executions" value={`${readiness.attempts}`} ok={readiness.attempts >= 50} target="≥ 50" />
+                  <Metric label="Fill rate"  value={`${readiness.fill_rate_pct}%`} ok={readiness.fill_rate_pct >= 95} target="≥ 95%" />
+                  <Metric label="Avg slippage" value={`${readiness.avg_abs_slip_pct}%`} ok={readiness.avg_abs_slip_pct < 0.10} target="< 0.10%" />
+                  <Metric label="Closed (drift)" value={`${readiness.closed_count}`} ok={readiness.closed_count >= 20} target="≥ 20" />
+                  <Metric label="Avg PnL drift" value={`${readiness.avg_abs_drift_pct}%`} ok={readiness.avg_abs_drift_pct < 2.0} target="< 2.00%" />
+                  <div className="pt-2">
+                    {readiness.passes ? (
+                      <button
+                        type="button"
+                        onClick={promoteLive}
+                        disabled={pending}
+                        className="w-full rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
+                      >
+                        {pending ? 'Promoting…' : '⚠ Go Live — switch to real money'}
+                      </button>
+                    ) : (
+                      <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+                        Not ready: {readiness.reasons.join(' · ')}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">Loading…</p>
+              )}
+              {goLiveErr && (
+                <p className="mt-2 text-[11px] text-rose-400">Blocked: {goLiveErr}</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       <div className="mt-3 flex justify-end gap-2">
         {confirming ? (
           <>
@@ -177,16 +308,20 @@ function AddConnectionForm({
   const [apiKey, setApiKey]     = useState('')
   const [apiSecret, setApiSecret] = useState('')
   const [passphrase, setPassphrase] = useState('')
-  const [metaapiToken, setMetaapi]  = useState('')
   const [isTestnet, setIsTestnet] = useState(true)
   const [isDefault, setIsDefault] = useState(false)
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
   const spec = BROKERS.find(b => b.key === broker)!
+  const labels = spec.labels as Record<string, string>
   const showPassphrase = spec.fields.includes('passphrase' as never)
-  const showMetaapi    = spec.fields.includes('metaapi_token' as never)
-  const showAccountId  = spec.fields.includes('account_id' as never)
+  const isMt5 = broker === 'mt5'
+
+  // MT5: numeric login + non-empty password + server. Others: 8+ char key/secret.
+  const canSubmit = isMt5
+    ? /^\d+$/.test(apiKey) && apiSecret.length >= 1 && passphrase.trim().length > 0
+    : apiKey.length >= 8 && apiSecret.length >= 8 && (!showPassphrase || passphrase.length >= 1)
 
   function submit() {
     setError(null)
@@ -197,14 +332,13 @@ function AddConnectionForm({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             broker,
-            label:         label || undefined,
-            account_id:    accountId || undefined,
-            api_key:       apiKey,
-            api_secret:    apiSecret,
-            passphrase:    passphrase || undefined,
-            metaapi_token: metaapiToken || undefined,
-            is_testnet:    isTestnet,
-            is_default:    isDefault,
+            label:      label || undefined,
+            account_id: accountId || undefined,
+            api_key:    apiKey,
+            api_secret: apiSecret,
+            passphrase: passphrase || undefined,
+            is_testnet: isTestnet,
+            is_default: isDefault,
           }),
         })
         const data = await res.json()
@@ -229,6 +363,7 @@ function AddConnectionForm({
         <select
           value={broker}
           onChange={e => setBroker(e.target.value as typeof BROKERS[number]['key'])}
+          aria-label="Broker"
           className={`${inputCls} font-sans`}
         >
           {BROKERS.map(b => <option key={b.key} value={b.key}>{b.label}</option>)}
@@ -242,28 +377,39 @@ function AddConnectionForm({
         />
       </Field>
 
-      {showAccountId && (
-        <Field label="Account ID">
-          <input type="text" value={accountId} onChange={e => setAccountId(e.target.value)} className={inputCls} />
-        </Field>
-      )}
-
-      <Field label="API Key">
-        <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} autoComplete="off" className={inputCls} />
+      <Field label="Label-free account tag (optional)">
+        <input
+          type="text" value={accountId} onChange={e => setAccountId(e.target.value)}
+          maxLength={60} placeholder="optional — distinguishes multiple keys"
+          className={inputCls}
+        />
       </Field>
 
-      <Field label="API Secret">
-        <input type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)} autoComplete="off" className={inputCls} />
+      <Field label={labels.api_key ?? 'API Key'}>
+        <input
+          type={isMt5 ? 'text' : 'password'} inputMode={isMt5 ? 'numeric' : undefined}
+          value={apiKey} onChange={e => setApiKey(e.target.value)}
+          aria-label={labels.api_key ?? 'API Key'}
+          autoComplete="off" className={inputCls}
+        />
+      </Field>
+
+      <Field label={labels.api_secret ?? 'API Secret'}>
+        <input
+          type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)}
+          aria-label={labels.api_secret ?? 'API Secret'}
+          autoComplete="off" className={inputCls}
+        />
       </Field>
 
       {showPassphrase && (
-        <Field label="Passphrase">
-          <input type="password" value={passphrase} onChange={e => setPassphrase(e.target.value)} autoComplete="off" className={inputCls} />
-        </Field>
-      )}
-      {showMetaapi && (
-        <Field label="MetaApi Token">
-          <input type="password" value={metaapiToken} onChange={e => setMetaapi(e.target.value)} autoComplete="off" className={inputCls} />
+        <Field label={labels.passphrase ?? 'Passphrase'}>
+          <input
+            type={isMt5 ? 'text' : 'password'}
+            value={passphrase} onChange={e => setPassphrase(e.target.value)}
+            aria-label={labels.passphrase ?? 'Passphrase'}
+            autoComplete="off" className={inputCls}
+          />
         </Field>
       )}
 
@@ -295,12 +441,28 @@ function AddConnectionForm({
         <button
           type="button"
           onClick={submit}
-          disabled={pending || apiKey.length < 8 || apiSecret.length < 8}
-          className={cn('btn-premium !text-xs !py-2 !px-5', (pending || apiKey.length < 8 || apiSecret.length < 8) && 'opacity-50 cursor-not-allowed')}
+          disabled={pending || !canSubmit}
+          className={cn('btn-premium !text-xs !py-2 !px-5', (pending || !canSubmit) && 'opacity-50 cursor-not-allowed')}
         >
           {pending ? 'Saving…' : 'Save Connection'}
         </button>
       </div>
+    </div>
+  )
+}
+
+function Metric({
+  label, value, ok, target,
+}: { label: string; value: string; ok: boolean; target: string }) {
+  return (
+    <div className="flex items-center justify-between text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="flex items-center gap-2 tabular-nums">
+        <span className={cn('font-semibold', ok ? 'text-emerald-300' : 'text-rose-400')}>
+          {ok ? '✓' : '✗'} {value}
+        </span>
+        <span className="text-[10px] text-muted-foreground">({target})</span>
+      </span>
     </div>
   )
 }

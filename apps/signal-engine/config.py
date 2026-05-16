@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     admin_email: str = ''
     engine_api_key: str = ''
     allowed_origins: str = 'https://algosphere.vercel.app,http://localhost:3000'
+    # Web app base URL — engine calls back here to settle copy trades when
+    # it auto-closes a signal (settlement logic is single-sourced in TS).
+    web_app_url: str = 'https://algospherequant.com'
 
     @property
     def symbol_list(self) -> list[str]:

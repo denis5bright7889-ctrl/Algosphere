@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 from typing import Optional
+import httpx
 from loguru import logger
 from supabase import create_client, Client
 
@@ -159,5 +160,36 @@ class LifecycleMonitor:
             except Exception:
                 pass  # execution_logs is best-effort
 
+            # On terminal close, hand settlement back to the web app —
+            # copy-trade PnL, creator profit-share and shadow-drift are
+            # single-sourced in lib/copy-settlement.ts. Fire-and-forget;
+            # the endpoint is idempotent so a missed call self-heals on
+            # the next admin/cron settle.
+            if is_terminal:
+                await self._settle_copies(signal_id)
+
         except Exception as e:
             logger.error(f"Lifecycle transition failed for {signal_id}: {e}")
+
+    async def _settle_copies(self, signal_id: str) -> None:
+        key = self.settings.engine_api_key
+        base = (self.settings.web_app_url or '').rstrip('/')
+        if not key or not base:
+            logger.debug("Skipping copy settlement — web_app_url/engine_api_key unset")
+            return
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.post(
+                    f"{base}/api/internal/settle-signal",
+                    headers={'X-Engine-Key': key},
+                    json={'signal_id': signal_id},
+                )
+            if resp.status_code != 200:
+                logger.warning(
+                    f"Copy settlement callback {resp.status_code} for {signal_id}: "
+                    f"{resp.text[:200]}"
+                )
+            else:
+                logger.info(f"Copy settlement triggered for {signal_id}")
+        except Exception as e:
+            logger.warning(f"Copy settlement callback failed for {signal_id}: {e}")
