@@ -67,3 +67,4 @@ apps/signal-engine/logs/
 **/HALTED.flag
 **/*.corrupt.*
 .pytest_cache/
+.env.vercel

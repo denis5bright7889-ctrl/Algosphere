@@ -2,7 +2,7 @@ import {
   Radar, ShieldCheck, ScrollText, BarChart3, Cpu, Globe,
   ShieldHalf, LineChart, Lock, type LucideIcon,
 } from 'lucide-react'
-import { PLANS } from '@/lib/stripe/plans'
+import { PLANS } from '@/lib/plans'
 import LeadCaptureForm from '@/components/marketing/LeadCaptureForm'
 import PricingCard from '@/components/marketing/PricingCard'
 import FeatureMatrix from '@/components/marketing/FeatureMatrix'
@@ -155,7 +155,7 @@ export default function HomePage() {
             </a>
           </div>
           <p className="mt-4 text-xs text-muted-foreground">
-            Pay via M-Pesa, card, bank transfer, or crypto
+            Pay with USDT (TRC20), BTC, ETH or Binance Pay
           </p>
         </div>
       </section>

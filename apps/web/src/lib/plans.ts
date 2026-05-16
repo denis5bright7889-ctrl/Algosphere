@@ -1,3 +1,10 @@
+/**
+ * Tier catalog — the single source of truth for plan names, prices and
+ * features. Decoupled from any payment provider: AlgoSphere Quant is
+ * crypto-only (USDT-TRC20 + BTC/ETH/Binance Pay), so there are no Stripe
+ * price IDs here. The crypto admin-approval flow writes
+ * `profiles.subscription_tier`, and every gate reads from there.
+ */
 import type { Plan } from '@/lib/types'
 
 export const PLANS: Record<string, Plan> = {
@@ -11,7 +18,6 @@ export const PLANS: Record<string, Plan> = {
     id: 'starter',
     name: 'Starter',
     price: 29,
-    stripePriceId: process.env.STRIPE_STARTER_PRICE_ID!,
     features: [
       'Forex, crypto & commodities signals',
       'Basic AI trade alerts + Telegram channel',
@@ -25,7 +31,6 @@ export const PLANS: Record<string, Plan> = {
     id: 'premium',
     name: 'Pro',
     price: 99,
-    stripePriceId: process.env.STRIPE_PREMIUM_PRICE_ID!,
     features: [
       'Everything in Starter',
       'Verified analytics: equity curve, Sharpe, drawdown',
@@ -41,7 +46,6 @@ export const PLANS: Record<string, Plan> = {
     id: 'vip',
     name: 'VIP',
     price: 299,
-    stripePriceId: process.env.STRIPE_VIP_PRICE_ID!,
     features: [
       'Everything in Pro',
       'Fully automated institutional AI execution engine',

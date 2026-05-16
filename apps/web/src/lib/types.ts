@@ -213,12 +213,14 @@ export interface CryptoPayment {
 }
 
 // ------ Plan config ---------------------------------------------------------
+// Crypto-only payments — no Stripe price IDs. The tier catalog lives in
+// `@/lib/plans` and gating reads `profiles.subscription_tier`, which the
+// crypto admin-approval flow writes.
 export interface Plan {
   id: SubscriptionTier
   name: string
   price: number
   features: string[]
-  stripePriceId?: string
 }
 
 // ------ API response envelope -----------------------------------------------

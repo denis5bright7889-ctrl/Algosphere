@@ -2,7 +2,6 @@ import { createClient } from '@/lib/supabase/server'
 import AccountForm from './AccountForm'
 import TelegramLinkForm from './TelegramLinkForm'
 import PublicProfileForm from './PublicProfileForm'
-import BillingPortalButton from '../upgrade/BillingPortalButton'
 import { formatDate } from '@/lib/utils'
 
 export const metadata = { title: 'Settings' }
@@ -64,16 +63,13 @@ export default async function SettingsPage() {
               </p>
             )}
           </div>
-          {profile?.stripe_customer_id ? (
-            <BillingPortalButton />
-          ) : (
-            <a
-              href="/upgrade"
-              className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
-            >
-              Upgrade
-            </a>
-          )}
+          {/* Billing is crypto-only — every renewal goes through /upgrade. */}
+          <a
+            href="/upgrade"
+            className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+          >
+            {profile?.subscription_tier && profile.subscription_tier !== 'free' ? 'Renew' : 'Upgrade'}
+          </a>
         </div>
       </section>
 
