@@ -7,7 +7,8 @@ import LeadCaptureForm from '@/components/marketing/LeadCaptureForm'
 import PricingCard from '@/components/marketing/PricingCard'
 import FeatureMatrix from '@/components/marketing/FeatureMatrix'
 import BrandLockup from '@/components/brand/BrandLockup'
-import Logo from '@/components/brand/Logo'
+import HeroPreview from './_components/HeroPreview'
+import RegimeStrip from './_components/RegimeStrip'
 
 export const metadata = {
   title: 'AlgoSphere Quant — Professional Trading Signals & Analytics',
@@ -121,41 +122,52 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* Hero */}
-      <section className="relative mx-auto max-w-4xl px-4 pt-16 pb-16 text-center overflow-hidden">
+      {/* Hero — 2-column on desktop, stacked on mobile */}
+      <section className="relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-mesh pointer-events-none" aria-hidden />
-        <div className="relative">
-          <div className="flex justify-center mb-6 animate-fade-in">
-            <Logo size="xl" priority />
+        {/* Cinematic ambient gradients */}
+        <div className="pointer-events-none absolute -top-32 left-1/4 h-64 w-64 rounded-full bg-amber-500/10 blur-3xl" aria-hidden />
+        <div className="pointer-events-none absolute -bottom-32 right-1/4 h-72 w-72 rounded-full bg-emerald-500/10 blur-3xl" aria-hidden />
+
+        <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-4 pt-12 pb-16 lg:grid-cols-2 lg:gap-12 lg:pt-20 lg:pb-24">
+          {/* LEFT — copy + CTAs */}
+          <div className="text-center lg:text-left animate-fade-in">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(16,185,129,0.7)]" />
+              Institutional AI · live regime engine
+            </span>
+            <h1 className="mt-4 text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl">
+              Where{' '}
+              <span className="text-gradient">algorithms</span>
+              <br className="hidden sm:inline" />
+              meet alpha
+            </h1>
+            <p className="mt-5 max-w-xl text-base text-muted-foreground sm:text-lg mx-auto lg:mx-0">
+              A real-time AI signal engine, a 12-gate risk system, and multi-broker
+              auto-execution — fused into one institutional trading terminal.
+            </p>
+            <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row lg:justify-start">
+              <a href="/signup" className="btn-premium w-full sm:w-auto !px-8 !py-3 !text-base">
+                Start free trial
+              </a>
+              <a href="#features" className="btn-glass w-full sm:w-auto !px-8 !py-3 !text-base">
+                See how it works
+              </a>
+            </div>
+            <p className="mt-4 text-xs text-muted-foreground">
+              7-day free trial · no card required
+            </p>
           </div>
-          <span className="inline-block rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary mb-4">
-            7-day free trial — no card required
-          </span>
-          <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl md:text-6xl">
-            Where{' '}
-            <span className="text-gradient">algorithms</span>{' '}
-            meet alpha
-          </h1>
-          <p className="mt-5 text-lg text-muted-foreground max-w-2xl mx-auto">
-            Daily Forex &amp; Gold signals, institutional risk management, and a trade journal — all
-            in one platform built for African and global retail traders.
-          </p>
-          <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
-            <a
-              href="/signup"
-              className="btn-premium w-full sm:w-auto !px-8 !py-3 !text-base"
-            >
-              Start free trial
-            </a>
-            <a
-              href="#features"
-              className="btn-glass w-full sm:w-auto !px-8 !py-3 !text-base"
-            >
-              See how it works
-            </a>
+
+          {/* RIGHT — product preview */}
+          <div className="relative">
+            <HeroPreview />
           </div>
         </div>
       </section>
+
+      {/* Live market regime strip */}
+      <RegimeStrip />
 
       {/* Features */}
       <section id="features" className="mx-auto max-w-5xl px-4 py-20">
