@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { ChevronsLeft, ChevronsRight, Settings2 } from 'lucide-react'
 import Sidebar from './Sidebar'
+import type { Tier } from './nav'
 import Logo from '@/components/brand/Logo'
 import { cn } from '@/lib/utils'
 
@@ -11,9 +12,10 @@ const LS_KEY = 'as_sidebar_collapsed'
 interface Props {
   admin: boolean
   showUpgradePrompt: boolean
+  tier?: Tier
 }
 
-export default function DesktopSidebar({ admin, showUpgradePrompt }: Props) {
+export default function DesktopSidebar({ admin, showUpgradePrompt, tier = 'free' }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const [hovered, setHovered] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -92,6 +94,8 @@ export default function DesktopSidebar({ admin, showUpgradePrompt }: Props) {
           collapsed={compact}
           onRequestExpand={expandFromCategory}
           pendingExpand={pendingExpand}
+          tier={tier}
+          isAdmin={admin}
         />
       </div>
 

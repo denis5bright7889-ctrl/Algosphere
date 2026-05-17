@@ -53,9 +53,24 @@ export default async function DashboardLayout({ children }: { children: React.Re
     profile?.account_type === 'demo_premium' || profile?.account_type === 'demo_vip'
   const showUpgradePrompt = !admin && !betaOpen && !topTier && !topDemo
 
+  // Effective nav tier — admins/beta see everything; demo tiers map to
+  // their real-feature equivalent; otherwise the stored subscription.
+  const navTier: 'free' | 'starter' | 'premium' | 'vip' =
+    admin || betaOpen
+      ? 'vip'
+      : profile?.account_type === 'demo_vip'
+      ? 'vip'
+      : profile?.account_type === 'demo_premium'
+      ? 'premium'
+      : (['free', 'starter', 'premium', 'vip'] as const).includes(
+          (profile?.subscription_tier ?? 'free') as 'free' | 'starter' | 'premium' | 'vip',
+        )
+      ? ((profile?.subscription_tier ?? 'free') as 'free' | 'starter' | 'premium' | 'vip')
+      : 'free'
+
   return (
     <div className="flex min-h-screen bg-background">
-      <DesktopSidebar admin={admin} showUpgradePrompt={showUpgradePrompt} />
+      <DesktopSidebar admin={admin} showUpgradePrompt={showUpgradePrompt} tier={navTier} />
 
       <div className="flex flex-1 flex-col min-w-0">
         <TopBar />

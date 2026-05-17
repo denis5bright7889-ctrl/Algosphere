@@ -1,17 +1,18 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Globe, Activity, Users, UserCircle, type LucideIcon } from 'lucide-react'
+import { LayoutDashboard, CandlestickChart, Activity, Repeat, Users, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Item { href: string; label: string; icon: LucideIcon }
 
+// Primary mobile nav per spec: Home · Markets · Signals · Portfolio · Community
 const ITEMS: Item[] = [
   { href: '/overview',  label: 'Home',      icon: LayoutDashboard },
-  { href: '/market',    label: 'Markets',   icon: Globe },
+  { href: '/market',    label: 'Markets',   icon: CandlestickChart },
   { href: '/signals',   label: 'Signals',   icon: Activity },
+  { href: '/copy',      label: 'Portfolio', icon: Repeat },
   { href: '/community', label: 'Community', icon: Users },
-  { href: '/settings',  label: 'Profile',   icon: UserCircle },
 ]
 
 export default function MobileBottomNav() {

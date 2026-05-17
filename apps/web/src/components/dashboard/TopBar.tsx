@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { isAdmin } from '@/lib/admin'
+import { isBetaFreeAccessEnabled } from '@/lib/beta-access'
 import { Settings } from 'lucide-react'
 import LiveMarketPill from '@/components/ui/LiveMarketPill'
 import Logo from '@/components/brand/Logo'
@@ -23,11 +24,27 @@ export default async function TopBar() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('full_name, subscription_tier')
+    .select('full_name, subscription_tier, account_type')
     .eq('id', user!.id)
     .single()
 
   const admin = isAdmin(user!.email)
+  const betaOpen = isBetaFreeAccessEnabled()
+
+  // Same effective nav tier the dashboard layout computes — keeps the
+  // mobile drawer's role-based filtering identical to the desktop rail.
+  const navTier: 'free' | 'starter' | 'premium' | 'vip' =
+    admin || betaOpen
+      ? 'vip'
+      : profile?.account_type === 'demo_vip'
+      ? 'vip'
+      : profile?.account_type === 'demo_premium'
+      ? 'premium'
+      : (['free', 'starter', 'premium', 'vip'] as const).includes(
+          (profile?.subscription_tier ?? 'free') as 'free' | 'starter' | 'premium' | 'vip',
+        )
+      ? ((profile?.subscription_tier ?? 'free') as 'free' | 'starter' | 'premium' | 'vip')
+      : 'free'
 
   return (
     <header
@@ -40,7 +57,7 @@ export default async function TopBar() {
 
       {/* LEFT — mobile: menu + compact brand · desktop: search */}
       <div className="flex min-w-0 items-center gap-2">
-        <MobileNav />
+        <MobileNav tier={navTier} isAdmin={admin} />
         <a
           href="/overview"
           aria-label="AlgoSphere Quant — home"
