@@ -20,7 +20,7 @@ import {
   Users, Network, Crown, MessagesSquare, Repeat,
   BookOpen, Calculator, Briefcase, BrainCircuit, KeyRound, Rocket,
   Settings2, BadgeDollarSign, Handshake, BadgeCheck, LogOut,
-  Compass, LineChart, MessageSquare, Wrench, UserCog,
+  Compass, LineChart, MessageSquare, Wrench, UserCog, Waves,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -75,6 +75,7 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: LineChart,
     items: [
       { href: '/market',     label: 'Market Tracker',      icon: CandlestickChart, keywords: 'prices quotes symbols' },
+      { href: '/whale',      label: 'Whale Analytics',     icon: Waves,            minTier: 'premium', keywords: 'smart money flows nansen onchain whales' },
       { href: '/calendar',   label: 'Economic Calendar',   icon: CalendarDays,     keywords: 'events nfp cpi news' },
       { href: '/news',       label: 'Market News',         icon: Newspaper,        keywords: 'headlines' },
       { href: '/psychology', label: 'AI Psychology Coach', icon: Brain,            keywords: 'mindset tilt emotion' },
