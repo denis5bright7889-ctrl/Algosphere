@@ -78,7 +78,9 @@ export default async function SettingsPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  const [{ data: profile }, { data: subscription }, { data: pushDevices }, { data: payments }, activity] = await Promise.all([
+  const [
+    { data: profile }, { data: subscription }, { data: pushDevices }, { data: payments }, activity, { data: factors },
+  ] = await Promise.all([
     supabase.from('profiles')
       .select('full_name, telegram_chat_id, whatsapp_number, subscription_tier, subscription_status, created_at, public_profile, public_handle, bio')
       .eq('id', user!.id)
@@ -99,7 +101,10 @@ export default async function SettingsPage() {
       .order('created_at', { ascending: false })
       .limit(20),
     loadActivity(supabase, user!.id),
+    supabase.auth.mfa.listFactors(),
   ])
+
+  const totpEnabled = (factors?.totp ?? []).some((f) => f.status === 'verified')
 
   const tier = profile?.subscription_tier ?? 'free'
 
@@ -260,11 +265,26 @@ export default async function SettingsPage() {
                 <p className="flex items-center gap-1.5 text-sm font-semibold">
                   <Lock className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.75} aria-hidden />
                   Two-factor authentication
+                  <span className={
+                    'ml-1 rounded-full border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ' +
+                    (totpEnabled
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                      : 'border-amber-500/30 bg-amber-500/10 text-amber-300')
+                  }>
+                    {totpEnabled ? 'On' : 'Off'}
+                  </span>
                 </p>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
-                  TOTP authenticator enrolment (Google Authenticator / 1Password) — shipping in the next security pass. Until then we recommend
-                  using a unique strong password.
+                  {totpEnabled
+                    ? 'Authenticator-app code required at sign-in.'
+                    : 'Add a TOTP authenticator (Google Authenticator / 1Password / Authy) to your sign-in.'}
                 </p>
+                <a
+                  href="/settings/2fa"
+                  className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-amber-300 hover:underline"
+                >
+                  {totpEnabled ? 'Manage 2FA' : 'Set up 2FA'} →
+                </a>
               </div>
 
               <div className="pt-1">
