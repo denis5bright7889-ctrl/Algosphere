@@ -157,22 +157,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Stats bar */}
-      <div className="border-y border-border bg-muted/40 py-6">
-        <div className="mx-auto max-w-4xl grid grid-cols-3 gap-4 px-4 text-center">
-          {[
-            { label: 'Win rate (30d)', value: '71%' },
-            { label: 'Signals/month', value: '80+' },
-            { label: 'Active traders', value: '500+' },
-          ].map((stat) => (
-            <div key={stat.label}>
-              <p className="text-2xl font-bold">{stat.value}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{stat.label}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* Features */}
       <section id="features" className="mx-auto max-w-5xl px-4 py-20">
         <div className="text-center mb-12">
