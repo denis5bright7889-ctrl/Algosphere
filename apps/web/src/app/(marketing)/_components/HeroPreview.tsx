@@ -1,15 +1,19 @@
-import { Radar, Activity, ShieldCheck, Cpu } from 'lucide-react'
+import { Radar, Activity, ShieldCheck, Cpu, Target } from 'lucide-react'
 
 /**
- * Hero "product preview" — a glassmorphic mock of the AlgoSphere
- * dashboard chrome. Decorative by design: the chart line is a
- * deterministic seeded walk drawn into an SVG (NOT a live market
- * quote), and the regime tiles use generic labels. This is the
- * institutional design surface — never claims to be a live broker
- * feed, never invents trader-specific numbers.
+ * Cinematic "trading analyst" hero scene — institutional design
+ * surface, not a live broker feed. Renders deterministic SVG:
+ *   • Candlestick chart from a seeded random walk
+ *   • Drawn-on analyst markup: support / resistance / Fibonacci
+ *     retracement / entry zone / stop-loss / take-profit
+ *   • Floating AI-signal callout with R:R + confidence
+ *   • Bottom liquidity-heatmap strip
+ *
+ * Same shape every render (mulberry32 seeded). Decorative only:
+ * NOT a price feed, NOT fabricated trader stats.
  */
 
-// Deterministic seeded RNG (mulberry32). Same seed → same chart every render.
+// ─── Deterministic seeded RNG ────────────────────────────────────
 function rng(seed: number) {
   return () => {
     let t = (seed += 0x6d2b79f5)
@@ -19,56 +23,75 @@ function rng(seed: number) {
   }
 }
 
-/** Builds a smooth random-walk path for the hero chart. */
-function chartPath(width: number, height: number, points: number) {
-  const r = rng(20260517)
-  const ys: number[] = []
-  let v = height * 0.55
-  for (let i = 0; i < points; i++) {
-    v += (r() - 0.46) * 18
-    v = Math.max(height * 0.18, Math.min(height * 0.82, v))
-    ys.push(v)
+interface Candle { o: number; h: number; l: number; c: number }
+
+function generateCandles(count: number, seed: number): Candle[] {
+  const r = rng(seed)
+  const out: Candle[] = []
+  let price = 100
+  for (let i = 0; i < count; i++) {
+    const drift = (r() - 0.485) * 2.4
+    const open  = price
+    const close = open + drift
+    const wickU = r() * 1.8
+    const wickD = r() * 1.8
+    const high  = Math.max(open, close) + wickU
+    const low   = Math.min(open, close) - wickD
+    out.push({ o: open, h: high, l: low, c: close })
+    price = close
   }
-  const stepX = width / (points - 1)
-  // Build a smooth quadratic-bezier path so it looks like a real chart line.
-  let d = `M0,${ys[0]!.toFixed(1)}`
-  for (let i = 1; i < points; i++) {
-    const x = (i * stepX).toFixed(1)
-    const cx = ((i - 0.5) * stepX).toFixed(1)
-    const cy = ((ys[i - 1]! + ys[i]!) / 2).toFixed(1)
-    d += ` Q${cx},${cy} ${x},${ys[i]!.toFixed(1)}`
-  }
-  // Fill path (close to bottom-right then bottom-left)
-  const fillD = `${d} L${width},${height} L0,${height} Z`
-  return { line: d, fill: fillD }
+  return out
 }
 
-const REGIME_TILES = [
-  { sym: 'XAUUSD',  tone: 'emerald' },
-  { sym: 'EURUSD',  tone: 'rose'    },
-  { sym: 'BTCUSDT', tone: 'emerald' },
-  { sym: 'ETHUSDT', tone: 'amber'   },
-] as const
+const CANDLE_COUNT = 56
+const CHART = { w: 480, h: 220, padX: 8, padTop: 10, padBot: 14 }
+const candles = generateCandles(CANDLE_COUNT, 20260518)
+const minP = Math.min(...candles.map((c) => c.l))
+const maxP = Math.max(...candles.map((c) => c.h))
+const span = maxP - minP
 
-const TONE_BG: Record<string, string> = {
-  emerald: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-  rose:    'bg-rose-500/15 text-rose-300 border-rose-500/30',
-  amber:   'bg-amber-500/15 text-amber-300 border-amber-500/30',
+const innerW = CHART.w - CHART.padX * 2
+const innerH = CHART.h - CHART.padTop - CHART.padBot
+const colW   = innerW / CANDLE_COUNT
+const bodyW  = Math.max(2.2, colW * 0.62)
+
+function priceY(p: number): number {
+  return CHART.padTop + (1 - (p - minP) / span) * innerH
 }
+function candleX(i: number): number {
+  return CHART.padX + i * colW + colW / 2
+}
+
+// Analyst markup — swing levels drawn from the seeded series
+const swingHigh = Math.max(...candles.slice(-30, -8).map((c) => c.h))
+const swingLow  = Math.min(...candles.slice(-30, -8).map((c) => c.l))
+const fibLevels = [0, 0.236, 0.382, 0.5, 0.618, 1] as const
+const fibPoints = fibLevels.map((r) => swingLow + r * (swingHigh - swingLow))
+
+const last       = candles[candles.length - 1]!
+const entryPrice = last.c
+const stopPrice  = entryPrice - span * 0.06
+const takePrice  = entryPrice + span * 0.18 // ≈ 1:3 R:R
+
+// Subtle MA-20 line so the chart feels analysed
+function ma(period: number): string {
+  const pts: string[] = []
+  for (let i = period - 1; i < candles.length; i++) {
+    let sum = 0
+    for (let k = i - period + 1; k <= i; k++) sum += candles[k]!.c
+    const x = candleX(i).toFixed(1)
+    const y = priceY(sum / period).toFixed(1)
+    pts.push(`${pts.length === 0 ? 'M' : 'L'}${x},${y}`)
+  }
+  return pts.join(' ')
+}
+const maPath = ma(20)
 
 export default function HeroPreview() {
-  const W = 480, H = 220
-  const path = chartPath(W, H, 60)
-
   return (
-    <div
-      className="relative w-full max-w-xl mx-auto lg:mx-0 animate-fade-in"
-      aria-hidden
-    >
+    <div className="relative w-full max-w-xl mx-auto lg:mx-0 animate-fade-in" aria-hidden>
       {/* Outer glow */}
-      <div
-        className="absolute -inset-6 rounded-3xl bg-gradient-primary opacity-20 blur-2xl"
-      />
+      <div className="absolute -inset-6 rounded-3xl bg-gradient-primary opacity-20 blur-2xl" />
 
       {/* Terminal chrome */}
       <div className="relative overflow-hidden rounded-2xl border border-border/70 glass-strong shadow-glow">
@@ -78,82 +101,179 @@ export default function HeroPreview() {
         <header className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
           <div className="flex items-center gap-2">
             <span className="flex h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
-            <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">
-              LIVE
-            </span>
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              AI Regime Engine
-            </span>
+            <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">LIVE</span>
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">EURUSD · 1H</span>
           </div>
           <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
             <Radar className="h-3 w-3" strokeWidth={1.75} />
-            24 instruments · 5m scan
+            AI markup
           </div>
         </header>
 
-        {/* Chart area */}
+        {/* Chart + analyst markup */}
         <div className="relative">
-          <svg
-            viewBox={`0 0 ${W} ${H}`}
-            className="block h-44 sm:h-52 w-full"
-            preserveAspectRatio="none"
-          >
+          <svg viewBox={`0 0 ${CHART.w} ${CHART.h}`} className="block h-56 sm:h-64 w-full" preserveAspectRatio="none">
             <defs>
-              <linearGradient id="heroChartFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%"   stopColor="#f59e0b" stopOpacity="0.35" />
-                <stop offset="100%" stopColor="#f59e0b" stopOpacity="0" />
+              <linearGradient id="heroEntryFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%"   stopColor="#10b981" stopOpacity="0.18" />
+                <stop offset="100%" stopColor="#10b981" stopOpacity="0.02" />
               </linearGradient>
-              <linearGradient id="heroChartLine" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%"   stopColor="#fbbf24" />
-                <stop offset="100%" stopColor="#f59e0b" />
+              <linearGradient id="heroSLFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%"   stopColor="#f43f5e" stopOpacity="0.12" />
+                <stop offset="100%" stopColor="#f43f5e" stopOpacity="0" />
               </linearGradient>
             </defs>
-            {/* Grid */}
+
+            {/* Background grid */}
             {[0.25, 0.5, 0.75].map((p) => (
-              <line
-                key={p} x1="0" y1={H * p} x2={W} y2={H * p}
-                stroke="currentColor" strokeOpacity="0.08" strokeWidth="1"
-              />
+              <line key={p} x1="0" y1={CHART.padTop + innerH * p} x2={CHART.w}
+                    y2={CHART.padTop + innerH * p}
+                    stroke="currentColor" strokeOpacity="0.06" strokeWidth="1" />
             ))}
-            <path d={path.fill} fill="url(#heroChartFill)" />
-            <path d={path.line} fill="none" stroke="url(#heroChartLine)" strokeWidth="2" />
+
+            {/* Fibonacci retracement */}
+            {fibPoints.map((p, i) => {
+              const y = priceY(p)
+              const ratio = fibLevels[i]!
+              return (
+                <g key={i}>
+                  <line x1={CHART.padX} y1={y} x2={CHART.w - 28} y2={y}
+                        stroke="#a78bfa" strokeOpacity={ratio === 0.5 ? 0.55 : 0.35}
+                        strokeWidth="0.8" strokeDasharray="3 3" />
+                  <text x={CHART.w - 26} y={y + 3} fontSize="8" fill="#a78bfa" opacity="0.7"
+                        fontFamily="ui-monospace, monospace">
+                    {ratio.toFixed(3)}
+                  </text>
+                </g>
+              )
+            })}
+
+            {/* Take-profit line */}
+            {(() => {
+              const y = priceY(takePrice)
+              return (
+                <g>
+                  <line x1={CHART.padX} y1={y} x2={CHART.w - 32} y2={y}
+                        stroke="#10b981" strokeOpacity="0.9" strokeWidth="1" strokeDasharray="5 3" />
+                  <text x={CHART.w - 30} y={y - 3} fontSize="8" fill="#10b981"
+                        fontFamily="ui-monospace, monospace">TP1</text>
+                </g>
+              )
+            })()}
+
+            {/* Stop-loss zone */}
+            {(() => {
+              const y = priceY(stopPrice)
+              return (
+                <g>
+                  <rect x={CHART.padX} y={y} width={CHART.w - CHART.padX * 2}
+                        height={priceY(minP) - y} fill="url(#heroSLFill)" />
+                  <line x1={CHART.padX} y1={y} x2={CHART.w - 32} y2={y}
+                        stroke="#f43f5e" strokeOpacity="0.85" strokeWidth="1" strokeDasharray="5 3" />
+                  <text x={CHART.w - 30} y={y - 3} fontSize="8" fill="#f43f5e"
+                        fontFamily="ui-monospace, monospace">SL</text>
+                </g>
+              )
+            })()}
+
+            {/* Entry zone */}
+            {(() => {
+              const yMid = priceY(entryPrice)
+              const yTop = priceY(entryPrice + span * 0.012)
+              const yBot = priceY(entryPrice - span * 0.012)
+              return (
+                <g>
+                  <rect x={CHART.padX} y={yTop} width={CHART.w - CHART.padX * 2}
+                        height={yBot - yTop} fill="url(#heroEntryFill)" />
+                  <line x1={CHART.padX} y1={yMid} x2={CHART.w - 32} y2={yMid}
+                        stroke="#fbbf24" strokeOpacity="0.95" strokeWidth="1" />
+                  <text x={CHART.w - 30} y={yMid - 3} fontSize="8" fill="#fbbf24"
+                        fontFamily="ui-monospace, monospace">ENTRY</text>
+                </g>
+              )
+            })()}
+
+            {/* Candles */}
+            {candles.map((c, i) => {
+              const x  = candleX(i)
+              const up = c.c >= c.o
+              const yO = priceY(c.o)
+              const yC = priceY(c.c)
+              const yH = priceY(c.h)
+              const yL = priceY(c.l)
+              const fill   = up ? '#10b981' : '#f43f5e'
+              const stroke = up ? '#34d399' : '#fb7185'
+              const top    = Math.min(yO, yC)
+              const hgt    = Math.max(1, Math.abs(yC - yO))
+              return (
+                <g key={i}>
+                  <line x1={x} y1={yH} x2={x} y2={yL} stroke={stroke} strokeWidth="1" opacity="0.85" />
+                  <rect x={x - bodyW / 2} y={top} width={bodyW} height={hgt} fill={fill} opacity="0.95" />
+                </g>
+              )
+            })}
+
+            {/* MA-20 — subtle trend line */}
+            <path d={maPath} fill="none" stroke="#fbbf24" strokeOpacity="0.55" strokeWidth="1" />
+
+            {/* Last-price tag */}
+            {(() => {
+              const x = candleX(CANDLE_COUNT - 1) + bodyW
+              const y = priceY(entryPrice)
+              return (
+                <g>
+                  <circle cx={x} cy={y} r="2.5" fill="#fbbf24" />
+                  <circle cx={x} cy={y} r="5"   fill="#fbbf24" opacity="0.2" />
+                </g>
+              )
+            })()}
           </svg>
 
-          {/* Floating AI Sentiment chip */}
-          <div className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold text-emerald-300">
-            <Activity className="h-3 w-3" strokeWidth={2} />
-            Risk-On bias
+          {/* Smart-money callout */}
+          <div className="absolute right-3 top-3 inline-flex flex-col items-end gap-1 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[10px] backdrop-blur-sm">
+            <span className="flex items-center gap-1.5 font-bold text-emerald-300">
+              <Activity className="h-3 w-3" strokeWidth={2} />
+              AI SIGNAL · BUY
+            </span>
+            <span className="text-[9px] text-emerald-200/80 tabular-nums font-mono">
+              R:R 1:3 · conf 78
+            </span>
           </div>
         </div>
 
-        {/* Regime tile row */}
-        <div className="grid grid-cols-4 gap-2 border-t border-border/60 px-4 py-3">
-          {REGIME_TILES.map((t) => (
-            <div
-              key={t.sym}
-              className={
-                'rounded-md border px-2 py-1.5 text-center text-[10px] font-mono font-semibold ' +
-                TONE_BG[t.tone]
-              }
-            >
-              {t.sym}
-            </div>
-          ))}
+        {/* Liquidity heatmap strip — illustrative gradient zones */}
+        <div className="relative h-3 border-t border-border/60">
+          <div
+            className={
+              'absolute inset-y-0 left-0 w-full ' +
+              'bg-[linear-gradient(90deg,' +
+              'rgba(244,63,94,0)_0%,' +
+              'rgba(244,63,94,0.35)_18%,' +
+              'rgba(244,63,94,0)_32%,' +
+              'rgba(251,191,36,0.3)_48%,' +
+              'rgba(251,191,36,0)_58%,' +
+              'rgba(16,185,129,0.4)_78%,' +
+              'rgba(16,185,129,0)_100%)]'
+            }
+          />
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[8px] font-bold uppercase tracking-widest text-muted-foreground">
+            Liquidity
+          </span>
         </div>
 
         {/* Footer chips */}
         <footer className="grid grid-cols-3 gap-3 border-t border-border/60 px-4 py-3 text-[10px]">
           <div className="flex items-center gap-1.5 text-muted-foreground">
+            <Target className="h-3 w-3 text-amber-300" strokeWidth={2} />
+            Smart-money markup
+          </div>
+          <div className="flex items-center justify-center gap-1.5 text-muted-foreground">
             <ShieldCheck className="h-3 w-3 text-emerald-300" strokeWidth={2} />
             Risk engine
           </div>
-          <div className="flex items-center justify-center gap-1.5 text-muted-foreground">
+          <div className="flex items-center justify-end gap-1.5 text-muted-foreground">
             <Cpu className="h-3 w-3 text-amber-300" strokeWidth={2} />
             Auto-execute
-          </div>
-          <div className="flex items-center justify-end gap-1.5 text-muted-foreground">
-            <Radar className="h-3 w-3 text-amber-300" strokeWidth={2} />
-            Multi-broker
           </div>
         </footer>
       </div>
