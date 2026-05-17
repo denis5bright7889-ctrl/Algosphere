@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
+import { Flame } from 'lucide-react'
 import Logo from '@/components/brand/Logo'
 import { formatDate } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -99,15 +100,17 @@ export default async function TraderProfilePage({ params }: Props) {
               <div className="flex items-center gap-2 flex-wrap">
                 {badge && (
                   <span className={cn(
-                    'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide',
+                    'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide',
                     badge.cls,
                   )}>
-                    {badge.icon} {badge.label} Trader
+                    <badge.icon className="h-3 w-3" strokeWidth={2.25} aria-hidden />
+                    {badge.label} Trader
                   </span>
                 )}
                 {scores?.composite_rank && scores.composite_rank <= 10 && (
                   <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/50 bg-amber-500/15 px-2.5 py-1 text-[11px] font-bold text-amber-300">
-                    🔥 Top 10
+                    <Flame className="h-3 w-3" strokeWidth={2} aria-hidden />
+                    Top 10
                   </span>
                 )}
               </div>

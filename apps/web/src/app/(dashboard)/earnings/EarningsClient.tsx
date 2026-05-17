@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useTransition } from 'react'
+import { CreditCard, TrendingUp, Gift, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Summary {
@@ -29,10 +30,10 @@ interface EarningRow {
   published_strategies: { name: string } | null
 }
 
-const TYPE_LABELS: Record<string, { icon: string; label: string }> = {
-  subscription_fee: { icon: '💳', label: 'Subscription' },
-  profit_share:     { icon: '📈', label: 'Profit Share' },
-  tip:              { icon: '💝', label: 'Tip'          },
+const TYPE_LABELS: Record<string, { icon: LucideIcon; label: string }> = {
+  subscription_fee: { icon: CreditCard, label: 'Subscription' },
+  profit_share:     { icon: TrendingUp, label: 'Profit Share' },
+  tip:              { icon: Gift,       label: 'Tip'          },
 }
 
 export default function EarningsClient() {
@@ -117,11 +118,13 @@ export default function EarningsClient() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {(['subscription_fee','profit_share','tip'] as const).map(t => {
             const meta = TYPE_LABELS[t]!
+            const MetaIcon = meta.icon
             return (
               <div key={t} className="rounded-xl border border-border/60 bg-background/50 p-4">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-muted-foreground">
-                    {meta.icon} {meta.label}
+                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <MetaIcon className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+                    {meta.label}
                   </span>
                 </div>
                 <p className="text-xl font-bold tabular-nums">
@@ -175,10 +178,16 @@ export default function EarningsClient() {
               </tr>
             </thead>
             <tbody>
-              {recent.map(r => (
+              {recent.map(r => {
+                const meta = TYPE_LABELS[r.earning_type]
+                const RowIcon = meta?.icon
+                return (
                 <tr key={r.id} className="border-b border-border/30 last:border-0 hover:bg-muted/10">
                   <td className="px-5 py-2.5">
-                    {TYPE_LABELS[r.earning_type]?.icon} {TYPE_LABELS[r.earning_type]?.label ?? r.earning_type}
+                    <span className="inline-flex items-center gap-1.5">
+                      {RowIcon && <RowIcon className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />}
+                      {meta?.label ?? r.earning_type}
+                    </span>
                   </td>
                   <td className="px-5 py-2.5 truncate max-w-[200px]">
                     {r.published_strategies?.name ?? '—'}
@@ -196,7 +205,8 @@ export default function EarningsClient() {
                     {new Date(r.created_at).toLocaleDateString()}
                   </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         )}

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { CheckCircle2, XCircle } from 'lucide-react'
 import type { AdminPayment } from './page'
 import { cn, formatDate, formatCurrency } from '@/lib/utils'
 
@@ -54,7 +55,12 @@ export default function AdminPaymentCard({ payment }: { payment: AdminPayment })
         'rounded-xl border px-5 py-4 text-sm font-medium',
         done.action === 'approved' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'
       )}>
-        {done.action === 'approved' ? '✅' : '❌'} {done.message}
+        <span className="inline-flex items-center gap-1.5">
+          {done.action === 'approved'
+            ? <CheckCircle2 className="h-4 w-4" strokeWidth={2} aria-hidden />
+            : <XCircle      className="h-4 w-4" strokeWidth={2} aria-hidden />}
+          {done.message}
+        </span>
       </div>
     )
   }

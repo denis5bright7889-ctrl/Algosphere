@@ -91,8 +91,8 @@ export async function POST(
     notif_type:   isApprove ? 'verification_approved' : 'verification_rejected',
     message: isApprove
       ? parsed.data.action === 'approve_elite'
-        ? '🏆 You are now an Elite verified trader!'
-        : '✅ Your trader profile is now Verified!'
+        ? 'You are now an Elite verified trader.'
+        : 'Your trader profile is now Verified.'
       : `Verification not approved: ${parsed.data.rejection_reason ?? 'Did not meet criteria'}`,
   })
 

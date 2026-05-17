@@ -1,5 +1,6 @@
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { CheckSquare, BadgeCheck, Trophy, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { verificationBadge, type VerificationTier } from '@/lib/leaderboard'
 import VerificationApplyForm from './VerificationApplyForm'
@@ -50,7 +51,7 @@ export default async function VerificationPage() {
     {
       key: 'basic',
       label: 'Basic',
-      icon: '☑️',
+      icon: CheckSquare as LucideIcon,
       description: 'Auto-granted. Earns a Basic badge on your profile.',
       requirements: [
         { label: 'Public trader profile',  met: hasProfile,             current: hasProfile ? '✓' : '—' },
@@ -61,7 +62,7 @@ export default async function VerificationPage() {
     {
       key: 'verified',
       label: 'Verified',
-      icon: '✅',
+      icon: BadgeCheck as LucideIcon,
       description: 'Admin-reviewed. Broker statement required. 3–5 day review.',
       requirements: [
         { label: 'Reach Basic tier',        met: currentTier !== 'none' && currentTier !== 'basic'
@@ -76,7 +77,7 @@ export default async function VerificationPage() {
     {
       key: 'elite',
       label: 'Elite',
-      icon: '🏆',
+      icon: Trophy as LucideIcon,
       description: 'Committee review. 6+ months live record with Sharpe ≥ 1.5.',
       requirements: [
         { label: 'Verified status',         met: currentTier === 'verified' || currentTier === 'elite',
@@ -128,6 +129,7 @@ export default async function VerificationPage() {
             if (currentTier === 'basic' && t.key === 'basic') return true
             return false
           })()
+          const TierIcon = t.icon
           return (
             <div
               key={t.key}
@@ -142,8 +144,9 @@ export default async function VerificationPage() {
             >
               <div className="flex items-start justify-between mb-3">
                 <div>
-                  <h3 className="text-base font-bold">
-                    {t.icon} {t.label}
+                  <h3 className="flex items-center gap-1.5 text-base font-bold">
+                    <TierIcon className="h-4 w-4 text-amber-300" strokeWidth={2} aria-hidden />
+                    {t.label}
                     {reached && (
                       <span className="ml-2 text-[10px] font-bold text-emerald-300 uppercase">
                         ✓ Unlocked
@@ -208,10 +211,11 @@ function CurrentBadge({ tier }: { tier: VerificationTier }) {
   }
   return (
     <span className={cn(
-      'inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-bold',
+      'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold',
       badge.cls,
     )}>
-      {badge.icon} {badge.label}
+      <badge.icon className="h-3 w-3" strokeWidth={2.25} aria-hidden />
+      {badge.label}
     </span>
   )
 }

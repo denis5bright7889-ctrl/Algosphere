@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { BadgeCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   effectivePrice,
@@ -177,8 +178,9 @@ function StrategyCard({
           )}
         </div>
         {s.verified && (
-          <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-300 flex-shrink-0">
-            ✅ {verificationLevelLabel(s.verification_level)}
+          <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
+            <BadgeCheck className="h-3 w-3" strokeWidth={2} aria-hidden />
+            {verificationLevelLabel(s.verification_level)}
           </span>
         )}
       </div>

@@ -54,9 +54,10 @@ export default function CopyFilterBadge({ userId }: Props) {
           </p>
           <div className="flex items-center gap-2 mt-1">
             <span className={cn(
-              'inline-flex items-center rounded-full border px-3 py-1 text-sm font-bold',
+              'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-bold',
               badge.cls,
             )}>
+              <badge.icon className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden />
               {badge.label}
             </span>
             <span className="text-2xl font-bold tabular-nums text-amber-300 glow-text-gold">

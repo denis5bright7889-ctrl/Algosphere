@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
+import { BadgeCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/utils'
 import {
@@ -115,8 +116,9 @@ export default async function StrategyDetailPage({
                 )}
               </div>
               {s.verified && (
-                <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-[11px] font-bold text-emerald-300">
-                  ✅ {verificationLevelLabel(s.verification_level)}
+                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-[11px] font-bold text-emerald-300">
+                  <BadgeCheck className="h-3 w-3" strokeWidth={2} aria-hidden />
+                  {verificationLevelLabel(s.verification_level)}
                 </span>
               )}
             </div>

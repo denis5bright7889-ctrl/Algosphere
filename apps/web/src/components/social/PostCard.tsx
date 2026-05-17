@@ -1,6 +1,11 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import {
+  BarChart3, TrendingUp, Eye, FlaskConical, Trophy, Pin,
+  Heart, MessageCircle, Repeat2, Bookmark,
+  type LucideIcon,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export interface SocialPost {
@@ -49,12 +54,12 @@ function timeAgo(ts: string): string {
   return new Date(ts).toLocaleDateString()
 }
 
-const POST_TYPE_BADGES: Record<string, { label: string; cls: string }> = {
-  signal_share: { label: '📊 Signal',     cls: 'text-amber-300 bg-amber-500/10 border-amber-500/30' },
-  trade_share:  { label: '📈 Trade',      cls: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30' },
-  market_view:  { label: '👁 Market View', cls: 'text-blue-300 bg-blue-500/10 border-blue-500/30' },
-  analysis:     { label: '🔬 Analysis',   cls: 'text-purple-300 bg-purple-500/10 border-purple-500/30' },
-  milestone:    { label: '🏆 Milestone',  cls: 'text-amber-300 bg-amber-500/10 border-amber-500/30' },
+const POST_TYPE_BADGES: Record<string, { label: string; icon: LucideIcon; cls: string }> = {
+  signal_share: { label: 'Signal',      icon: BarChart3,    cls: 'text-amber-300 bg-amber-500/10 border-amber-500/30' },
+  trade_share:  { label: 'Trade',       icon: TrendingUp,   cls: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30' },
+  market_view:  { label: 'Market View', icon: Eye,          cls: 'text-blue-300 bg-blue-500/10 border-blue-500/30' },
+  analysis:     { label: 'Analysis',    icon: FlaskConical, cls: 'text-purple-300 bg-purple-500/10 border-purple-500/30' },
+  milestone:    { label: 'Milestone',   icon: Trophy,       cls: 'text-amber-300 bg-amber-500/10 border-amber-500/30' },
 }
 
 export default function PostCard({ post, currentUserId }: Props) {
@@ -108,14 +113,18 @@ export default function PostCard({ post, currentUserId }: Props) {
             <span className="text-xs text-muted-foreground">{timeAgo(post.created_at)}</span>
             {badge && (
               <span className={cn(
-                'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold',
+                'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold',
                 badge.cls,
               )}>
+                <badge.icon className="h-2.5 w-2.5" strokeWidth={2.25} aria-hidden />
                 {badge.label}
               </span>
             )}
             {post.is_pinned && (
-              <span className="text-[10px] text-amber-300">📌 Pinned</span>
+              <span className="inline-flex items-center gap-1 text-[10px] text-amber-300">
+                <Pin className="h-2.5 w-2.5" strokeWidth={2} aria-hidden />
+                Pinned
+              </span>
             )}
           </div>
           {author?.bio && (
@@ -144,17 +153,19 @@ export default function PostCard({ post, currentUserId }: Props) {
               : 'text-muted-foreground hover:text-amber-300 hover:bg-amber-500/5',
           )}
         >
-          <span>{liked ? '🔥' : '🤍'}</span>
+          <Heart className={cn('h-3.5 w-3.5', liked && 'fill-current')} strokeWidth={2} aria-hidden />
           <span className="font-semibold tabular-nums">{likes}</span>
         </button>
         <button className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground">
-          💬 <span className="tabular-nums">{post.comments_count}</span>
+          <MessageCircle className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+          <span className="tabular-nums">{post.comments_count}</span>
         </button>
         <button className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground">
-          🔄 <span className="tabular-nums">{post.reposts_count}</span>
+          <Repeat2 className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+          <span className="tabular-nums">{post.reposts_count}</span>
         </button>
-        <button className="ml-auto text-muted-foreground hover:text-foreground">
-          🔖
+        <button className="ml-auto text-muted-foreground hover:text-foreground" aria-label="Bookmark">
+          <Bookmark className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
         </button>
         {isOwn && (
           <button className="text-muted-foreground hover:text-rose-400" title="Delete">

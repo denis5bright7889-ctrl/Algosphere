@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { Zap } from 'lucide-react'
 import type { Strategy } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -154,8 +155,10 @@ export default function CreateSignalForm({ strategies, onCreated }: Props) {
       </div>
 
       <button type="submit" disabled={loading}
-        className={cn('w-full rounded-md bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors', loading && 'opacity-50 cursor-not-allowed')}>
-        {loading ? 'Publishing…' : '⚡ Publish Signal'}
+        className={cn('inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90', loading && 'opacity-50 cursor-not-allowed')}>
+        {loading
+          ? 'Publishing…'
+          : <><Zap className="h-4 w-4" strokeWidth={2} aria-hidden />Publish Signal</>}
       </button>
     </form>
   )

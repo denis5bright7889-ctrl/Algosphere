@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   runBacktest,
@@ -183,10 +184,10 @@ export default function QuantBuilderClient() {
                     type="button"
                     onClick={() => removeRule(r.id)}
                     disabled={longRules.length <= 1}
-                    className="ml-auto text-rose-400 text-xs disabled:opacity-30"
+                    className="ml-auto text-rose-400 disabled:opacity-30"
                     aria-label="Remove rule"
                   >
-                    ✕
+                    <X className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
                   </button>
                 </div>
               </div>

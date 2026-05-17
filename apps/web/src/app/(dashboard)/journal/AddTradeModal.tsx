@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { X } from 'lucide-react'
 import type { JournalEntry } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -73,7 +74,9 @@ export default function AddTradeModal({ onAdded, onClose }: Props) {
       <div className="relative z-10 w-full max-w-lg rounded-xl bg-card border border-border shadow-xl overflow-y-auto max-h-[90vh]">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="text-lg font-semibold">Log a trade</h2>
-          <button type="button" aria-label="Close" onClick={onClose} className="text-muted-foreground hover:text-foreground">✕</button>
+          <button type="button" aria-label="Close" onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="h-5 w-5" strokeWidth={1.75} aria-hidden />
+          </button>
         </div>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">

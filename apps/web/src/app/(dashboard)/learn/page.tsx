@@ -38,7 +38,7 @@ export default async function LearnPage() {
             className="group rounded-2xl border border-border bg-card p-5 hover:border-amber-500/40 transition-colors"
           >
             <div className="flex items-start justify-between mb-2">
-              <span className="text-3xl">{c.icon}</span>
+              <c.icon className="h-7 w-7 text-amber-300/90" strokeWidth={1.5} aria-hidden />
               <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold capitalize ${LEVEL_CLS[c.level]}`}>
                 {c.level}
               </span>

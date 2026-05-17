@@ -13,11 +13,13 @@ export interface Lesson {
   takeaways: string[]
 }
 
+import { BookOpen, ShieldCheck, Brain, type LucideIcon } from 'lucide-react'
+
 export interface Course {
   slug:        string
   title:       string
   level:       'beginner' | 'intermediate' | 'advanced'
-  icon:        string
+  icon:        LucideIcon
   description: string
   lessons:     Lesson[]
 }
@@ -27,7 +29,7 @@ export const COURSES: Course[] = [
     slug: 'foundations',
     title: 'Trading Foundations',
     level: 'beginner',
-    icon: '📘',
+    icon: BookOpen,
     description: 'The absolute basics — markets, orders, and how money moves.',
     lessons: [
       {
@@ -68,7 +70,7 @@ export const COURSES: Course[] = [
     slug: 'risk-101',
     title: 'Risk Management 101',
     level: 'beginner',
-    icon: '🛡️',
+    icon: ShieldCheck,
     description: 'The single skill that separates survivors from blow-ups.',
     lessons: [
       {
@@ -109,7 +111,7 @@ export const COURSES: Course[] = [
     slug: 'psychology',
     title: 'Trading Psychology',
     level: 'intermediate',
-    icon: '🧠',
+    icon: Brain,
     description: 'Master the inner game — tilt, FOMO, and discipline.',
     lessons: [
       {

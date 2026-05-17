@@ -1,22 +1,27 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import {
+  MessagesSquare, Activity, Target, ShieldCheck, Brain, Coins, Globe,
+  MessageCircle, Megaphone, Flame, Sparkles, ArrowUp,
+  type LucideIcon,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import CommunityClient from './CommunityClient'
 
 export const metadata = { title: 'Community — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'
 
-const CATEGORIES = [
-  { key: 'all',          label: 'All',           icon: '💬' },
-  { key: 'signals',      label: 'Signals',       icon: '📡' },
-  { key: 'strategy',     label: 'Strategy',      icon: '🎯' },
-  { key: 'risk',         label: 'Risk',          icon: '🛡️' },
-  { key: 'psychology',   label: 'Psychology',    icon: '🧠' },
-  { key: 'crypto',       label: 'Crypto',        icon: '🪙' },
-  { key: 'defi',         label: 'DeFi',          icon: '🌐' },
-  { key: 'general',      label: 'General',       icon: '💭' },
-  { key: 'announcements', label: 'Announcements', icon: '📢' },
-] as const
+const CATEGORIES: { key: string; label: string; icon: LucideIcon }[] = [
+  { key: 'all',           label: 'All',           icon: MessagesSquare },
+  { key: 'signals',       label: 'Signals',       icon: Activity },
+  { key: 'strategy',      label: 'Strategy',      icon: Target },
+  { key: 'risk',          label: 'Risk',          icon: ShieldCheck },
+  { key: 'psychology',    label: 'Psychology',    icon: Brain },
+  { key: 'crypto',        label: 'Crypto',        icon: Coins },
+  { key: 'defi',          label: 'DeFi',          icon: Globe },
+  { key: 'general',       label: 'General',       icon: MessageCircle },
+  { key: 'announcements', label: 'Announcements', icon: Megaphone },
+]
 
 export default async function CommunityPage({
   searchParams,
@@ -66,21 +71,24 @@ export default async function CommunityPage({
       <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-5">
         {/* Sidebar — categories */}
         <nav className="space-y-1 md:sticky md:top-20 md:self-start">
-          {CATEGORIES.map(c => (
-            <a
-              key={c.key}
-              href={`/dashboard/community?cat=${c.key}&sort=${sort}`}
-              className={cn(
-                'flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
-                cat === c.key
-                  ? 'bg-amber-500/10 text-amber-300 font-semibold'
-                  : 'text-muted-foreground hover:bg-muted/30 hover:text-foreground',
-              )}
-            >
-              <span className="text-base">{c.icon}</span>
-              {c.label}
-            </a>
-          ))}
+          {CATEGORIES.map(c => {
+            const Icon = c.icon
+            return (
+              <a
+                key={c.key}
+                href={`/dashboard/community?cat=${c.key}&sort=${sort}`}
+                className={cn(
+                  'flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
+                  cat === c.key
+                    ? 'bg-amber-500/10 text-amber-300 font-semibold'
+                    : 'text-muted-foreground hover:bg-muted/30 hover:text-foreground',
+                )}
+              >
+                <Icon className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                {c.label}
+              </a>
+            )
+          })}
         </nav>
 
         {/* Threads list */}
@@ -97,7 +105,12 @@ export default async function CommunityPage({
                     : 'text-muted-foreground hover:text-foreground',
                 )}
               >
-                {s === 'hot' ? '🔥 Hot' : s === 'new' ? '🆕 New' : '⬆ Top'}
+                <span className="inline-flex items-center gap-1">
+                  {s === 'hot'  && <Flame    className="h-3 w-3" strokeWidth={2} aria-hidden />}
+                  {s === 'new'  && <Sparkles className="h-3 w-3" strokeWidth={2} aria-hidden />}
+                  {s === 'top'  && <ArrowUp  className="h-3 w-3" strokeWidth={2} aria-hidden />}
+                  {s === 'hot' ? 'Hot' : s === 'new' ? 'New' : 'Top'}
+                </span>
               </a>
             ))}
           </div>

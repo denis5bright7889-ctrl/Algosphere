@@ -121,15 +121,17 @@ export function filterTrader(inp: FilterInput): FilterResult {
   }
 }
 
+import { CheckCircle2, AlertTriangle, XCircle, type LucideIcon } from 'lucide-react'
+
 export function verdictBadge(verdict: FilterResult['verdict']): {
-  label: string; cls: string
+  icon: LucideIcon; label: string; cls: string
 } {
   switch (verdict) {
     case 'recommended':
-      return { label: '✓ Copy-Safe', cls: 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10' }
+      return { icon: CheckCircle2,  label: 'Copy-Safe', cls: 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10' }
     case 'caution':
-      return { label: '⚠ Caution', cls: 'text-amber-300 border-amber-500/40 bg-amber-500/10' }
+      return { icon: AlertTriangle, label: 'Caution',   cls: 'text-amber-300 border-amber-500/40 bg-amber-500/10' }
     default:
-      return { label: '✕ Avoid', cls: 'text-rose-300 border-rose-500/40 bg-rose-500/10' }
+      return { icon: XCircle,       label: 'Avoid',     cls: 'text-rose-300 border-rose-500/40 bg-rose-500/10' }
   }
 }

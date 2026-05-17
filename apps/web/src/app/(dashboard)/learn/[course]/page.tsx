@@ -34,7 +34,7 @@ export default async function CoursePage({
       </a>
       <header className="mb-6">
         <div className="flex items-center gap-3">
-          <span className="text-4xl">{c.icon}</span>
+          <c.icon className="h-9 w-9 shrink-0 text-amber-300/90" strokeWidth={1.5} aria-hidden />
           <div>
             <h1 className="text-2xl font-bold tracking-tight">{c.title}</h1>
             <p className="text-xs text-muted-foreground mt-1">{c.description}</p>

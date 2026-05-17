@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { FlaskConical, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Conn {
@@ -195,11 +196,13 @@ function ConnectionCard({
               </span>
             )}
           </h3>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            {c.is_testnet ? '🧪 Testnet' : '⚠️ LIVE'}
-            {c.account_id ? ` · ${c.account_id}` : ''}
-            {' · since '}
-            {new Date(c.created_at).toLocaleDateString()}
+          <p className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+            {c.is_testnet
+              ? <FlaskConical  className="h-3 w-3" strokeWidth={1.75} aria-hidden />
+              : <AlertTriangle className="h-3 w-3 text-rose-400" strokeWidth={1.75} aria-hidden />}
+            <span>{c.is_testnet ? 'Testnet' : 'LIVE'}</span>
+            {c.account_id && <span>· {c.account_id}</span>}
+            <span>· since {new Date(c.created_at).toLocaleDateString()}</span>
           </p>
         </div>
         <span className={cn(

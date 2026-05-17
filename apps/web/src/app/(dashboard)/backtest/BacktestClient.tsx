@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { CheckCircle2, XCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   runBacktest,
@@ -130,7 +131,9 @@ export default function BacktestClient() {
                           {t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}
                         </td>
                         <td className="px-4 py-2 text-right">
-                          {t.result === 'win' ? '✅' : '❌'}
+                          {t.result === 'win'
+                            ? <CheckCircle2 className="ml-auto h-4 w-4 text-emerald-400" strokeWidth={2} aria-label="win" />
+                            : <XCircle      className="ml-auto h-4 w-4 text-rose-400"    strokeWidth={2} aria-label="loss" />}
                         </td>
                       </tr>
                     ))}

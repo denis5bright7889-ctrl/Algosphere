@@ -79,7 +79,7 @@ export default async function AchievementsPage() {
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
         {all.map(key => {
-          const a = ACHIEVEMENTS[key]
+          const a = ACHIEVEMENTS[key]!
           const has = unlocked.has(key)
           return (
             <div
@@ -89,8 +89,8 @@ export default async function AchievementsPage() {
                 has ? TIER_CLS[a.tier] : 'border-border bg-card opacity-40 grayscale',
               )}
             >
-              <div className={cn('text-3xl mb-2', !has && 'filter blur-[1px]')}>
-                {a.icon}
+              <div className={cn('mb-2 flex justify-center', !has && 'filter blur-[1px]')}>
+                <a.icon className="h-8 w-8" strokeWidth={1.5} aria-hidden />
               </div>
               <p className="text-xs font-bold leading-tight">{a.label}</p>
               <p className="text-[9px] uppercase tracking-wider opacity-70 mt-1">

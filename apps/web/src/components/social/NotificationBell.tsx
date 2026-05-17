@@ -1,6 +1,11 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import {
+  Bell, UserPlus, Activity, CheckCircle2, Hourglass, Flag, Star,
+  MessageCircle, Flame, AtSign, Wallet, Trophy, AlertTriangle, TrendingUp,
+  type LucideIcon,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Notification {
@@ -15,20 +20,20 @@ interface Notification {
   profiles:    { public_handle: string | null } | null
 }
 
-const NOTIF_ICONS: Record<string, string> = {
-  new_follower:        '👤',
-  signal_from_leader:  '📡',
-  copy_trade_opened:   '✅',
-  copy_trade_ready:    '⏳',
-  copy_trade_closed:   '🏁',
-  strategy_sub:        '⭐',
-  new_comment:         '💬',
-  post_liked:          '🔥',
-  mention:             '@',
-  earning_accrued:     '💰',
-  verification_approved: '🏆',
-  verification_rejected: '⚠️',
-  rank_change:         '📈',
+const NOTIF_ICONS: Record<string, LucideIcon> = {
+  new_follower:          UserPlus,
+  signal_from_leader:    Activity,
+  copy_trade_opened:     CheckCircle2,
+  copy_trade_ready:      Hourglass,
+  copy_trade_closed:     Flag,
+  strategy_sub:          Star,
+  new_comment:           MessageCircle,
+  post_liked:            Flame,
+  mention:               AtSign,
+  earning_accrued:       Wallet,
+  verification_approved: Trophy,
+  verification_rejected: AlertTriangle,
+  rank_change:           TrendingUp,
 }
 
 function timeAgo(ts: string): string {
@@ -120,7 +125,7 @@ export default function NotificationBell() {
         className="relative rounded-lg p-2 hover:bg-muted/40 transition-colors"
         aria-label="Notifications"
       >
-        <span className="text-lg">🔔</span>
+        <Bell className="h-4 w-4" strokeWidth={1.75} aria-hidden />
         {unread > 0 && (
           <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white">
             {unread > 9 ? '9+' : unread}
@@ -153,7 +158,9 @@ export default function NotificationBell() {
                 No notifications yet.
               </p>
             ) : (
-              items.map(n => (
+              items.map(n => {
+                const Icon = NOTIF_ICONS[n.notif_type] ?? Bell
+                return (
                 <button
                   key={n.id}
                   type="button"
@@ -163,9 +170,7 @@ export default function NotificationBell() {
                     !n.read && 'bg-amber-500/[0.04]',
                   )}
                 >
-                  <span className="text-base flex-shrink-0">
-                    {NOTIF_ICONS[n.notif_type] ?? '🔔'}
-                  </span>
+                  <Icon className="h-4 w-4 mt-0.5 shrink-0 text-amber-300/80" strokeWidth={1.75} aria-hidden />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs leading-snug">{n.message}</p>
                     <p className="text-[10px] text-muted-foreground mt-0.5">
@@ -176,7 +181,8 @@ export default function NotificationBell() {
                     <span className="h-2 w-2 rounded-full bg-amber-400 flex-shrink-0 mt-1" />
                   )}
                 </button>
-              ))
+                )
+              })
             )}
           </div>
         </div>

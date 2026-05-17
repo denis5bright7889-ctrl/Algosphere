@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { Trophy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Row {
@@ -196,11 +197,11 @@ export default function VerificationReviewCard({ row }: { row: Row }) {
             onClick={() => decide('approve_elite')}
             disabled={pending}
             className={cn(
-              'rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs font-semibold text-amber-300',
+              'inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs font-semibold text-amber-300',
               pending && 'opacity-60',
             )}
           >
-            {pending ? 'Applying…' : '🏆 Promote to Elite'}
+            {pending ? 'Applying…' : <><Trophy className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />Promote to Elite</>}
           </button>
         </div>
       )}

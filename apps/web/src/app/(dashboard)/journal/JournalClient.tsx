@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { X } from 'lucide-react'
 import type { JournalEntry } from '@/lib/types'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import AddTradeModal from './AddTradeModal'
@@ -102,7 +103,7 @@ export default function JournalClient({ initialEntries, userId }: Props) {
                   onClick={() => handleDelete(e.id)}
                   className="-mr-1 -mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-destructive active:bg-accent touch-manipulation"
                 >
-                  ✕
+                  <X className="h-4 w-4" strokeWidth={1.75} aria-hidden />
                 </button>
               </div>
 
@@ -198,7 +199,7 @@ export default function JournalClient({ initialEntries, userId }: Props) {
                       onClick={() => handleDelete(e.id)}
                       className="inline-flex h-8 w-8 items-center justify-center rounded-md text-xs text-muted-foreground hover:bg-muted hover:text-destructive touch-manipulation"
                     >
-                      ✕
+                      <X className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
                     </button>
                   </td>
                 </tr>

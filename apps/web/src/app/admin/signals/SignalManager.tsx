@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { X, Plus } from 'lucide-react'
 import type { Strategy } from '@/lib/types'
 import { LIFECYCLE_LABELS, LIFECYCLE_COLORS, canTransition, TERMINAL_STATES } from '@/lib/signals/lifecycle'
 import type { SignalLifecycleState } from '@/lib/types'
@@ -77,7 +78,9 @@ export default function SignalManager({ initialSignals, strategies }: Props) {
             onClick={() => setShowCreate(v => !v)}
             className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
           >
-            {showCreate ? '✕ Cancel' : '+ Publish Signal'}
+            {showCreate
+              ? <span className="inline-flex items-center gap-1.5"><X    className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />Cancel</span>
+              : <span className="inline-flex items-center gap-1.5"><Plus className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />Publish Signal</span>}
           </button>
         </div>
       </div>

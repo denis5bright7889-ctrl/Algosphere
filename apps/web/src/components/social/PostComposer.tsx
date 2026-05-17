@@ -1,14 +1,15 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { Pencil, Eye, FlaskConical, Trophy, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-const POST_TYPES = [
-  { key: 'text',         label: '📝 Post'        },
-  { key: 'market_view',  label: '👁 Market View' },
-  { key: 'analysis',     label: '🔬 Analysis'    },
-  { key: 'milestone',    label: '🏆 Milestone'   },
-] as const
+const POST_TYPES: { key: 'text'|'market_view'|'analysis'|'milestone'; label: string; icon: LucideIcon }[] = [
+  { key: 'text',        label: 'Post',        icon: Pencil       },
+  { key: 'market_view', label: 'Market View', icon: Eye          },
+  { key: 'analysis',    label: 'Analysis',    icon: FlaskConical },
+  { key: 'milestone',   label: 'Milestone',   icon: Trophy       },
+]
 
 const VISIBILITY = [
   { key: 'public',      label: 'Public'      },
@@ -73,20 +74,24 @@ export default function PostComposer({ onPosted }: Props) {
         <>
           <div className="flex items-center gap-2 flex-wrap mt-3 mb-3">
             <div className="flex gap-1 flex-wrap">
-              {POST_TYPES.map(t => (
+              {POST_TYPES.map(t => {
+                const Icon = t.icon
+                return (
                 <button
                   key={t.key}
                   onClick={() => setType(t.key)}
                   className={cn(
-                    'rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                    'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
                     type === t.key
                       ? 'border-amber-500/50 bg-amber-500/10 text-amber-300'
                       : 'border-border text-muted-foreground hover:text-foreground',
                   )}
                 >
+                  <Icon className="h-3 w-3" strokeWidth={2} aria-hidden />
                   {t.label}
                 </button>
-              ))}
+                )
+              })}
             </div>
           </div>
 
@@ -99,6 +104,7 @@ export default function PostComposer({ onPosted }: Props) {
               <select
                 value={vis}
                 onChange={e => setVis(e.target.value as typeof vis)}
+                aria-label="Post visibility"
                 className="rounded-lg border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:border-amber-500/40"
               >
                 {VISIBILITY.map(v => (

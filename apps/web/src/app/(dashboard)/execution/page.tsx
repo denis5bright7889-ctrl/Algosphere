@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { Cpu } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 import ExecutionClient from './ExecutionClient'
@@ -24,7 +25,7 @@ export default async function ExecutionPage() {
   if (!isVip) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-16 text-center">
-        <span className="text-4xl">🏦</span>
+        <Cpu className="mx-auto h-10 w-10 text-amber-300" strokeWidth={1.5} aria-hidden />
         <h1 className="text-2xl font-bold tracking-tight mt-4">
           Automated Execution Dashboard
         </h1>

@@ -160,7 +160,8 @@ export default async function LeaderboardPage({
                                     'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold',
                                     badge.cls,
                                   )}>
-                                    {badge.icon} {badge.label}
+                                    <badge.icon className="h-2.5 w-2.5" strokeWidth={2.25} aria-hidden />
+                                    {badge.label}
                                   </span>
                                 )}
                               </div>

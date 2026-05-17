@@ -1,4 +1,8 @@
 import { redirect } from 'next/navigation'
+import {
+  Inbox, Mail, MessageCircle, Smartphone, Phone, Lock,
+  type LucideIcon,
+} from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import PushSubscribeButton from '@/components/social/PushSubscribeButton'
 
@@ -78,15 +82,18 @@ export default async function AlertsPage() {
 
       {/* Email + Telegram + Premium */}
       <section className="rounded-2xl border border-border bg-card p-6 mb-5">
-        <h2 className="text-sm font-bold mb-4">📨 Channels</h2>
+        <h2 className="mb-4 flex items-center gap-2 text-sm font-bold">
+          <Inbox className="h-4 w-4 text-amber-300" strokeWidth={1.75} aria-hidden />
+          Channels
+        </h2>
         <ul className="space-y-3 text-sm">
-          <ChannelRow icon="📧" label="Email" enabled={prefs?.email_enabled ?? true}
+          <ChannelRow icon={Mail}          label="Email"    enabled={prefs?.email_enabled    ?? true}
             note="Trade reviews, payment receipts, weekly digests, prop breaches" />
-          <ChannelRow icon="💬" label="Telegram" enabled={prefs?.telegram_enabled ?? true}
+          <ChannelRow icon={MessageCircle} label="Telegram" enabled={prefs?.telegram_enabled ?? true}
             note="Live signals, copy-trade fills, smart-money alerts" />
-          <ChannelRow icon="🟢" label="WhatsApp" enabled={prefs?.whatsapp_enabled ?? false}
+          <ChannelRow icon={Smartphone}    label="WhatsApp" enabled={prefs?.whatsapp_enabled ?? false}
             note="Available on Pro+ (requires phone verification)" lockedReason="Pro plan" />
-          <ChannelRow icon="📱" label="SMS" enabled={prefs?.sms_enabled ?? false}
+          <ChannelRow icon={Phone}         label="SMS"      enabled={prefs?.sms_enabled      ?? false}
             note="Urgent alerts only (prop breaches, kill switch)" lockedReason="Pro plan" />
         </ul>
       </section>
@@ -137,19 +144,20 @@ export default async function AlertsPage() {
   )
 }
 
-function ChannelRow({ icon, label, enabled, note, lockedReason }: {
-  icon: string; label: string; enabled: boolean; note: string; lockedReason?: string
+function ChannelRow({ icon: Icon, label, enabled, note, lockedReason }: {
+  icon: LucideIcon; label: string; enabled: boolean; note: string; lockedReason?: string
 }) {
   return (
     <li className="flex items-start gap-3">
-      <span className="text-xl flex-shrink-0">{icon}</span>
+      <Icon className="h-5 w-5 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden />
       <div className="flex-1 min-w-0">
         <p className="font-semibold">{label}</p>
         <p className="text-[11px] text-muted-foreground">{note}</p>
       </div>
       {lockedReason ? (
-        <span className="rounded-full border border-border bg-muted/30 px-2 py-0.5 text-[10px] font-bold text-muted-foreground">
-          🔒 {lockedReason}
+        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/30 px-2 py-0.5 text-[10px] font-bold text-muted-foreground">
+          <Lock className="h-2.5 w-2.5" strokeWidth={2} aria-hidden />
+          {lockedReason}
         </span>
       ) : enabled ? (
         <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
@@ -165,10 +173,10 @@ function ChannelRow({ icon, label, enabled, note, lockedReason }: {
 }
 
 function abbreviateUA(ua: string): string {
-  if (/iPhone|iPad/.test(ua))   return '📱 iOS Safari'
-  if (/Android/.test(ua))       return '🤖 Android'
-  if (/Mac OS X/.test(ua))      return '💻 Mac'
-  if (/Windows/.test(ua))       return '🪟 Windows'
-  if (/Linux/.test(ua))         return '🐧 Linux'
+  if (/iPhone|iPad/.test(ua))   return 'iOS Safari'
+  if (/Android/.test(ua))       return 'Android'
+  if (/Mac OS X/.test(ua))      return 'macOS'
+  if (/Windows/.test(ua))       return 'Windows'
+  if (/Linux/.test(ua))         return 'Linux'
   return ua.slice(0, 60)
 }

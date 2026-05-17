@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { Sparkles } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 
@@ -72,10 +73,11 @@ export default function UserMenu({ email, name, tier }: Props) {
               {tier !== 'premium' && tier !== 'vip' && (
                 <a
                   href="/upgrade"
-                  className="flex w-full items-center rounded-sm px-3 py-2 text-sm text-primary font-medium hover:bg-accent"
+                  className="flex w-full items-center gap-1.5 rounded-sm px-3 py-2 text-sm text-primary font-medium hover:bg-accent"
                   onClick={() => setOpen(false)}
                 >
-                  Upgrade plan ✨
+                  Upgrade plan
+                  <Sparkles className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
                 </a>
               )}
               <button

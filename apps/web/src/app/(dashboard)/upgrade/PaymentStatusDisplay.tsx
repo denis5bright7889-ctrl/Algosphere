@@ -1,6 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import {
+  Hourglass, Search, CheckCircle2, XCircle, Timer,
+  type LucideIcon,
+} from 'lucide-react'
 import type { PaymentStatus } from '@/lib/payments/binance'
 import { cn } from '@/lib/utils'
 
@@ -17,12 +21,12 @@ interface PaymentData {
   txid: string | null
 }
 
-const STATUS_CONFIG: Record<PaymentStatus, { label: string; color: string; icon: string }> = {
-  awaiting_payment: { label: 'Awaiting payment', color: 'text-yellow-700 bg-yellow-50 border-yellow-200', icon: '⏳' },
-  pending_review: { label: 'Under review', color: 'text-blue-700 bg-blue-50 border-blue-200', icon: '🔍' },
-  approved: { label: 'Approved — Subscription active!', color: 'text-green-700 bg-green-50 border-green-200', icon: '✅' },
-  rejected: { label: 'Rejected', color: 'text-red-700 bg-red-50 border-red-200', icon: '❌' },
-  expired: { label: 'Expired', color: 'text-gray-600 bg-gray-50 border-gray-200', icon: '⌛' },
+const STATUS_CONFIG: Record<PaymentStatus, { label: string; color: string; icon: LucideIcon }> = {
+  awaiting_payment: { label: 'Awaiting payment',               color: 'text-yellow-700 bg-yellow-50 border-yellow-200', icon: Hourglass    },
+  pending_review:   { label: 'Under review',                    color: 'text-blue-700 bg-blue-50 border-blue-200',       icon: Search       },
+  approved:         { label: 'Approved — Subscription active!', color: 'text-green-700 bg-green-50 border-green-200',    icon: CheckCircle2 },
+  rejected:         { label: 'Rejected',                        color: 'text-red-700 bg-red-50 border-red-200',          icon: XCircle      },
+  expired:          { label: 'Expired',                         color: 'text-gray-600 bg-gray-50 border-gray-200',       icon: Timer        },
 }
 
 export default function PaymentStatusDisplay({ paymentId, plan }: Props) {
@@ -53,6 +57,7 @@ export default function PaymentStatusDisplay({ paymentId, plan }: Props) {
   }
 
   const cfg = STATUS_CONFIG[data.status]
+  const CfgIcon = cfg.icon
 
   return (
     <div className="space-y-5">
@@ -60,7 +65,7 @@ export default function PaymentStatusDisplay({ paymentId, plan }: Props) {
 
       <div className={cn('rounded-xl border px-5 py-5 space-y-3', cfg.color)}>
         <div className="flex items-center gap-3">
-          <span className="text-2xl">{cfg.icon}</span>
+          <CfgIcon className="h-6 w-6 shrink-0" strokeWidth={1.75} aria-hidden />
           <div>
             <p className="font-bold">{cfg.label}</p>
             <p className="text-xs capitalize opacity-80">{plan} plan · {data.amount_usd} {data.currency}</p>

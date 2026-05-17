@@ -148,7 +148,8 @@ export default async function DiscoverPage({
                           'inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-bold',
                           badge.cls,
                         )}>
-                          {badge.icon} {badge.label}
+                          <badge.icon className="h-2.5 w-2.5" strokeWidth={2.25} aria-hidden />
+                          {badge.label}
                         </span>
                       )}
                     </div>

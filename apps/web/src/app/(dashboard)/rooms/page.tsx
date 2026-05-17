@@ -1,4 +1,8 @@
 import { redirect } from 'next/navigation'
+import {
+  Send, MessageCircle, Gamepad2, Briefcase, MessagesSquare,
+  type LucideIcon,
+} from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 
@@ -16,11 +20,11 @@ interface OfficialRoom {
   has_access:    boolean
 }
 
-const PLATFORM_ICON: Record<string, string> = {
-  telegram: '✈️',
-  whatsapp: '💬',
-  discord:  '🎮',
-  slack:    '💼',
+const PLATFORM_ICON: Record<string, LucideIcon> = {
+  telegram: Send,
+  whatsapp: MessageCircle,
+  discord:  Gamepad2,
+  slack:    Briefcase,
 }
 
 const TIER_CLS: Record<string, string> = {
@@ -102,9 +106,10 @@ function RoomCard({ room, unlocked, currentTier }: {
       unlocked ? 'border-border' : 'border-border opacity-60',
     )}>
       <div className="flex items-start gap-3 mb-3">
-        <span className="text-2xl flex-shrink-0">
-          {PLATFORM_ICON[room.platform] ?? '💬'}
-        </span>
+        {(() => {
+          const Icon = PLATFORM_ICON[room.platform] ?? MessagesSquare
+          return <Icon className="h-6 w-6 shrink-0 text-amber-300/80" strokeWidth={1.75} aria-hidden />
+        })()}
         <div className="flex-1 min-w-0">
           <h3 className="font-bold text-base">{room.name}</h3>
           <p className="text-[11px] text-muted-foreground capitalize">

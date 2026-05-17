@@ -69,20 +69,22 @@ export interface TraderScores {
 }
 
 // ─── Verification badge ─────────────────────────────────────
+import { Trophy, BadgeCheck, CheckSquare, type LucideIcon } from 'lucide-react'
+
 export type VerificationTier = 'none' | 'basic' | 'verified' | 'elite'
 
 export function verificationBadge(tier: VerificationTier): {
-  icon:  string
+  icon:  LucideIcon
   label: string
   cls:   string
 } | null {
   switch (tier) {
     case 'elite':
-      return { icon: '🏆', label: 'Elite',    cls: 'text-amber-300 border-amber-500/50 bg-amber-500/15' }
+      return { icon: Trophy,      label: 'Elite',    cls: 'text-amber-300 border-amber-500/50 bg-amber-500/15' }
     case 'verified':
-      return { icon: '✅', label: 'Verified', cls: 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10' }
+      return { icon: BadgeCheck,  label: 'Verified', cls: 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10' }
     case 'basic':
-      return { icon: '☑️', label: 'Basic',    cls: 'text-blue-300 border-blue-500/30 bg-blue-500/08' }
+      return { icon: CheckSquare, label: 'Basic',    cls: 'text-blue-300 border-blue-500/30 bg-blue-500/08' }
     default:
       return null
   }

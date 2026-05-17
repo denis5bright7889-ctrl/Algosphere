@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { Brain, Sparkles, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Report {
@@ -39,7 +40,7 @@ export default function PsychologyClient() {
   if (!report && !pending) {
     return (
       <div className="rounded-2xl border border-border bg-card p-8 text-center">
-        <span className="text-4xl">🧠</span>
+        <Brain className="mx-auto h-10 w-10 text-amber-300" strokeWidth={1.5} aria-hidden />
         <h2 className="text-lg font-bold mt-3">Run Your Weekly Analysis</h2>
         <p className="text-xs text-muted-foreground mt-2 max-w-md mx-auto">
           Requires at least 5 trades in the last 30 days. Each report uses one
@@ -96,8 +97,8 @@ export default function PsychologyClient() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <Card title="✨ Primary Strength" body={report.primary_strength} tone="green" />
-        <Card title="⚠️ Primary Weakness" body={report.primary_weakness} tone="amber" />
+        <Card titleIcon={Sparkles}     title="Primary Strength" body={report.primary_strength} tone="green" />
+        <Card titleIcon={AlertTriangle} title="Primary Weakness" body={report.primary_weakness} tone="amber" />
       </div>
 
       {report.top_mistakes.length > 0 && (
@@ -176,13 +177,19 @@ function ScoreBar({ label, value }: { label: string; value: number }) {
   )
 }
 
-function Card({ title, body, tone }: { title: string; body: string; tone: 'green'|'amber' }) {
+function Card({ title, body, tone, titleIcon: TitleIcon }: {
+  title: string; body: string; tone: 'green'|'amber'
+  titleIcon?: import('lucide-react').LucideIcon
+}) {
   const cls = tone === 'green'
     ? 'border-emerald-500/30 bg-emerald-500/[0.04]'
     : 'border-amber-500/30 bg-amber-500/[0.04]'
   return (
     <div className={cn('rounded-2xl border p-4', cls)}>
-      <p className="text-[10px] uppercase tracking-widest font-bold mb-2 opacity-80">{title}</p>
+      <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest font-bold mb-2 opacity-80">
+        {TitleIcon && <TitleIcon className="h-3 w-3" strokeWidth={1.75} aria-hidden />}
+        {title}
+      </p>
       <p className="text-sm">{body}</p>
     </div>
   )

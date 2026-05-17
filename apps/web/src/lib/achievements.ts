@@ -2,26 +2,31 @@
  * Achievement engine — pure computation over journal + trader_scores aggregates.
  * Returns badge IDs the user has unlocked.
  */
+import {
+  Sprout, BarChart3, TrendingUp, Target, Flame, Zap, Gem, ShieldCheck,
+  Rocket, BadgeCheck, Trophy, Star, Stars, Wallet, Leaf,
+  type LucideIcon,
+} from 'lucide-react'
 
-export const ACHIEVEMENTS = {
-  first_trade:       { icon: '🌱', label: 'First Trade',         tier: 'bronze' },
-  ten_trades:        { icon: '📊', label: '10 Trades Logged',    tier: 'bronze' },
-  fifty_trades:      { icon: '📈', label: 'Half-Century',         tier: 'silver' },
-  hundred_trades:    { icon: '🎯', label: 'Century Club',         tier: 'gold'   },
-  five_streak:       { icon: '🔥', label: '5-Win Streak',         tier: 'silver' },
-  ten_streak:        { icon: '⚡', label: '10-Win Streak',        tier: 'gold'   },
-  consistent_60:     { icon: '💎', label: 'Consistent 60%+ WR',   tier: 'gold'   },
-  risk_master:       { icon: '🛡️', label: 'Risk Master (<5% DD)', tier: 'gold'   },
-  published_strat:   { icon: '🚀', label: 'Strategy Published',   tier: 'silver' },
-  verified_trader:   { icon: '✅', label: 'Verified Trader',      tier: 'gold'   },
-  elite_trader:      { icon: '🏆', label: 'Elite Trader',         tier: 'elite'  },
-  follower_100:      { icon: '⭐', label: '100 Followers',        tier: 'silver' },
-  follower_1000:     { icon: '🌟', label: '1,000 Followers',      tier: 'gold'   },
-  copy_aum_10k:      { icon: '💰', label: '$10k Copy AUM',        tier: 'silver' },
-  zero_violations:   { icon: '🧘', label: 'Zero Rule Violations', tier: 'gold'   },
-} as const
+export const ACHIEVEMENTS: Record<string, { icon: LucideIcon; label: string; tier: 'bronze'|'silver'|'gold'|'elite' }> = {
+  first_trade:       { icon: Sprout,      label: 'First Trade',         tier: 'bronze' },
+  ten_trades:        { icon: BarChart3,   label: '10 Trades Logged',    tier: 'bronze' },
+  fifty_trades:      { icon: TrendingUp,  label: 'Half-Century',        tier: 'silver' },
+  hundred_trades:    { icon: Target,      label: 'Century Club',        tier: 'gold'   },
+  five_streak:       { icon: Flame,       label: '5-Win Streak',        tier: 'silver' },
+  ten_streak:        { icon: Zap,         label: '10-Win Streak',       tier: 'gold'   },
+  consistent_60:     { icon: Gem,         label: 'Consistent 60%+ WR',  tier: 'gold'   },
+  risk_master:       { icon: ShieldCheck, label: 'Risk Master (<5% DD)', tier: 'gold'   },
+  published_strat:   { icon: Rocket,      label: 'Strategy Published',  tier: 'silver' },
+  verified_trader:   { icon: BadgeCheck,  label: 'Verified Trader',     tier: 'gold'   },
+  elite_trader:      { icon: Trophy,      label: 'Elite Trader',        tier: 'elite'  },
+  follower_100:      { icon: Star,        label: '100 Followers',       tier: 'silver' },
+  follower_1000:     { icon: Stars,       label: '1,000 Followers',     tier: 'gold'   },
+  copy_aum_10k:      { icon: Wallet,      label: '$10k Copy AUM',       tier: 'silver' },
+  zero_violations:   { icon: Leaf,        label: 'Zero Rule Violations', tier: 'gold'   },
+}
 
-export type AchievementKey = keyof typeof ACHIEVEMENTS
+export type AchievementKey = keyof typeof ACHIEVEMENTS | string
 
 export const TIER_CLS: Record<string, string> = {
   bronze: 'border-amber-700/40 bg-amber-700/10  text-amber-400',
