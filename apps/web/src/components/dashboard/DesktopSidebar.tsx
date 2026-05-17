@@ -17,6 +17,7 @@ export default function DesktopSidebar({ admin, showUpgradePrompt }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const [hovered, setHovered] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [pendingExpand, setPendingExpand] = useState<{ group: string; tick: number } | undefined>()
 
   // Restore persisted preference (client-only — avoids hydration mismatch)
   useEffect(() => {
@@ -30,6 +31,14 @@ export default function DesktopSidebar({ admin, showUpgradePrompt }: Props) {
       localStorage.setItem(LS_KEY, next ? '1' : '0')
       return next
     })
+  }
+
+  // Compact-rail category click: expand the sidebar + ask Sidebar to
+  // open that group's Level-2 (tick forces re-fire on repeat clicks).
+  function expandFromCategory(label: string) {
+    setCollapsed(false)
+    localStorage.setItem(LS_KEY, '0')
+    setPendingExpand({ group: label, tick: Date.now() })
   }
 
   // Hover-expand: a collapsed rail temporarily expands on pointer-over
@@ -79,7 +88,11 @@ export default function DesktopSidebar({ admin, showUpgradePrompt }: Props) {
       )}
 
       <div className="flex-1 min-h-0">
-        <Sidebar collapsed={compact} />
+        <Sidebar
+          collapsed={compact}
+          onRequestExpand={expandFromCategory}
+          pendingExpand={pendingExpand}
+        />
       </div>
 
       {admin && (

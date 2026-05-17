@@ -12,6 +12,8 @@ import {
   MessagesSquare, Users, Network, Crown, Repeat, Trophy,
   GraduationCap, Brain, Briefcase, Award,
   Target, WalletCards, BadgeCheck, Handshake, KeyRound, Gauge, Rocket,
+  // Distinct Level-1 category icons (avoid collisions with item icons)
+  Compass, CandlestickChart, LineChart, MessageSquare, BookOpen, Building2,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -25,12 +27,15 @@ export interface NavItem {
 
 export interface NavGroup {
   label: string
+  /** Level-1 category icon shown in the accordion header / compact rail. */
+  icon:  LucideIcon
   items: NavItem[]
 }
 
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Core',
+    icon: Compass,
     items: [
       { href: '/overview',  label: 'Command Center',    icon: LayoutDashboard, keywords: 'home dashboard' },
       { href: '/signals',   label: 'Intelligence Feed',  icon: Activity,        keywords: 'signals alerts trades' },
@@ -41,6 +46,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: 'Trading',
+    icon: CandlestickChart,
     items: [
       { href: '/execution',     label: 'Execution Desk',     icon: Cpu,          keywords: 'orders fills' },
       { href: '/risk',          label: 'Risk Engine',        icon: ShieldCheck,  keywords: 'drawdown limits' },
@@ -53,6 +59,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: 'Markets',
+    icon: LineChart,
     items: [
       { href: '/market',   label: 'Market Tracker',    icon: Globe,        keywords: 'prices quotes' },
       { href: '/calendar', label: 'Economic Calendar', icon: CalendarDays, keywords: 'news events nfp cpi' },
@@ -62,6 +69,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: 'Social',
+    icon: MessageSquare,
     items: [
       { href: '/social',      label: 'Social Feed',    icon: MessagesSquare, keywords: 'posts community' },
       { href: '/community',   label: 'Community',      icon: Users,          keywords: 'discussion' },
@@ -73,6 +81,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: 'Learning',
+    icon: BookOpen,
     items: [
       { href: '/learn',        label: 'Education Hub',       icon: GraduationCap, keywords: 'academy courses lessons' },
       { href: '/psychology',   label: 'AI Psychology Coach', icon: Brain,         keywords: 'mindset emotion tilt' },
@@ -82,6 +91,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: 'Business',
+    icon: Building2,
     items: [
       { href: '/strategies',   label: 'Strategies',      icon: Target,      keywords: 'published marketplace' },
       { href: '/earnings',     label: 'Creator Earnings', icon: WalletCards, keywords: 'revenue profit share payout' },
