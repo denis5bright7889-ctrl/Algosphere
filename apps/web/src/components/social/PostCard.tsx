@@ -7,6 +7,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import ReportButton from './ReportButton'
 
 export interface SocialPost {
   id:             string
@@ -164,11 +165,12 @@ export default function PostCard({ post, currentUserId }: Props) {
           <Repeat2 className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
           <span className="tabular-nums">{post.reposts_count}</span>
         </button>
-        <button className="ml-auto text-muted-foreground hover:text-foreground" aria-label="Bookmark">
+        <button type="button" className="ml-auto text-muted-foreground hover:text-foreground" aria-label="Bookmark">
           <Bookmark className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
         </button>
+        {!isOwn && <ReportButton targetType="social_post" targetId={post.id} />}
         {isOwn && (
-          <button className="text-muted-foreground hover:text-rose-400" title="Delete">
+          <button type="button" className="text-muted-foreground hover:text-rose-400" title="Delete">
             ⋯
           </button>
         )}

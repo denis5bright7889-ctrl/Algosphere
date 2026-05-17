@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { checkToxicity } from '@/lib/ai/toxicity'
 
 // ─── GET /api/social/posts ──────────────────────────────────
 // Home feed: blend of following + trending + subscribed
@@ -122,6 +123,15 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { error: 'Rate limit: 10 posts/hour' },
       { status: 429 },
+    )
+  }
+
+  // Toxicity check — degrades safely if AI is unavailable / times out.
+  const tox = await checkToxicity(parsed.data.body)
+  if (!tox.ok) {
+    return NextResponse.json(
+      { error: `Post blocked by content moderation: ${tox.reason}`, code: 'toxicity' },
+      { status: 422 },
     )
   }
 
