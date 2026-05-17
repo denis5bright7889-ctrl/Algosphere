@@ -122,7 +122,33 @@ export default async function AlertsPage() {
             No notifications delivered yet.
           </p>
         ) : (
-          <table className="w-full text-xs">
+          <>
+          {/* Mobile: card list */}
+          <ul className="space-y-2 p-3 md:hidden">
+            {recentLog.map((r, i) => (
+              <li key={i} className="rounded-lg border border-border/60 bg-background/60 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold capitalize">{r.channel}</span>
+                  <span className={
+                    'text-[10px] font-bold uppercase tracking-wider ' + (
+                      r.status === 'sent'    ? 'text-emerald-400' :
+                      r.status === 'failed'  ? 'text-rose-400'    :
+                      'text-muted-foreground'
+                    )
+                  }>{r.status}</span>
+                </div>
+                <p className="mt-1 truncate text-[11px]">
+                  {r.subject ?? r.event_type}
+                </p>
+                <p className="mt-1 text-[10px] text-muted-foreground tabular-nums">
+                  {new Date(r.sent_at).toLocaleString()}
+                </p>
+              </li>
+            ))}
+          </ul>
+
+          {/* Desktop: table */}
+          <table className="hidden md:table w-full text-xs">
             <thead>
               <tr className="text-left text-[10px] text-muted-foreground uppercase tracking-wider border-b border-border/40">
                 <th className="px-4 py-2">When</th>
@@ -152,6 +178,7 @@ export default async function AlertsPage() {
               ))}
             </tbody>
           </table>
+          </>
         )}
       </section>
     </div>

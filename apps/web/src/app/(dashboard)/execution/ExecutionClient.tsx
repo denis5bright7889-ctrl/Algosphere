@@ -183,29 +183,74 @@ function Table({ headers, rows, empty, sideCol, pnlCol }: {
     )
   }
   return (
-    <div className="rounded-2xl border border-border bg-card overflow-x-auto">
-      <table className="w-full min-w-[600px] text-sm">
-        <thead>
-          <tr className="border-b border-border text-left text-[11px] text-muted-foreground uppercase tracking-wider">
-            {headers.map(h => <th key={h} className="px-4 py-3 font-medium">{h}</th>)}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i} className="border-b border-border/40 last:border-0 hover:bg-muted/10">
-              {r.map((cell, j) => (
-                <td key={j} className={cn(
-                  'px-4 py-3 tabular-nums',
-                  sideCol === j && (cell === 'BUY' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'),
-                  pnlCol === j && (cell.startsWith('+') ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold'),
-                )}>
-                  {cell}
-                </td>
-              ))}
+    <>
+      {/* Mobile: per-row card */}
+      <ul className="space-y-2.5 md:hidden">
+        {rows.map((r, i) => {
+          const side = sideCol != null ? r[sideCol] : null
+          const pnl  = pnlCol  != null ? r[pnlCol]  : null
+          return (
+            <li key={i} className="rounded-xl border border-border bg-card p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-sm font-semibold truncate">{r[0]}</span>
+                {side && (
+                  <span className={cn(
+                    'rounded px-1.5 py-0.5 text-[9px] font-bold shrink-0',
+                    side === 'BUY' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300',
+                  )}>
+                    {side}
+                  </span>
+                )}
+                {pnl && (
+                  <span className={cn(
+                    'tabular-nums text-sm font-semibold shrink-0',
+                    pnl.startsWith('+') ? 'text-emerald-400' : 'text-rose-400',
+                  )}>
+                    {pnl}
+                  </span>
+                )}
+              </div>
+              <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
+                {headers.map((h, j) => {
+                  if (j === 0 || j === sideCol || j === pnlCol) return null
+                  return (
+                    <div key={h} className="flex justify-between gap-2 min-w-0">
+                      <dt className="text-muted-foreground truncate">{h}</dt>
+                      <dd className="tabular-nums text-right truncate">{r[j]}</dd>
+                    </div>
+                  )
+                })}
+              </dl>
+            </li>
+          )
+        })}
+      </ul>
+
+      {/* Desktop: classic table */}
+      <div className="hidden md:block rounded-2xl border border-border bg-card overflow-x-auto">
+        <table className="w-full min-w-[600px] text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-[11px] text-muted-foreground uppercase tracking-wider">
+              {headers.map(h => <th key={h} className="px-4 py-3 font-medium">{h}</th>)}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} className="border-b border-border/40 last:border-0 hover:bg-muted/10">
+                {r.map((cell, j) => (
+                  <td key={j} className={cn(
+                    'px-4 py-3 tabular-nums',
+                    sideCol === j && (cell === 'BUY' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'),
+                    pnlCol === j && (cell.startsWith('+') ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold'),
+                  )}>
+                    {cell}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   )
 }

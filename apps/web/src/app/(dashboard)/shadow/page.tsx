@@ -105,7 +105,74 @@ export default async function ShadowPage() {
           No shadow executions yet. Subscribe to a strategy in full-auto mode to start logging.
         </div>
       ) : (
-        <div className="rounded-2xl border border-border bg-card overflow-x-auto">
+        <>
+          {/* Mobile: card list (no horizontal scroll) */}
+          <ul className="space-y-2.5 md:hidden">
+            {list.map(r => {
+              const slipPct = r.slippage_pct != null ? Math.abs(r.slippage_pct) : null
+              const driftPct = r.pnl_drift_pct
+              return (
+                <li key={r.id} className="rounded-xl border border-border bg-card p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono text-sm font-semibold truncate">{r.symbol}</span>
+                      <span className={cn(
+                        'rounded px-1.5 py-0.5 text-[9px] font-bold',
+                        r.direction === 'buy' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300',
+                      )}>
+                        {r.direction.toUpperCase()}
+                      </span>
+                    </span>
+                    <span className={cn(
+                      'rounded-full border px-2 py-0.5 text-[9px] font-bold capitalize shrink-0',
+                      r.actual_status === 'mirrored' && 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
+                      r.actual_status === 'testnet'  && 'border-blue-500/40 bg-blue-500/10 text-blue-300',
+                      r.actual_status === 'failed'   && 'border-rose-500/40 bg-rose-500/10 text-rose-300',
+                      (r.actual_status === 'skipped' || r.actual_status === 'shadow_only') && 'border-border bg-muted/30 text-muted-foreground',
+                    )}>
+                      {r.actual_status}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[10px] text-muted-foreground tabular-nums">
+                    {new Date(r.created_at).toLocaleString()}
+                  </p>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
+                    <div>
+                      <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Lot @ Entry</p>
+                      <p className="tabular-nums">{r.intended_lot} @ {r.intended_entry ?? '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Slip</p>
+                      <p className={cn(
+                        'tabular-nums',
+                        slipPct == null ? 'text-muted-foreground'
+                          : slipPct < 0.001 ? 'text-emerald-400'
+                          : slipPct < 0.005 ? 'text-amber-300'
+                          : 'text-rose-400',
+                      )}>
+                        {r.slippage_pct != null ? `${(r.slippage_pct * 100).toFixed(3)}%` : '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Drift</p>
+                      <p className={cn(
+                        'tabular-nums',
+                        driftPct == null ? 'text-muted-foreground'
+                          : Math.abs(driftPct) < 2 ? 'text-emerald-400'
+                          : Math.abs(driftPct) < 5 ? 'text-amber-300'
+                          : 'text-rose-400',
+                      )}>
+                        {driftPct != null ? `${driftPct.toFixed(2)}%` : '—'}
+                      </p>
+                    </div>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+
+          {/* Desktop: original table */}
+          <div className="hidden md:block rounded-2xl border border-border bg-card overflow-x-auto">
           <table className="w-full min-w-[720px] text-xs">
             <thead>
               <tr className="text-left text-[10px] text-muted-foreground uppercase tracking-wider border-b border-border/40">
@@ -169,7 +236,8 @@ export default async function ShadowPage() {
               ))}
             </tbody>
           </table>
-        </div>
+          </div>
+        </>
       )}
     </div>
   )

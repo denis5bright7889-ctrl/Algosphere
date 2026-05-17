@@ -166,7 +166,47 @@ export default function EarningsClient() {
             No earnings yet. Publish a strategy to start earning.
           </p>
         ) : (
-          <table className="w-full text-sm">
+          <>
+          {/* Mobile: card list */}
+          <ul className="space-y-2 md:hidden p-3">
+            {recent.map(r => {
+              const meta = TYPE_LABELS[r.earning_type]
+              const RowIcon = meta?.icon
+              return (
+                <li key={r.id} className="rounded-lg border border-border/60 bg-background/60 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5 text-sm font-medium">
+                      {RowIcon && <RowIcon className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />}
+                      {meta?.label ?? r.earning_type}
+                    </span>
+                    <StatusPill status={r.status} />
+                  </div>
+                  {r.published_strategies?.name && (
+                    <p className="mt-1 truncate text-[11px] text-muted-foreground">
+                      {r.published_strategies.name}
+                    </p>
+                  )}
+                  <div className="mt-2 flex items-end justify-between gap-2">
+                    <div className="text-[11px] text-muted-foreground">
+                      Gross <span className="tabular-nums">${Number(r.gross_usd).toFixed(2)}</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Your cut</p>
+                      <p className="tabular-nums text-sm font-semibold text-emerald-300">
+                        ${Number(r.creator_usd).toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-[10px] text-muted-foreground">
+                    {new Date(r.created_at).toLocaleDateString()}
+                  </p>
+                </li>
+              )
+            })}
+          </ul>
+
+          {/* Desktop: classic table */}
+          <table className="hidden md:table w-full text-sm">
             <thead>
               <tr className="text-left text-[11px] text-muted-foreground uppercase tracking-wider border-b border-border/50">
                 <th className="px-5 py-2.5 font-medium">Type</th>
@@ -209,6 +249,7 @@ export default function EarningsClient() {
               })}
             </tbody>
           </table>
+          </>
         )}
       </div>
 
