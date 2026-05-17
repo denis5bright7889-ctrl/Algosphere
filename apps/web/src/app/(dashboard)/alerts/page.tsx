@@ -1,10 +1,12 @@
 import { redirect } from 'next/navigation'
 import {
   Inbox, Mail, MessageCircle, Smartphone, Phone, Lock,
+  SlidersHorizontal, ScrollText,
   type LucideIcon,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import PushSubscribeButton from '@/components/social/PushSubscribeButton'
+import CategoryPreferences from './CategoryPreferences'
 
 export const metadata = { title: 'Alerts & Notifications — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'
@@ -98,10 +100,22 @@ export default async function AlertsPage() {
         </ul>
       </section>
 
+      {/* Per-category preferences */}
+      <section className="rounded-2xl border border-border bg-card p-6 mb-5">
+        <h2 className="mb-4 flex items-center gap-2 text-sm font-bold">
+          <SlidersHorizontal className="h-4 w-4 text-amber-300" strokeWidth={1.75} aria-hidden />
+          Categories
+        </h2>
+        <CategoryPreferences
+          initialRouting={(prefs?.routing_rules as Record<string, unknown> | null) ?? null}
+        />
+      </section>
+
       {/* Recent delivery log */}
       <section className="rounded-2xl border border-border bg-card overflow-hidden">
-        <h2 className="px-6 py-4 text-sm font-bold border-b border-border">
-          📜 Recent deliveries
+        <h2 className="flex items-center gap-2 px-6 py-4 text-sm font-bold border-b border-border">
+          <ScrollText className="h-4 w-4 text-amber-300" strokeWidth={1.75} aria-hidden />
+          Recent deliveries
         </h2>
         {!recentLog || recentLog.length === 0 ? (
           <p className="px-6 py-8 text-center text-xs text-muted-foreground">
