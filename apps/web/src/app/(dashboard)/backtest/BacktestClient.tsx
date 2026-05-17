@@ -108,8 +108,41 @@ export default function BacktestClient() {
               <p className="px-4 py-2.5 text-xs uppercase tracking-widest text-muted-foreground border-b border-border">
                 Last 12 Trades
               </p>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[480px] text-xs">
+
+              {/* Mobile: card list (no horizontal scroll) */}
+              <ul className="space-y-2 p-3 md:hidden">
+                {result.trades.slice(-12).reverse().map((t, i) => (
+                  <li key={i} className="rounded-lg border border-border/60 bg-background/60 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-2">
+                        <span className={cn(
+                          'rounded px-1.5 py-0.5 text-[9px] font-bold',
+                          t.direction === 'long' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300',
+                        )}>
+                          {t.direction.toUpperCase()}
+                        </span>
+                        {t.result === 'win'
+                          ? <CheckCircle2 className="h-4 w-4 text-emerald-400" strokeWidth={2} aria-label="win" />
+                          : <XCircle      className="h-4 w-4 text-rose-400"    strokeWidth={2} aria-label="loss" />}
+                      </span>
+                      <span className={cn(
+                        'tabular-nums text-sm font-semibold',
+                        t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400',
+                      )}>
+                        {t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between gap-3 text-[11px] text-muted-foreground tabular-nums">
+                      <span>Entry {t.entry.toFixed(2)}</span>
+                      <span>Exit {t.exit.toFixed(2)}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+
+              {/* Desktop: table */}
+              <div className="hidden md:block">
+                <table className="w-full text-xs">
                   <thead>
                     <tr className="text-left text-[10px] text-muted-foreground uppercase border-b border-border/40">
                       <th className="px-4 py-2">Dir</th>

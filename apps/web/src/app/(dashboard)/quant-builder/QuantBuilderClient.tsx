@@ -36,8 +36,10 @@ const STRATEGY_PRESETS: { key: StrategyType; label: string; description: string 
   { key: 'breakout',      label: 'Channel Break', description: 'Trade close beyond N-bar high/low' },
 ]
 
+// 16px on mobile (text-base) prevents iOS from zooming the viewport
+// when a select / input gains focus; ≥sm drops to the dense desktop size.
 const inputCls =
-  'rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs focus:outline-none focus:border-amber-500/40'
+  'rounded-lg border border-border bg-background px-2.5 py-2 text-base sm:text-xs sm:py-1.5 focus:outline-none focus:border-amber-500/40'
 
 let nextId = 0
 const mkId = () => `r${++nextId}`
@@ -149,11 +151,13 @@ export default function QuantBuilderClient() {
                 {i > 0 && (
                   <p className="text-[10px] text-amber-300 font-bold mb-1.5">{logicOp}</p>
                 )}
-                <div className="flex flex-wrap gap-1.5 items-center">
+                {/* Mobile: 2-row grid (indicator | operator) on top, value spanning + delete bottom.
+                    sm+: single wrap row, dense. */}
+                <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:items-center">
                   <select
                     value={r.indicator}
                     onChange={e => updateRule(r.id, { indicator: e.target.value as Rule['indicator'] })}
-                    className={inputCls}
+                    className={`${inputCls} min-w-0`}
                     aria-label="Indicator"
                   >
                     {INDICATORS.map(ind => <option key={ind.key} value={ind.key}>{ind.label}</option>)}
@@ -161,7 +165,7 @@ export default function QuantBuilderClient() {
                   <select
                     value={r.op}
                     onChange={e => updateRule(r.id, { op: e.target.value as Rule['op'] })}
-                    className={inputCls}
+                    className={`${inputCls} min-w-0`}
                     aria-label="Operator"
                   >
                     <option value=">">{'>'}</option>
@@ -172,22 +176,23 @@ export default function QuantBuilderClient() {
                   {r.ref === 'value' ? (
                     <input
                       type="number"
+                      inputMode="decimal"
                       value={r.value ?? 0}
                       onChange={e => updateRule(r.id, { value: +e.target.value })}
-                      className={`${inputCls} w-20`}
+                      className={`${inputCls} col-span-1 min-w-0 sm:w-20`}
                       aria-label="Threshold"
                     />
                   ) : (
-                    <span className="text-xs text-muted-foreground italic">EMA Slow</span>
+                    <span className="col-span-1 self-center text-sm text-muted-foreground italic sm:text-xs">EMA Slow</span>
                   )}
                   <button
                     type="button"
                     onClick={() => removeRule(r.id)}
                     disabled={longRules.length <= 1}
-                    className="ml-auto text-rose-400 disabled:opacity-30"
+                    className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-md text-rose-400 transition-colors hover:bg-rose-500/10 disabled:opacity-30 sm:h-auto sm:w-auto sm:p-0 sm:hover:bg-transparent touch-manipulation"
                     aria-label="Remove rule"
                   >
-                    <X className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+                    <X className="h-4 w-4 sm:h-3.5 sm:w-3.5" strokeWidth={1.75} aria-hidden />
                   </button>
                 </div>
               </div>
