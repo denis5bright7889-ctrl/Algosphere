@@ -8,6 +8,7 @@ import {
 import { cn } from '@/lib/utils'
 import PaymentProofForm from './PaymentProofForm'
 import PaymentStatusDisplay from './PaymentStatusDisplay'
+import CryptoHowToPay from './CryptoHowToPay'
 
 type FlowStep = 'select' | 'instructions' | 'submit' | 'status'
 
@@ -118,6 +119,9 @@ export default function CryptoPaymentFlow({ currentTier }: Props) {
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>
       )}
+
+      {/* "How to pay" educational walkthrough (collapsed by default) */}
+      <CryptoHowToPay />
 
       {/* Billing-interval toggle */}
       <div className="flex justify-center">
