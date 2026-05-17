@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import ReportButton from './ReportButton'
+import { verificationBadge, type VerificationTier } from '@/lib/leaderboard'
 
 export interface SocialPost {
   id:             string
@@ -28,6 +29,12 @@ export interface SocialPost {
   profiles: {
     public_handle: string | null
     bio:           string | null
+    /** Supabase returns nested 1-to-1 relations as a single object,
+     *  but the TS types from PostgREST sometimes type it as an array.
+     *  Tolerate both. */
+    trader_verifications?:
+      | { tier: 'basic' | 'verified' | 'elite' | 'none' } | null
+      | { tier: 'basic' | 'verified' | 'elite' | 'none' }[]
   } | null
   signals?: {
     id:            string
@@ -110,6 +117,26 @@ export default function PostCard({ post, currentUserId }: Props) {
             >
               @{author?.public_handle ?? 'anonymous'}
             </a>
+            {(() => {
+              const v = author?.trader_verifications
+              const tierRaw = Array.isArray(v) ? v[0]?.tier : v?.tier
+              const tier = (tierRaw ?? 'none') as VerificationTier
+              const vb = verificationBadge(tier)
+              if (!vb) return null
+              const VIcon = vb.icon
+              return (
+                <span
+                  className={cn(
+                    'inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide',
+                    vb.cls,
+                  )}
+                  title={`${vb.label} trader`}
+                >
+                  <VIcon className="h-2.5 w-2.5" strokeWidth={2.25} aria-hidden />
+                  {vb.label}
+                </span>
+              )
+            })()}
             <span className="text-xs text-muted-foreground">·</span>
             <span className="text-xs text-muted-foreground">{timeAgo(post.created_at)}</span>
             {badge && (

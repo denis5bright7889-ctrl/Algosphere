@@ -161,7 +161,39 @@ export default async function AnalyticsPage() {
       {monthlyStats.length > 0 && (
         <div className="rounded-xl border border-border bg-card p-5">
           <h2 className="font-semibold mb-4">Monthly Performance</h2>
-          <div className="overflow-x-auto">
+
+          {/* Mobile: card list (no horizontal scroll) */}
+          <ul className="space-y-2.5 md:hidden">
+            {monthlyStats.map(m => (
+              <li
+                key={m.month}
+                className="rounded-lg border border-border/60 bg-background/60 p-3"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold tabular-nums">{m.month}</span>
+                  <span
+                    className={'text-sm font-bold tabular-nums ' + (m.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400')}
+                  >
+                    {m.pnl >= 0 ? '+' : ''}{formatCurrency(m.pnl)}
+                  </span>
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+                  <span>{m.trades} trade{m.trades === 1 ? '' : 's'}</span>
+                  <div className="flex flex-1 items-center justify-end gap-2">
+                    <ProgressBar
+                      value={m.winRate}
+                      className="h-1.5 max-w-[88px] flex-1"
+                      barClassName={m.winRate >= 60 ? 'bg-emerald-500' : m.winRate >= 50 ? 'bg-amber-500' : 'bg-rose-500'}
+                    />
+                    <span className="w-8 text-right tabular-nums">{m.winRate}%</span>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          {/* Desktop: classic table */}
+          <div className="hidden md:block">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-muted-foreground border-b border-border text-left">

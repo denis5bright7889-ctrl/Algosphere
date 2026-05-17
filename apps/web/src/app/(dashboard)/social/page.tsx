@@ -20,7 +20,7 @@ export default async function SocialPage() {
       id, author_id, post_type, body, media_urls, signal_id, trade_id,
       visibility, likes_count, comments_count, reposts_count, views_count,
       is_pinned, created_at,
-      profiles!social_posts_author_id_fkey ( public_handle, bio ),
+      profiles!social_posts_author_id_fkey ( public_handle, bio, trader_verifications ( tier ) ),
       signals (id, pair, direction, entry_price, stop_loss, take_profit_1, risk_reward, lifecycle_state)
     `)
     .eq('visibility', 'public')
