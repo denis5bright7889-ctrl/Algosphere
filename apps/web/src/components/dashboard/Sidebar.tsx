@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useMemo } from 'react'
 import { usePathname } from 'next/navigation'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Pin } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { visibleNav, type NavGroup, type NavItem, type Tier } from './nav'
+import { usePinnedNav } from './usePinnedNav'
 
 interface Props {
   onNavigate?: () => void
@@ -41,9 +42,23 @@ export default function Sidebar({
   tier = 'free', isAdmin = false,
 }: Props) {
   const pathname = usePathname()
+  const { pinned, toggle: togglePin, mounted: pinsMounted } = usePinnedNav()
 
   // Tier-filtered taxonomy — single source of truth for every consumer.
   const groups = useMemo(() => visibleNav(tier, isAdmin), [tier, isAdmin])
+
+  // Resolve pinned hrefs against the *tier-filtered* items so a
+  // downgraded user never sees a pin they can no longer access, and
+  // stale hrefs silently drop. Preserves the user's pin order.
+  const pinnedItems = useMemo(() => {
+    const byHref = new Map<string, NavItem>()
+    for (const g of groups) for (const it of g.items) {
+      if (it.href) byHref.set(it.href, it)
+    }
+    return pinned
+      .map((h) => byHref.get(h))
+      .filter((x): x is NavItem => Boolean(x))
+  }, [groups, pinned])
 
   const activeGroupLabel = useMemo(
     () => groups.find((g) => groupContainsActive(g, pathname))?.label,
@@ -140,6 +155,29 @@ export default function Sidebar({
   // ── Expanded (accordion two-level) ───────────────────────────────────
   return (
     <nav className="flex flex-col gap-1 px-2 overflow-y-auto overflow-x-hidden" aria-label="Primary">
+      {/* Pinned — user favourites, always at the very top */}
+      {pinsMounted && pinnedItems.length > 0 && (
+        <div className="mb-1 flex flex-col">
+          <div className="flex items-center gap-3 rounded-lg px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-amber-300/80">
+            <Pin className="h-[18px] w-[18px] shrink-0" strokeWidth={1.75} aria-hidden />
+            <span className="flex-1 text-left">Pinned</span>
+          </div>
+          <ul className="ml-3 mt-0.5 mb-1 flex flex-col gap-0.5 border-l border-amber-500/30 pl-2">
+            {pinnedItems.map((item) => (
+              <li key={`pin-${item.href}`}>
+                <NavRow
+                  item={item}
+                  pathname={pathname}
+                  onNavigate={onNavigate}
+                  pinned
+                  onTogglePin={togglePin}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {groups.map((group) => {
         const Icon = group.icon
         const isOpen = mounted ? openGroups.has(group.label) : group.label === activeGroupLabel
@@ -184,7 +222,13 @@ export default function Sidebar({
                 <ul className="ml-3 mt-0.5 mb-1 flex flex-col gap-0.5 border-l border-border/60 pl-2">
                   {group.items.map((item) => (
                     <li key={item.href ?? item.label}>
-                      <NavRow item={item} pathname={pathname} onNavigate={onNavigate} />
+                      <NavRow
+                        item={item}
+                        pathname={pathname}
+                        onNavigate={onNavigate}
+                        pinned={!!item.href && pinned.includes(item.href)}
+                        onTogglePin={togglePin}
+                      />
                     </li>
                   ))}
                 </ul>
@@ -198,17 +242,19 @@ export default function Sidebar({
 }
 
 function NavRow({
-  item, pathname, onNavigate,
+  item, pathname, onNavigate, pinned = false, onTogglePin,
 }: {
   item: NavItem
   pathname: string
   onNavigate?: () => void
+  pinned?: boolean
+  onTogglePin?: (href: string) => void
 }) {
   const ItemIcon = item.icon
   const base =
-    'group relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-all duration-200 min-h-[40px]'
+    'group/row relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-all duration-200 min-h-[40px]'
 
-  // Action item (logout) — render as a button.
+  // Action item (logout) — button, no pin affordance.
   if (item.action === 'logout') {
     return (
       <button
@@ -224,24 +270,54 @@ function NavRow({
 
   const active =
     pathname === item.href || pathname.startsWith(`${item.href}/`)
+
+  // Pin toggle lives as a sibling of the link (interactive elements
+  // must not nest). Container owns hover state via group/row.
   return (
-    <a
-      href={item.href}
-      onClick={onNavigate}
-      aria-current={active ? 'page' : undefined}
-      className={cn(
-        base,
-        active
-          ? 'bg-gradient-primary text-white shadow-glow'
-          : 'text-muted-foreground hover:bg-accent/40 hover:text-foreground',
+    <div className="group/row relative flex items-center">
+      <a
+        href={item.href}
+        onClick={onNavigate}
+        aria-current={active ? 'page' : undefined}
+        className={cn(
+          'relative flex flex-1 items-center gap-2.5 rounded-md px-2.5 py-2 pr-8 text-[13px] font-medium transition-all duration-200 min-h-[40px]',
+          active
+            ? 'bg-gradient-primary text-white shadow-glow'
+            : 'text-muted-foreground hover:bg-accent/40 hover:text-foreground',
+        )}
+      >
+        {active && (
+          <span className="absolute -left-[10px] top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-r bg-amber-300/90" aria-hidden />
+        )}
+        <ItemIcon className="h-[15px] w-[15px] shrink-0" strokeWidth={1.75} aria-hidden />
+        <span className="truncate">{item.label}</span>
+      </a>
+      {item.href && onTogglePin && (
+        <button
+          type="button"
+          onClick={() => onTogglePin(item.href!)}
+          aria-label={pinned ? `Unpin ${item.label}` : `Pin ${item.label}`}
+          // jsx-a11y/aria-proptypes can't resolve the dynamic expression;
+          // `pinned` is always a clean boolean.
+          // eslint-disable-next-line jsx-a11y/aria-proptypes
+          aria-pressed={pinned}
+          title={pinned ? 'Unpin' : 'Pin to top'}
+          className={cn(
+            'absolute right-1 flex h-7 w-7 items-center justify-center rounded-md transition-all touch-manipulation',
+            pinned
+              ? 'text-amber-300'
+              : 'text-muted-foreground/40 opacity-60 hover:text-foreground hover:opacity-100 group-hover/row:opacity-100',
+          )}
+        >
+          <Pin
+            className="h-3.5 w-3.5"
+            strokeWidth={2}
+            fill={pinned ? 'currentColor' : 'none'}
+            aria-hidden
+          />
+        </button>
       )}
-    >
-      {active && (
-        <span className="absolute -left-[10px] top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-r bg-amber-300/90" aria-hidden />
-      )}
-      <ItemIcon className="h-[15px] w-[15px] shrink-0" strokeWidth={1.75} aria-hidden />
-      <span className="truncate">{item.label}</span>
-    </a>
+    </div>
   )
 }
 
