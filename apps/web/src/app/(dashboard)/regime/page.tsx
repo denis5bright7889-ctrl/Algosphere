@@ -1,7 +1,28 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { Clock, AlertTriangle } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import RegimeBadge from '@/components/algo/RegimeBadge'
 import { ConfidencePill } from '@/components/algo/ConfidenceGauge'
+
+/** Three times the claimed 5-min refresh — anything older counts as stale. */
+const STALE_MS = 15 * 60_000
+
+function ageMs(iso: string): number {
+  const t = new Date(iso).getTime()
+  return Number.isFinite(t) ? Date.now() - t : Infinity
+}
+
+function fmtAge(ms: number): string {
+  if (!Number.isFinite(ms)) return 'unknown'
+  const m = Math.floor(ms / 60_000)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m} min ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ${m % 60}m ago`
+  const d = Math.floor(h / 24)
+  return `${d}d ${h % 24}h ago`
+}
 
 interface RegimeSnapshot {
   id: string
@@ -63,15 +84,35 @@ export default async function RegimePage() {
   if (!user) redirect('/login')
 
   const snapshots = await getLatestRegimes()
+  const newestAgeMs = snapshots.length
+    ? Math.min(...snapshots.map((s) => ageMs(s.scanned_at)))
+    : Infinity
+  // 'Engine idle' = we have snapshots but they're ALL stale. The
+  // refresh promise in the subtitle must reflect reality, not just
+  // restate the spec.
+  const engineIdle = snapshots.length > 0 && newestAgeMs > STALE_MS
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Market Regime</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Real-time regime classification across all monitored pairs. Updated every 5 minutes.
+          Regime classification across monitored pairs. Engine scans every 5 minutes
+          when active.
         </p>
       </div>
+
+      {engineIdle && (
+        <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={1.75} aria-hidden />
+          <span>
+            <span className="font-semibold">Signal engine appears idle.</span>{' '}
+            Most recent scan was {fmtAge(newestAgeMs)} — the cards below show the last
+            classification on record, not current state. New scans will refresh this
+            page automatically when the engine resumes.
+          </span>
+        </div>
+      )}
 
       {snapshots.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-12 text-center">
@@ -109,14 +150,31 @@ export default async function RegimePage() {
 
 function RegimeCard({ snap }: { snap: RegimeSnapshot }) {
   const conf = derToConfidence(snap.der_score)
+  const age = ageMs(snap.scanned_at)
+  const stale = age > STALE_MS
+
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+    <div className={cn(
+      'space-y-3 rounded-lg border bg-card p-4',
+      stale ? 'border-amber-500/30' : 'border-border',
+    )}>
       <div className="flex items-center justify-between">
         <div>
           <span className="font-bold text-base">{snap.symbol}</span>
           <span className="ml-2 text-xs text-muted-foreground">{snap.timeframe}</span>
         </div>
-        <RegimeBadge regime={snap.regime} compact />
+        <div className="flex items-center gap-1.5">
+          {stale && (
+            <span
+              title={`Last scan ${fmtAge(age)} — older than the 15-min freshness window`}
+              className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-300"
+            >
+              <Clock className="h-2.5 w-2.5" strokeWidth={2.25} aria-hidden />
+              Stale
+            </span>
+          )}
+          <RegimeBadge regime={snap.regime} compact />
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -127,10 +185,17 @@ function RegimeCard({ snap }: { snap: RegimeSnapshot }) {
       </div>
 
       <div className="flex items-center justify-between pt-1 border-t border-border">
-        <span className="text-xs text-muted-foreground capitalize">{snap.session?.replace('_', ' ')}</span>
+        <span className="text-xs text-muted-foreground capitalize">
+          {snap.session ? snap.session.replace('_', ' ') : '—'}
+        </span>
         <div className="flex items-center gap-2">
           <ConfidencePill score={conf} />
-          <span className="text-xs text-muted-foreground">{formatScannedAt(snap.scanned_at)}</span>
+          <span
+            className={cn('text-xs', stale ? 'text-amber-300' : 'text-muted-foreground')}
+            title={`Scanned ${fmtAge(age)}`}
+          >
+            {formatScannedAt(snap.scanned_at)}
+          </span>
         </div>
       </div>
     </div>
