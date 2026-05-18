@@ -1,11 +1,15 @@
 import type { LucideIcon } from 'lucide-react'
+import Hint from '@/components/ui/Hint'
 
 /**
  * Institutional glass panel. Consistent header (thin-line icon + title),
- * optional right-aligned action link, neon top hairline.
+ * optional right-aligned action link, neon top hairline, and an
+ * optional progressive-disclosure hint beside the title for jargon-
+ * heavy panels (beginner mode).
  */
 export default function Panel({
   title, icon: Icon, href, hrefLabel = 'View all', children, className = '',
+  hint,
 }: {
   title:      string
   icon:       LucideIcon
@@ -13,6 +17,8 @@ export default function Panel({
   hrefLabel?: string
   children:   React.ReactNode
   className?: string
+  /** Optional plain-English explainer for first-time users. */
+  hint?:      { id: string; text: string }
 }) {
   return (
     <section
@@ -26,6 +32,7 @@ export default function Panel({
         <h2 className="flex items-center gap-2 text-sm font-semibold tracking-tight">
           <Icon className="h-4 w-4 text-amber-300/80" strokeWidth={1.75} aria-hidden />
           {title}
+          {hint && <Hint id={hint.id} title={title}>{hint.text}</Hint>}
         </h2>
         {href && (
           <a href={href} className="text-xs text-muted-foreground transition-colors hover:text-amber-300">

@@ -182,7 +182,15 @@ export default async function OverviewPage() {
       {/* Main grid: 2/3 content + 1/3 intelligence rail */}
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
-          <Panel title="Market Regime" icon={Radar} href="/regime">
+          <Panel
+            title="Market Regime"
+            icon={Radar}
+            href="/regime"
+            hint={{
+              id: 'overview-regime',
+              text: 'A "regime" is the market\'s current behaviour state — trending, ranging, volatile or exhausted — per instrument. The confidence figure is how strongly the engine\'s detector agrees, not a price prediction. Use it to pick the right playbook, not as a buy/sell signal.',
+            }}
+          >
             {regimes.length ? (
               <div className="grid gap-2 sm:grid-cols-2">
                 {regimes.slice(0, 10).map((r) => (
@@ -254,7 +262,14 @@ export default async function OverviewPage() {
 
         {/* Intelligence rail */}
         <div className="space-y-5">
-          <Panel title="AI Insights" icon={Sparkles}>
+          <Panel
+            title="AI Insights"
+            icon={Sparkles}
+            hint={{
+              id: 'overview-ai-insights',
+              text: 'These are computed observations derived from your real data (regime pass, open signals, shadow-fill slippage) — factual summaries, not forecasts or trade advice. Empty until there is enough data to summarise.',
+            }}
+          >
             <ul className="space-y-2 text-sm text-muted-foreground">
               {insights.map((t, i) => (
                 <li key={i} className="flex gap-2">
