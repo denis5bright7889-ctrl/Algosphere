@@ -174,8 +174,13 @@ export default async function LeaderboardPage({
                           </a>
                         </td>
 
-                        {/* Score */}
-                        <td className="px-4 py-3 text-right tabular-nums font-bold text-amber-300">
+                        {/* Score — gold only when there's a real score; '—' stays
+                            in the muted column tone so a missing rank doesn't read
+                            as an elite-tier display. */}
+                        <td className={cn(
+                          'px-4 py-3 text-right tabular-nums font-bold',
+                          r.composite_score != null ? 'text-amber-300' : 'text-muted-foreground',
+                        )}>
                           {formatScore(r.composite_score)}
                         </td>
 
@@ -184,11 +189,13 @@ export default async function LeaderboardPage({
                           {r.win_rate != null ? `${r.win_rate.toFixed(1)}%` : '—'}
                         </td>
 
-                        {/* Monthly Return */}
+                        {/* Monthly Return — tone is plain when null; previous code
+                            painted a null cell rose-red via the else branch. */}
                         <td className={cn(
                           'px-4 py-3 text-right tabular-nums font-medium',
-                          r.monthly_return != null && r.monthly_return >= 0
-                            ? 'text-emerald-400' : 'text-rose-400',
+                          r.monthly_return == null ? 'text-muted-foreground'
+                            : r.monthly_return >= 0 ? 'text-emerald-400'
+                            : 'text-rose-400',
                         )}>
                           {formatPct(r.monthly_return)}
                         </td>
@@ -198,8 +205,12 @@ export default async function LeaderboardPage({
                           {formatRatio(r.sharpe_ratio)}
                         </td>
 
-                        {/* Max DD */}
-                        <td className="px-4 py-3 text-right tabular-nums text-rose-400">
+                        {/* Max DD — rose only when a drawdown is present and > 0. */}
+                        <td className={cn(
+                          'px-4 py-3 text-right tabular-nums',
+                          r.max_drawdown != null && r.max_drawdown > 0
+                            ? 'text-rose-400' : 'text-muted-foreground',
+                        )}>
                           {r.max_drawdown != null ? `${r.max_drawdown.toFixed(1)}%` : '—'}
                         </td>
 
