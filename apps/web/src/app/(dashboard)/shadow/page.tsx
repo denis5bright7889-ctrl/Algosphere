@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { FlaskConical } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 
@@ -61,7 +62,7 @@ export default async function ShadowPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
-      <header className="mb-6">
+      <header className="mb-4">
         <h1 className="text-2xl font-bold tracking-tight">
           Shadow <span className="text-gradient">Execution Mode</span>
         </h1>
@@ -71,14 +72,39 @@ export default async function ShadowPage() {
         </p>
       </header>
 
+      {/* Brief-mandated: simulated/validation execution must be clearly
+          labelled so the telemetry below is never mistaken for live orders. */}
+      <div className="mb-6 flex items-start gap-2 rounded-xl border border-blue-500/30 bg-blue-500/[0.06] px-3 py-2.5 text-xs text-blue-200">
+        <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
+        <span>
+          <span className="font-bold uppercase tracking-wider">Simulation Mode</span>{' '}
+          — Shadow execution records the <em>intended</em> order against a{' '}
+          <em>simulated / testnet</em> fill to measure broker quality. <span className="font-semibold">No live
+          orders are placed on this screen.</span> Live execution unlocks only after the
+          validation gate below passes and you explicitly promote a broker.
+        </span>
+      </div>
+
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        {/* Tone is plain until there's data to judge — a red 0% fill or a
+            green 0.000% slippage on an empty account reads as real
+            (and flatteringly perfect) execution quality when there is none. */}
         <Stat label="Total Executions" value={String(list.length)} />
-        <Stat label="Fill Rate" value={`${fillRate}%`}
-          tone={fillRate >= 95 ? 'green' : fillRate >= 80 ? 'amber' : 'red'} />
-        <Stat label="Avg Slippage" value={`${(avgSlippage * 100).toFixed(3)}%`}
-          tone={avgSlippage < 0.001 ? 'green' : avgSlippage < 0.005 ? 'amber' : 'red'} />
-        <Stat label="Avg PnL Drift" value={`${avgDrift.toFixed(2)}%`}
-          tone={avgDrift < 2 ? 'green' : avgDrift < 5 ? 'amber' : 'red'} />
+        <Stat
+          label="Fill Rate"
+          value={list.length > 0 ? `${fillRate}%` : '—'}
+          tone={list.length === 0 ? 'plain' : fillRate >= 95 ? 'green' : fillRate >= 80 ? 'amber' : 'red'}
+        />
+        <Stat
+          label="Avg Slippage"
+          value={closed.length > 0 ? `${(avgSlippage * 100).toFixed(3)}%` : '—'}
+          tone={closed.length === 0 ? 'plain' : avgSlippage < 0.001 ? 'green' : avgSlippage < 0.005 ? 'amber' : 'red'}
+        />
+        <Stat
+          label="Avg PnL Drift"
+          value={closed.filter(r => r.pnl_drift_pct != null).length > 0 ? `${avgDrift.toFixed(2)}%` : '—'}
+          tone={closed.filter(r => r.pnl_drift_pct != null).length === 0 ? 'plain' : avgDrift < 2 ? 'green' : avgDrift < 5 ? 'amber' : 'red'}
+        />
       </div>
 
       <div className={cn(
