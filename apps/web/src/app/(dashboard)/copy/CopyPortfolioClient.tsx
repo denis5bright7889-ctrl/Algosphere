@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { CopyMode } from '@/lib/strategies'
 
@@ -34,9 +35,13 @@ interface Sub {
 interface Props {
   initialSubscriptions: Sub[]
   pnlBySub: Record<string, { total: number; count: number; wins: number }>
+  /** True when the user has at least one broker connection in `connected` state. */
+  brokerReady: boolean
 }
 
-export default function CopyPortfolioClient({ initialSubscriptions, pnlBySub }: Props) {
+export default function CopyPortfolioClient({
+  initialSubscriptions, pnlBySub, brokerReady,
+}: Props) {
   const [subs, setSubs] = useState<Sub[]>(initialSubscriptions)
   const [editing, setEditing] = useState<string | null>(null)
 
@@ -44,8 +49,32 @@ export default function CopyPortfolioClient({ initialSubscriptions, pnlBySub }: 
     setSubs(arr => arr.map(s => s.id === id ? { ...s, ...patch } : s))
   }
 
+  // If any sub has auto-copy enabled but no broker is in the
+  // 'connected' state, we surface this honestly at the top — the
+  // user's preference is saved, but no orders will execute. We do not
+  // silently let a green 'Copying' chip imply orders are flowing.
+  const anyAutoCopyOn = subs.some((s) => s.copy_enabled && s.copy_mode !== 'signal_only')
+  const showBrokerWarning = anyAutoCopyOn && !brokerReady
+
   return (
     <div className="space-y-3">
+      {showBrokerWarning && (
+        <div className="flex items-start gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
+          <div className="space-y-1">
+            <p className="font-semibold">Auto-copy is enabled, but no broker is connected.</p>
+            <p className="text-[12px] text-amber-200/80">
+              Your copy-trade preferences are saved, but the engine cannot execute orders
+              until at least one broker is in the <span className="font-mono">connected</span> state.
+              {' '}
+              <a href="/brokers" className="font-semibold underline hover:no-underline">
+                Connect or unlock a broker →
+              </a>
+            </p>
+          </div>
+        </div>
+      )}
+
       {subs.map(sub => {
         const pnl = pnlBySub[sub.id] ?? { total: 0, count: 0, wins: 0 }
         const isEditing = editing === sub.id
@@ -54,6 +83,7 @@ export default function CopyPortfolioClient({ initialSubscriptions, pnlBySub }: 
             key={sub.id}
             sub={sub}
             pnl={pnl}
+            brokerReady={brokerReady}
             isEditing={isEditing}
             onEdit={() => setEditing(isEditing ? null : sub.id)}
             onUpdate={(patch) => updateLocal(sub.id, patch)}
@@ -66,10 +96,11 @@ export default function CopyPortfolioClient({ initialSubscriptions, pnlBySub }: 
 }
 
 function SubscriptionRow({
-  sub, pnl, isEditing, onEdit, onUpdate, onCancel,
+  sub, pnl, brokerReady, isEditing, onEdit, onUpdate, onCancel,
 }: {
   sub: Sub
   pnl: { total: number; count: number; wins: number }
+  brokerReady: boolean
   isEditing: boolean
   onEdit: () => void
   onUpdate: (patch: Partial<Sub>) => void
@@ -169,7 +200,9 @@ function SubscriptionRow({
           <Stat
             label="My P&L"
             value={pnl.count > 0 ? `${pnl.total >= 0 ? '+' : ''}$${pnl.total.toFixed(2)}` : '—'}
-            tone={pnl.total >= 0 ? 'green' : 'red'}
+            // Only colour the value when copies actually exist — an
+            // emerald '—' previously read as 'zero pnl is good'.
+            tone={pnl.count === 0 ? 'plain' : pnl.total >= 0 ? 'green' : 'red'}
           />
           <Stat
             label="Copies"
@@ -226,13 +259,27 @@ function SubscriptionRow({
             <span className="font-medium">Auto-copy signals from this strategy</span>
           </label>
 
+          {copyEnabled && !brokerReady && (
+            <p className="rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-3 py-1.5 text-[11px] text-amber-200/90">
+              No broker connected — preferences below will be saved, but the engine
+              will not place orders until a broker is in the{' '}
+              <span className="font-mono">connected</span> state.
+              {' '}
+              <a href="/brokers" className="font-semibold underline hover:no-underline">
+                Wire one →
+              </a>
+            </p>
+          )}
+
           {copyEnabled && (
             <>
               <div>
-                <label className="block text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
+                <label htmlFor={`copy-mode-${sub.id}`} className="block text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
                   Copy Mode
                 </label>
                 <select
+                  id={`copy-mode-${sub.id}`}
+                  aria-label="Copy mode"
                   value={copyMode}
                   onChange={e => setCopyMode(e.target.value as CopyMode)}
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs focus:outline-none"

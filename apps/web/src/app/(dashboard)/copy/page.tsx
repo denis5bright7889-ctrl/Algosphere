@@ -31,6 +31,16 @@ export default async function CopyPortfolioPage() {
     .select('subscription_id, follower_pnl, status, created_at')
     .eq('follower_id', user.id)
 
+  // Broker readiness — auto-copy is only meaningful when at least one
+  // broker connection is in the 'connected' state. The UI must say so
+  // honestly (we never let the user think orders are flowing when they
+  // aren't).
+  const { data: brokers } = await supabase
+    .from('broker_connections')
+    .select('status')
+    .eq('user_id', user.id)
+  const brokerReady = (brokers ?? []).some((b) => b.status === 'connected')
+
   // Group PnL by subscription
   const pnlBySub: Record<string, { total: number; count: number; wins: number }> = {}
   for (const c of copies ?? []) {
@@ -76,7 +86,9 @@ export default async function CopyPortfolioPage() {
           value={totalTrades > 0
             ? `${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`
             : '—'}
-          tone={totalPnl >= 0 ? 'green' : 'red'}
+          // `tone` only colours the value when we actually have trades —
+          // an emerald '—' previously looked like 'zero pnl is good'.
+          tone={totalTrades === 0 ? 'plain' : totalPnl >= 0 ? 'green' : 'red'}
         />
       </div>
 
@@ -96,6 +108,7 @@ export default async function CopyPortfolioPage() {
         <CopyPortfolioClient
           initialSubscriptions={subs as never[]}
           pnlBySub={pnlBySub}
+          brokerReady={brokerReady}
         />
       )}
     </div>
