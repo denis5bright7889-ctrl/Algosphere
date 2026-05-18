@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
-import { BadgeCheck } from 'lucide-react'
+import { BadgeCheck, FlaskConical, AlertCircle, Activity } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/utils'
 import {
@@ -157,50 +157,10 @@ export default async function StrategyDetailPage({
             </div>
           </div>
 
-          {/* Performance */}
-          <div className="rounded-2xl border border-border bg-card p-6">
-            <h2 className="text-xs uppercase tracking-widest text-muted-foreground mb-4">
-              Live Performance ({s.days_live} days tracked)
-            </h2>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <PerfStat
-                label="Win Rate"
-                value={s.win_rate != null ? `${s.win_rate.toFixed(1)}%` : '—'}
-              />
-              <PerfStat
-                label="Avg R:R"
-                value={s.avg_rr != null ? `1:${s.avg_rr.toFixed(2)}` : '—'}
-              />
-              <PerfStat
-                label="Mo. Return"
-                value={s.monthly_return_avg != null
-                  ? `${s.monthly_return_avg >= 0 ? '+' : ''}${s.monthly_return_avg.toFixed(1)}%`
-                  : '—'}
-                tone={s.monthly_return_avg != null && s.monthly_return_avg >= 0 ? 'green' : 'red'}
-              />
-              <PerfStat
-                label="Max DD"
-                value={s.max_drawdown != null ? `${s.max_drawdown.toFixed(1)}%` : '—'}
-                tone="red"
-              />
-              <PerfStat
-                label="Sharpe Ratio"
-                value={s.sharpe_ratio != null ? s.sharpe_ratio.toFixed(2) : '—'}
-              />
-              <PerfStat
-                label="Total Signals"
-                value={s.total_signals.toLocaleString()}
-              />
-              <PerfStat
-                label="Subscribers"
-                value={s.subscribers_count.toLocaleString()}
-              />
-              <PerfStat
-                label="Copy Followers"
-                value={s.copy_followers_count.toLocaleString()}
-              />
-            </div>
-          </div>
+          {/* Performance — header reflects the actual data source state,
+              never claims "Live" when the strategy has no signals or only a
+              backtest. Strict no-fabrication policy. */}
+          <PerformanceSection s={s} />
 
           {/* Description */}
           {s.description && (
@@ -282,6 +242,133 @@ export default async function StrategyDetailPage({
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Source-aware performance panel. Three honest variants:
+ *
+ *   unverified  — verification_level='none' AND no signals yet.
+ *                 No metric grid; explicit "Awaiting first signals"
+ *                 panel so users never see dashes that could read as
+ *                 zero performance.
+ *   backtested  — verification_level='backtested'. Metrics shown with
+ *                 a prominent SIMULATION badge so backtest numbers are
+ *                 never mistaken for live track record.
+ *   live        — verification_level='live_30d/90d/180d'. Real live
+ *                 performance label with the verification level
+ *                 surfaced.
+ */
+function PerformanceSection({ s }: { s: FullStrategy }) {
+  const hasSignals = s.total_signals > 0
+  const level = s.verification_level
+  const isBacktest = level === 'backtested'
+  const isLive = level === 'live_30d' || level === 'live_90d' || level === 'live_180d'
+  const isUnverified = level === 'none' && !hasSignals
+
+  if (isUnverified) {
+    return (
+      <div className="rounded-2xl border border-border bg-card p-6">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-xs uppercase tracking-widest text-muted-foreground">
+            Performance
+          </h2>
+          <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-300">
+            <AlertCircle className="h-3 w-3" strokeWidth={2} aria-hidden />
+            Unverified
+          </span>
+        </div>
+        <div className="flex items-start gap-2 rounded-lg border border-dashed border-border bg-muted/10 p-4 text-xs text-muted-foreground">
+          <Activity className="mt-0.5 h-4 w-4 shrink-0 text-amber-300/60" strokeWidth={1.75} aria-hidden />
+          <p>
+            <span className="font-semibold text-foreground">Awaiting first signals.</span>{' '}
+            This strategy has no published signals yet, so there&apos;s no track record to
+            display. Win rate, R:R, drawdown and Sharpe ratio compute automatically once
+            the creator publishes live signals — we do not pre-populate placeholder
+            metrics.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  const headerLabel = isLive
+    ? `Live Performance · ${s.days_live} days tracked`
+    : isBacktest
+      ? 'Backtest Performance · Simulation'
+      : `Performance · ${s.total_signals.toLocaleString()} signals published`
+
+  const headerChip = isLive ? (
+    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-300">
+      <BadgeCheck className="h-3 w-3" strokeWidth={2} aria-hidden />
+      {verificationLevelLabel(level)}
+    </span>
+  ) : isBacktest ? (
+    <span className="inline-flex items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-violet-300">
+      <FlaskConical className="h-3 w-3" strokeWidth={2} aria-hidden />
+      Simulation · Backtest
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-300">
+      <AlertCircle className="h-3 w-3" strokeWidth={2} aria-hidden />
+      Unverified track record
+    </span>
+  )
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-6">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-xs uppercase tracking-widest text-muted-foreground">
+          {headerLabel}
+        </h2>
+        {headerChip}
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <PerfStat
+          label="Win Rate"
+          value={s.win_rate != null ? `${s.win_rate.toFixed(1)}%` : '—'}
+        />
+        <PerfStat
+          label="Avg R:R"
+          value={s.avg_rr != null ? `1:${s.avg_rr.toFixed(2)}` : '—'}
+        />
+        <PerfStat
+          label="Mo. Return"
+          value={s.monthly_return_avg != null
+            ? `${s.monthly_return_avg >= 0 ? '+' : ''}${s.monthly_return_avg.toFixed(1)}%`
+            : '—'}
+          tone={s.monthly_return_avg != null && s.monthly_return_avg >= 0 ? 'green' : 'red'}
+        />
+        <PerfStat
+          label="Max DD"
+          value={s.max_drawdown != null ? `${s.max_drawdown.toFixed(1)}%` : '—'}
+          tone="red"
+        />
+        <PerfStat
+          label="Sharpe Ratio"
+          value={s.sharpe_ratio != null ? s.sharpe_ratio.toFixed(2) : '—'}
+        />
+        <PerfStat
+          label="Total Signals"
+          value={s.total_signals.toLocaleString()}
+        />
+        <PerfStat
+          label="Subscribers"
+          value={s.subscribers_count.toLocaleString()}
+        />
+        <PerfStat
+          label="Copy Followers"
+          value={s.copy_followers_count.toLocaleString()}
+        />
+      </div>
+      {isBacktest && (
+        <p className="mt-3 text-[10px] text-muted-foreground">
+          Backtest results don&apos;t guarantee live performance. Subscribe only after
+          reviewing the strategy&apos;s methodology — and consider waiting for live
+          verification (30d / 90d / 180d badges) before sizing up.
+        </p>
+      )}
     </div>
   )
 }
