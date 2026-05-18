@@ -3,6 +3,7 @@ import { canAccess } from '@/lib/admin'
 import { LIFECYCLE_LABELS, LIFECYCLE_COLORS } from '@/lib/signals/lifecycle'
 import { GRADE_COLORS } from '@/lib/signals/quality'
 import { cn, formatDate } from '@/lib/utils'
+import LiveSignalProgress from '@/components/market/LiveSignalProgress'
 
 interface Props {
   signal: Signal
@@ -110,6 +111,17 @@ export default function SignalCard({ signal, userTier, userEmail }: Props) {
           </div>
         )}
       </div>
+
+      {/* Live mark price + distance to TP/SL — active crypto signals only. */}
+      {lifecycleState === 'active' && (
+        <LiveSignalProgress
+          pair={signal.pair}
+          direction={signal.direction}
+          entry={signal.entry_price}
+          sl={signal.stop_loss}
+          tp1={signal.take_profit_1}
+        />
+      )}
 
       {/* Intelligence metadata */}
       {(signal.confidence_score != null || signal.regime || signal.session) && (
