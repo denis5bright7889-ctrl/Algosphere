@@ -75,17 +75,23 @@ async function fetchAnalytics() {
     .slice(-6)
     .map(([month, revenue]) => ({ month, revenue }))
 
-  // Signals
+  // Signals — closed/wins counts feed the KpiCard, but a 0% fallback
+  // when nothing's closed reads as a real 0% rate. Hold null for the
+  // UI to render as '—'.
   const closed = sig.filter(x => x.status === 'closed')
   const wins = closed.filter(x => x.result === 'win').length
-  const signalWinRate = closed.length ? Math.round((wins / closed.length) * 100) : 0
+  const signalWinRate: number | null = closed.length
+    ? Math.round((wins / closed.length) * 100)
+    : null
   const pairCount: Record<string, number> = {}
   sig.forEach(s => { if (s.pair) pairCount[s.pair] = (pairCount[s.pair] ?? 0) + 1 })
   const topPairs = Object.entries(pairCount).sort(([, a], [, b]) => b - a).slice(0, 5).map(([pair, count]) => ({ pair, count }))
 
-  // Trades
+  // Trades — same nullable treatment for the platform-wide win rate.
   const totalPnl = tr.reduce((s, t) => s + (t.pnl ?? 0), 0)
-  const profWinRate = tr.length ? Math.round(tr.filter(t => (t.pnl ?? 0) > 0).length / tr.length * 100) : 0
+  const profWinRate: number | null = tr.length
+    ? Math.round(tr.filter(t => (t.pnl ?? 0) > 0).length / tr.length * 100)
+    : null
   const userPnl: Record<string, number> = {}
   tr.forEach(t => { userPnl[t.user_id] = (userPnl[t.user_id] ?? 0) + (t.pnl ?? 0) })
   const topTraders = Object.entries(userPnl).sort(([, a], [, b]) => b - a).slice(0, 5).map(([id, pnl]) => ({ id: id.slice(0, 8) + '…', pnl }))
@@ -115,17 +121,33 @@ export default async function AdminDashboardPage() {
           <p className="text-sm text-muted-foreground mt-1">AlgoSphere Quant — Platform Intelligence</p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="rounded-full bg-green-100 text-green-700 text-xs font-bold px-3 py-1">LIVE</span>
-          <span className="text-xs text-muted-foreground">{new Date().toLocaleString()}</span>
+          {/* Snapshot timestamp only — the previous static green 'LIVE'
+              chip was decorative and unconditionally green regardless of
+              data freshness. The page is server-rendered on each load,
+              so this is what 'live' actually means here. */}
+          <span className="text-xs text-muted-foreground">
+            Snapshot at {new Date().toLocaleString()}
+          </span>
         </div>
       </div>
 
-      {/* KPI row */}
+      {/* KPI row — null-aware: 'no closed signals' / 'no trades' don't
+          paint 0% in colour. */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiCard label="Total Users" value={String(users.totalUsers)} sub={`+${users.newLast7} this week`} color="blue" />
         <KpiCard label="Total Revenue" value={formatCurrency(revenue.totalRevenue)} sub={`${revenue.totalApproved} payments`} color="green" />
-        <KpiCard label="Signal Win Rate" value={`${signals.winRate}%`} sub={`${signals.wins}W / ${signals.losses}L`} color="yellow" />
-        <KpiCard label="Platform P&L" value={formatCurrency(trades.totalPnl)} sub={`${trades.winRate}% win rate`} color={trades.totalPnl >= 0 ? 'green' : 'red'} />
+        <KpiCard
+          label="Signal Win Rate"
+          value={signals.winRate != null ? `${signals.winRate}%` : '—'}
+          sub={signals.winRate != null ? `${signals.wins}W / ${signals.losses}L` : 'no closed signals yet'}
+          color={signals.winRate != null ? 'yellow' : 'plain'}
+        />
+        <KpiCard
+          label="Platform P&L"
+          value={trades.total > 0 ? formatCurrency(trades.totalPnl) : '—'}
+          sub={trades.winRate != null ? `${trades.winRate}% win rate` : 'no trades logged yet'}
+          color={trades.total === 0 ? 'plain' : trades.totalPnl >= 0 ? 'green' : 'red'}
+        />
       </div>
 
       {/* Charts row */}
@@ -172,7 +194,11 @@ export default async function AdminDashboardPage() {
           <div className="space-y-2">
             <StatRow label="Total signals" value={String(signals.total)} />
             <StatRow label="Active" value={String(signals.active)} />
-            <StatRow label="Win rate" value={`${signals.winRate}%`} highlight={signals.winRate >= 60} />
+            <StatRow
+              label="Win rate"
+              value={signals.winRate != null ? `${signals.winRate}%` : '—'}
+              highlight={signals.winRate != null ? signals.winRate >= 60 : undefined}
+            />
             <div className="border-t border-border pt-2 mt-2">
               <p className="text-xs text-muted-foreground mb-2">Top pairs</p>
               {signals.topPairs.map(p => (
@@ -189,8 +215,15 @@ export default async function AdminDashboardPage() {
         <div className="rounded-xl border border-border bg-card p-5 space-y-3">
           <h2 className="font-semibold">Trade Analytics</h2>
           <StatRow label="Total trades logged" value={String(trades.total)} />
-          <StatRow label="Platform P&L" value={formatCurrency(trades.totalPnl)} highlight={trades.totalPnl >= 0} />
-          <StatRow label="Win rate" value={`${trades.winRate}%`} />
+          <StatRow
+            label="Platform P&L"
+            value={trades.total > 0 ? formatCurrency(trades.totalPnl) : '—'}
+            highlight={trades.total > 0 ? trades.totalPnl >= 0 : undefined}
+          />
+          <StatRow
+            label="Win rate"
+            value={trades.winRate != null ? `${trades.winRate}%` : '—'}
+          />
           <div className="border-t border-border pt-2 mt-2">
             <p className="text-xs text-muted-foreground mb-2">Top setups</p>
             {trades.topSetups.map(s => (
