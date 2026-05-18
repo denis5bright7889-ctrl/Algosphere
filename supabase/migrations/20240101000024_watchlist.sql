@@ -21,6 +21,12 @@ CREATE INDEX IF NOT EXISTS idx_watchlist_user
 
 ALTER TABLE public.watchlist_items ENABLE ROW LEVEL SECURITY;
 
+-- Idempotent — re-running is safe (dashboard-apply + future
+-- `supabase db push` can't collide on policy re-creation).
+DROP POLICY IF EXISTS "watchlist_own_select" ON public.watchlist_items;
+DROP POLICY IF EXISTS "watchlist_own_insert" ON public.watchlist_items;
+DROP POLICY IF EXISTS "watchlist_own_delete" ON public.watchlist_items;
+
 CREATE POLICY "watchlist_own_select"
   ON public.watchlist_items
   FOR SELECT
