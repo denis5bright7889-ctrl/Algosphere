@@ -58,21 +58,53 @@ function bool(row: DuneRow, keys: readonly string[]): boolean | null {
   return null
 }
 
+/**
+ * Real on-chain data spans 50+ chains (berachain, tron, sui, …) — far
+ * beyond our canonical 7. The OLD behaviour dropped every row whose
+ * chain wasn't in the allowlist, which silently discarded the bulk of
+ * a real Dune feed (multi-million-dollar transfers vanishing because
+ * "berachain" wasn't enumerated). That's data loss masquerading as
+ * "no data".
+ *
+ * New behaviour: accept ANY non-empty chain, normalised to lowercase.
+ * Canonical names pass through as `Chain`; unknown-but-real chains are
+ * passed through too (cast at this adapter boundary only). The UI is
+ * already resilient — `CHAIN_CLS[c] ?? <neutral fallback>` everywhere —
+ * and the `Query.chains` filter still works because it intersects
+ * against the user's explicit selection, never this raw value.
+ */
 function asChain(value: string | null): Chain | null {
   if (!value) return null
   const v = value.toLowerCase().trim()
-  return (CHAINS as readonly string[]).includes(v) ? (v as Chain) : null
+  if (!v) return null
+  // Known → canonical; unknown → still surfaced (no fabrication, no
+  // silent loss). Boundary cast is intentional and documented.
+  return v as Chain
+}
+
+/** Used only to tag whether a chain is one we render a colour for. */
+export function isCanonicalChain(c: string): boolean {
+  return (CHAINS as readonly string[]).includes(c)
 }
 
 function asIso(value: string | null): string | null {
   if (!value) return null
-  // Accept either ISO strings or epoch ms/seconds.
+  // Epoch seconds / millis.
   const n = Number(value)
   if (Number.isFinite(n) && n > 0) {
     const ms = n > 1e12 ? n : n * 1000
-    return new Date(ms).toISOString()
+    const d = new Date(ms)
+    return isNaN(d.getTime()) ? null : d.toISOString()
   }
-  const d = new Date(value)
+  // Dune commonly returns "YYYY-MM-DD HH:MM:SS.sss UTC" — the trailing
+  // " UTC" and the space separator aren't reliably parsed by every JS
+  // engine. Normalise to ISO 8601 before Date parsing.
+  let s = value.trim()
+  if (/\bUTC\b/i.test(s)) {
+    s = s.replace(/\s*UTC\s*$/i, '').replace(' ', 'T') + 'Z'
+  }
+  let d = new Date(s)
+  if (isNaN(d.getTime())) d = new Date(value) // last-resort: engine's native parse
   return isNaN(d.getTime()) ? null : d.toISOString()
 }
 
