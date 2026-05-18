@@ -13,6 +13,7 @@ import Panel from '@/components/dashboard/overview/Panel'
 import Kpi from '@/components/dashboard/overview/Kpi'
 import GettingStarted from '@/components/dashboard/overview/GettingStarted'
 import SessionIntelligence from '@/components/dashboard/overview/SessionIntelligence'
+import MarketMovers from '@/components/dashboard/overview/MarketMovers'
 import { Clock } from 'lucide-react'
 
 export const metadata = { title: 'Command Center' }
@@ -291,6 +292,19 @@ export default async function OverviewPage() {
                 </li>
               ))}
             </ul>
+          </Panel>
+
+          <Panel
+            title="Major Market Movers"
+            icon={TrendingUp}
+            href="/market"
+            hrefLabel="Full tape"
+            hint={{
+              id: 'overview-movers',
+              text: 'Real top gainers/losers from the live Binance→Coinbase crypto feed (the same shared stream as the market tape — no extra connections). Crypto-only by design: forex/stock/futures movers are omitted, not faked, until those feeds are connected.',
+            }}
+          >
+            <MarketMovers />
           </Panel>
 
           <Panel title="Risk Warnings" icon={ShieldAlert}>
