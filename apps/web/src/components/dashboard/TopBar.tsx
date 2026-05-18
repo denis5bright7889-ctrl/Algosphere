@@ -80,7 +80,7 @@ export default async function TopBar() {
           <LiveMarketPill />
         </span>
         <span className="sm:hidden">
-          <LiveMarketPill label="LIVE" />
+          <LiveMarketPill compact />
         </span>
       </div>
 
