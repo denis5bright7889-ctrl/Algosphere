@@ -2,11 +2,13 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import {
   MessagesSquare, Activity, Target, ShieldCheck, Brain, Coins, Globe,
-  MessageCircle, Megaphone, Flame, Sparkles, ArrowUp,
+  MessageCircle, Megaphone,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import CommunityClient from './CommunityClient'
+import ThreadsList from './ThreadsList'
+import type { ThreadRow } from '@/hooks/useRealtimeThreads'
 
 export const metadata = { title: 'Community — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'
@@ -91,92 +93,17 @@ export default async function CommunityPage({
           })}
         </nav>
 
-        {/* Threads list */}
-        <div>
-          <div className="mb-3 flex items-center gap-1">
-            {(['hot','new','top'] as const).map(s => (
-              <a
-                key={s}
-                href={`/community?cat=${cat}&sort=${s}`}
-                className={cn(
-                  'rounded-full px-3 py-1 text-[11px] font-medium transition-colors',
-                  sort === s
-                    ? 'bg-amber-500/10 text-amber-300'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <span className="inline-flex items-center gap-1">
-                  {s === 'hot'  && <Flame    className="h-3 w-3" strokeWidth={2} aria-hidden />}
-                  {s === 'new'  && <Sparkles className="h-3 w-3" strokeWidth={2} aria-hidden />}
-                  {s === 'top'  && <ArrowUp  className="h-3 w-3" strokeWidth={2} aria-hidden />}
-                  {s === 'hot' ? 'Hot' : s === 'new' ? 'New' : 'Top'}
-                </span>
-              </a>
-            ))}
-          </div>
-
-          {!threads || threads.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border p-12 text-center">
-              <p className="text-sm text-muted-foreground">
-                No discussions in {cat === 'all' ? 'this community' : `the ${cat} category`} yet.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {threads.map((t: any) => (
-                <ThreadCard key={t.id} thread={t} />
-              ))}
-            </div>
-          )}
-        </div>
+        {/* Threads list — realtime-augmented client component */}
+        <ThreadsList
+          // Supabase's generated types model the FK-joined `profiles` as an
+          // array even when the row syntax (`!discussion_threads_author_id_fkey`)
+          // returns a single object. Cast through unknown to satisfy TS without
+          // bending the runtime shape.
+          initial={((threads ?? []) as unknown) as ThreadRow[]}
+          category={cat}
+          sort={(['hot', 'new', 'top'] as const).includes(sort as 'hot' | 'new' | 'top') ? sort as 'hot' | 'new' | 'top' : 'hot'}
+        />
       </div>
     </div>
-  )
-}
-
-function ThreadCard({ thread }: { thread: any }) {
-  const handle = thread.profiles?.public_handle ?? 'anonymous'
-  return (
-    <a
-      href={`/community/${thread.id}`}
-      className="block rounded-xl border border-border bg-card p-4 hover:border-amber-500/30 transition-colors"
-    >
-      <div className="flex items-start gap-3">
-        {/* Vote score */}
-        <div className="flex flex-col items-center min-w-[40px]">
-          <span className="text-xs text-muted-foreground">⬆</span>
-          <span className={cn(
-            'font-bold tabular-nums text-sm',
-            thread.votes_score > 0 ? 'text-amber-300' : 'text-muted-foreground',
-          )}>
-            {thread.votes_score}
-          </span>
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-300 capitalize">
-              {thread.category}
-            </span>
-            {thread.tags?.slice(0, 2).map((tag: string) => (
-              <span key={tag} className="text-[10px] text-muted-foreground">
-                #{tag}
-              </span>
-            ))}
-          </div>
-          <h3 className="text-sm font-semibold line-clamp-1">{thread.title}</h3>
-          <p className="text-xs text-muted-foreground line-clamp-1 mt-1">{thread.body}</p>
-          <div className="flex items-center gap-3 mt-2 text-[10px] text-muted-foreground">
-            <span>@{handle}</span>
-            <span>·</span>
-            <span>{thread.replies_count} replies</span>
-            <span>·</span>
-            <span>{thread.views_count} views</span>
-            <span>·</span>
-            <span>{new Date(thread.created_at).toLocaleDateString()}</span>
-          </div>
-        </div>
-      </div>
-    </a>
   )
 }
