@@ -1,20 +1,22 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { FlaskConical, AlertTriangle } from 'lucide-react'
+import { FlaskConical, AlertTriangle, Info, Pin } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Conn {
-  id:          string
-  broker:      string
-  label:       string | null
-  account_id:  string | null
-  is_live:     boolean
-  is_testnet:  boolean
-  status:      string
-  equity_usd:  number | null
-  is_default:  boolean
-  created_at:  string
+  id:                 string
+  broker:             string
+  label:              string | null
+  account_id:         string | null
+  is_live:            boolean
+  is_testnet:         boolean
+  status:             string
+  equity_usd:         number | null
+  equity_updated_at:  string | null
+  error_message:      string | null
+  is_default:         boolean
+  created_at:         string
 }
 
 // `labels` overrides the generic API Key / API Secret / Passphrase
@@ -80,6 +82,9 @@ export default function BrokersClient({ initialConnections }: { initialConnectio
       c.id === id ? { ...c, is_testnet: false, is_live: true } : c,
     ))
   }
+  function onDefaulted(id: string) {
+    setConns(arr => arr.map(c => ({ ...c, is_default: c.id === id })))
+  }
 
   return (
     <>
@@ -102,7 +107,13 @@ export default function BrokersClient({ initialConnections }: { initialConnectio
         <>
           <div className="space-y-3 mb-4">
             {conns.map(c => (
-              <ConnectionCard key={c.id} c={c} onRemoved={onRemoved} onPromoted={onPromoted} />
+              <ConnectionCard
+                key={c.id}
+                c={c}
+                onRemoved={onRemoved}
+                onPromoted={onPromoted}
+                onDefaulted={onDefaulted}
+              />
             ))}
           </div>
           {!adding && (
@@ -134,17 +145,32 @@ interface Readiness {
 }
 
 function ConnectionCard({
-  c, onRemoved, onPromoted,
+  c, onRemoved, onPromoted, onDefaulted,
 }: {
   c: Conn
   onRemoved: (id: string) => void
   onPromoted: (id: string) => void
+  onDefaulted: (id: string) => void
 }) {
   const [pending, startTransition] = useTransition()
   const [confirming, setConfirming] = useState(false)
   const [readiness, setReadiness] = useState<Readiness | null>(null)
   const [showGate, setShowGate] = useState(false)
   const [goLiveErr, setGoLiveErr] = useState<string | null>(null)
+
+  function setDefault() {
+    startTransition(async () => {
+      try {
+        const res = await fetch(`/api/brokers/${c.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ is_default: true }),
+        })
+        if (!res.ok) throw new Error()
+        onDefaulted(c.id)
+      } catch { /* silent — UI stays */ }
+    })
+  }
 
   function loadReadiness() {
     setShowGate(true)
@@ -216,8 +242,16 @@ function ConnectionCard({
       {c.equity_usd != null && (
         <p className="text-sm tabular-nums">
           Equity: <span className="font-bold">${c.equity_usd.toLocaleString()}</span>
+          {c.equity_updated_at && (
+            <span className="ml-2 text-[10px] text-muted-foreground">
+              · synced {new Date(c.equity_updated_at).toLocaleString()}
+            </span>
+          )}
         </p>
       )}
+
+      {/* Truthful per-status explainer — never claims a state that isn't real. */}
+      <StatusExplainer c={c} />
 
       {c.is_testnet && (
         <div className="mt-3 rounded-lg border border-border bg-muted/20 p-3">
@@ -269,7 +303,17 @@ function ConnectionCard({
         </div>
       )}
 
-      <div className="mt-3 flex justify-end gap-2">
+      <div className="mt-3 flex flex-wrap justify-end gap-2">
+        {!c.is_default && (
+          <button
+            type="button"
+            onClick={setDefault}
+            disabled={pending}
+            className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-amber-500/40 hover:text-amber-300 disabled:opacity-50"
+          >
+            <Pin className="h-3 w-3" strokeWidth={2} aria-hidden /> Set as default
+          </button>
+        )}
         {confirming ? (
           <>
             <button
@@ -380,10 +424,10 @@ function AddConnectionForm({
         />
       </Field>
 
-      <Field label="Label-free account tag (optional)">
+      <Field label="Account number (optional)">
         <input
           type="text" value={accountId} onChange={e => setAccountId(e.target.value)}
-          maxLength={60} placeholder="optional — distinguishes multiple keys"
+          maxLength={60} placeholder="distinguishes multiple keys on the same broker"
           className={inputCls}
         />
       </Field>
@@ -452,6 +496,63 @@ function AddConnectionForm({
       </div>
     </div>
   )
+}
+
+/**
+ * Tells the user — truthfully — what the current status means and
+ * what unlocks the next transition. Critically: never claims a
+ * handshake happened when one hasn't. For MT5 the message names the
+ * external dependency (signal-engine + MT5 bridge) so the user
+ * doesn't assume the platform itself is broken.
+ */
+function StatusExplainer({ c }: { c: Conn }) {
+  const isMt5 = c.broker === 'mt5'
+
+  if (c.status === 'pending') {
+    return (
+      <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] p-3 text-[11px] text-amber-200/90">
+        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={1.75} aria-hidden />
+        <div className="space-y-1">
+          <p>
+            <span className="font-semibold">Encrypted credentials saved.</span>{' '}
+            Status will flip to <span className="font-mono">connected</span> after the
+            signal-engine performs its first successful broker API handshake — we never
+            mark a connection live without the round-trip.
+          </p>
+          {isMt5 && (
+            <p className="text-amber-200/70">
+              MT5 specifically requires the engine&apos;s MT5 bridge to be reachable. Until then
+              this stays pending — that&apos;s the correct state, not a UI bug.
+            </p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  if (c.status === 'error' || c.status === 'disconnected' || c.status === 'revoked') {
+    return (
+      <div className="mt-3 flex items-start gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-[11px] text-rose-200">
+        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={1.75} aria-hidden />
+        <div className="space-y-1">
+          <p>
+            <span className="font-semibold capitalize">{c.status}</span> — the engine&apos;s
+            last attempt to reach the broker failed.
+          </p>
+          {c.error_message && (
+            <p className="font-mono text-[10px] text-rose-300/80 break-all">{c.error_message}</p>
+          )}
+          <p className="text-rose-200/70">
+            Check API key permissions (read + trade, no withdrawal),{' '}
+            {isMt5 ? 'verify the MT5 server name exactly matches your broker, ' : ''}
+            or remove and re-add the connection with fresh credentials.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  return null
 }
 
 function Metric({
