@@ -15,6 +15,7 @@ const DIR_CLS: Record<WhaleFlow['direction'], string> = {
   accumulate: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
   out:        'border-rose-500/40 bg-rose-500/10 text-rose-300',
   distribute: 'border-rose-500/40 bg-rose-500/10 text-rose-300',
+  unknown:    'border-border bg-muted/30 text-muted-foreground',
 }
 
 export default function WhaleFlowsClient({ ent }: { ent: IntelEntitlements }) {
@@ -22,13 +23,14 @@ export default function WhaleFlowsClient({ ent }: { ent: IntelEntitlements }) {
   const narrative = useIntelNarrative('whale-flows', ent.aiNarratives)
 
   const tally = useMemo(() => {
-    let inflow = 0, outflow = 0, smart = 0
+    let inflow = 0, outflow = 0, smart = 0, unclassified = 0, unclassifiedN = 0
     for (const r of data) {
       if (r.direction === 'in' || r.direction === 'accumulate') inflow += r.amount_usd
-      else outflow += r.amount_usd
+      else if (r.direction === 'out' || r.direction === 'distribute') outflow += r.amount_usd
+      else { unclassified += r.amount_usd; unclassifiedN += 1 } // source had no direction — excluded, never guessed
       if (r.is_smart_money) smart += r.amount_usd
     }
-    return { inflow, outflow, smart, net: inflow - outflow }
+    return { inflow, outflow, smart, net: inflow - outflow, unclassified, unclassifiedN }
   }, [data])
 
   return (
@@ -53,6 +55,14 @@ export default function WhaleFlowsClient({ ent }: { ent: IntelEntitlements }) {
         <Stat label="Net flow" value={usd(tally.net)} tone={tally.net >= 0 ? 'up' : 'down'} />
         <Stat label="Smart-money vol" value={usd(tally.smart)} tone="neutral" />
       </div>
+
+      {tally.unclassifiedN > 0 && (
+        <p className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
+          {tally.unclassifiedN} flow{tally.unclassifiedN === 1 ? '' : 's'} ({usd(tally.unclassified)})
+          {' '}excluded from accumulation/distribution — the source feed carries no direction
+          column or CEX wallet labels, so direction can&apos;t be determined and is not guessed.
+        </p>
+      )}
 
       {loading ? (
         <Skeleton />
@@ -121,6 +131,16 @@ function Stat({ label, value, tone }: { label: string; value: string; tone: 'up'
   )
 }
 function DirTag({ d }: { d: WhaleFlow['direction'] }) {
+  if (d === 'unknown') {
+    return (
+      <span
+        title="Source feed has no direction column / CEX labels — not classified (never guessed)."
+        className={cn('inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-bold capitalize', DIR_CLS.unknown)}
+      >
+        unclassified
+      </span>
+    )
+  }
   const up = d === 'in' || d === 'accumulate'
   const Icon = up ? ArrowDownRight : ArrowUpRight
   return (

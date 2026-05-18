@@ -187,13 +187,18 @@ export class DuneProvider implements OnchainProvider {
     if (surface === 'whale-flows') {
       const rows = await this.getWhaleFlows({ ...q, limit: 100 })
       if (!rows.length) return null
-      let accum = 0, distr = 0
+      let accum = 0, distr = 0, unknown = 0
       for (const r of rows) {
         if (r.direction === 'in' || r.direction === 'accumulate') accum += r.amount_usd
-        else distr += r.amount_usd
+        else if (r.direction === 'out' || r.direction === 'distribute') distr += r.amount_usd
+        else unknown += r.amount_usd // direction not provided by source — excluded, not bucketed
+      }
+      if (accum === 0 && distr === 0) {
+        return `${usd(unknown)} in large transfers over the window — source feed carries no direction (CEX labels), so accumulation vs distribution can't be classified.`
       }
       const net = accum - distr
-      return `Whale accumulation ${usd(accum)} vs distribution ${usd(distr)} over the window. Net: ${net >= 0 ? '+' : ''}${usd(net)}.`
+      const tail = unknown > 0 ? ` ${usd(unknown)} unclassified (no direction in source).` : ''
+      return `Whale accumulation ${usd(accum)} vs distribution ${usd(distr)} over the window. Net: ${net >= 0 ? '+' : ''}${usd(net)}.${tail}`
     }
     if (surface === 'exchange-flows') {
       const rows = await this.getExchangeFlows({ ...q, limit: 50 })

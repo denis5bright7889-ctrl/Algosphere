@@ -143,9 +143,12 @@ export function mapSmartMoneyRow(row: DuneRow, idx: number): SmartMoneyBuy | nul
     wallet_label: str(row, ['wallet_label', 'label', 'wallet_name']),
     amount_usd: amount,
     price_usd: num(row, ['price_usd', 'price']) ?? 0,
+    // No score column → null (UI shows "Unrated"). Previously defaulted
+    // to 0.5, which rendered a fabricated 50%-confidence bar on every
+    // real row.
     conviction: conviction != null
       ? Math.max(0, Math.min(1, conviction > 1 ? conviction / 100 : conviction))
-      : 0.5,
+      : null,
     sector: str(row, ['sector', 'category', 'narrative']),
     observed_at: observed,
   }
@@ -164,15 +167,23 @@ export function mapWhaleRow(row: DuneRow, idx: number): WhaleFlow | null {
 
   if (!chain || !symbol || amount == null || !observed) return null
 
-  // Direction: prefer explicit column; else infer from to_label (CEX hot wallets) heuristic.
-  let directionRaw = (str(row, ['direction', 'flow_type', 'action']) ?? '').toLowerCase()
-  if (!['in', 'out', 'accumulate', 'distribute'].includes(directionRaw)) {
-    const to = (str(row, ['to_label', 'to']) ?? '').toLowerCase()
-    directionRaw = to.includes('hot') || to.includes('exchange') || to.includes('binance') || to.includes('coinbase')
-      ? 'distribute'
-      : 'accumulate'
+  // Direction: an explicit column wins. Otherwise infer ONLY from a
+  // CEX-labelled counterparty. A raw 0x address carries no direction
+  // signal — we return 'unknown' rather than guessing 'accumulate'
+  // (which previously skewed the whole accumulation/distribution
+  // split to ~100% accumulation on label-less feeds — fabricated).
+  const explicit = (str(row, ['direction', 'flow_type', 'action']) ?? '').toLowerCase()
+  let direction: WhaleFlow['direction']
+  if (['in', 'out', 'accumulate', 'distribute'].includes(explicit)) {
+    direction = explicit as WhaleFlow['direction']
+  } else {
+    const to = (str(row, ['to_label', 'receiver_label']) ?? '').toLowerCase()
+    const from = (str(row, ['from_label', 'sender_label']) ?? '').toLowerCase()
+    const cex = (s: string) =>
+      s.includes('hot') || s.includes('exchange') || s.includes('binance') ||
+      s.includes('coinbase') || s.includes('okx') || s.includes('kraken') || s.includes('bybit')
+    direction = cex(to) ? 'distribute' : cex(from) ? 'accumulate' : 'unknown'
   }
-  const direction = directionRaw as WhaleFlow['direction']
 
   const amount_token = num(row, ['amount_token', 'token_amount', 'amount'])
   const price_usd = num(row, ['price_usd', 'price'])

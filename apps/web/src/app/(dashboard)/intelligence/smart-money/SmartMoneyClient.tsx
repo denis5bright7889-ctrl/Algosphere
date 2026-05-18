@@ -114,7 +114,18 @@ export default function SmartMoneyClient({ ent }: { ent: IntelEntitlements }) {
 function ChainTag({ c }: { c: string }) {
   return <span className={cn('inline-flex rounded-full border px-1.5 py-0.5 text-[9px] font-bold capitalize', CHAIN_CLS[c] ?? 'border-border text-muted-foreground')}>{c}</span>
 }
-function Conviction({ v }: { v: number }) {
+function Conviction({ v }: { v: number | null }) {
+  // Source provided no score → say so. Never a fabricated bar.
+  if (v == null) {
+    return (
+      <span
+        title="The configured data source did not provide a conviction/score column for this row."
+        className="inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground bg-muted/40"
+      >
+        Unrated
+      </span>
+    )
+  }
   const p = Math.round(v * 100)
   return (
     <span className="flex items-center gap-2">

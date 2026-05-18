@@ -33,7 +33,7 @@ export interface SmartMoneyBuy {
   wallet_label:     string | null      // 'Cobie', 'GCR', etc. when known
   amount_usd:       number
   price_usd:        number
-  conviction:       number             // 0..1 — provider's confidence/quality score
+  conviction:       number | null      // 0..1 confidence/quality score; null = source provided none (UI must show "Unrated", never a fabricated midpoint)
   sector:           string | null      // 'AI', 'DeFi', 'L2', 'Meme', 'RWA', etc.
   observed_at:      string             // ISO timestamp
 }
@@ -43,7 +43,7 @@ export interface WhaleFlow {
   chain:            Chain
   token_symbol:     string
   token_address:    string
-  direction:        'in' | 'out' | 'accumulate' | 'distribute'
+  direction:        'in' | 'out' | 'accumulate' | 'distribute' | 'unknown' // 'unknown' = source had no direction column / CEX labels; never guessed
   from_label:       string | null      // 'Binance Hot Wallet', 'Whale 0x4f...'
   to_label:         string | null
   amount_usd:       number
