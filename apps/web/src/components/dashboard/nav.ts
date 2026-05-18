@@ -21,6 +21,7 @@ import {
   BookOpen, Calculator, Briefcase, BrainCircuit, KeyRound, Rocket,
   Settings2, BadgeDollarSign, Handshake, BadgeCheck, LogOut,
   Compass, LineChart, MessageSquare, Wrench, UserCog, Waves,
+  Building2, Coins, TrendingUp, Grid3x3, Sparkles,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -80,6 +81,19 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/news',       label: 'Market News',         icon: Newspaper,        keywords: 'headlines' },
       { href: '/psychology', label: 'AI Psychology Coach', icon: Brain,            keywords: 'mindset tilt emotion' },
       { href: '/traders',    label: 'Leaderboards',        icon: Trophy,           keywords: 'ranking top traders' },
+    ],
+  },
+  {
+    label: 'Intelligence',
+    icon: BrainCircuit,
+    items: [
+      { href: '/intelligence/smart-money',          label: 'Smart Money',         icon: Sparkles,     keywords: 'wallet accumulation conviction onchain' },
+      { href: '/intelligence/whale-flows',          label: 'Whale Flows',         icon: Waves,        keywords: 'large transfers accumulation distribution' },
+      { href: '/intelligence/exchange-flows',       label: 'Exchange Flows',      icon: Building2,    keywords: 'cex inflow outflow sell pressure' },
+      { href: '/intelligence/stablecoin-liquidity', label: 'Stablecoin Liquidity', icon: Coins,       keywords: 'usdt usdc mint burn dry powder' },
+      { href: '/intelligence/token-momentum',       label: 'Token Momentum',      icon: TrendingUp,   keywords: 'volume holder growth trending' },
+      { href: '/intelligence/market-rotation',      label: 'Market Rotation',     icon: Repeat,       keywords: 'sector capital flow narrative' },
+      { href: '/intelligence/heatmap',              label: 'On-Chain Heatmap',    icon: Grid3x3,      keywords: 'cross chain intensity liquidity activity' },
     ],
   },
   {
