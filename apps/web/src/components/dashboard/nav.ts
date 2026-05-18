@@ -98,6 +98,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Portfolio',
     icon: LineChart,
     items: [
+      { href: '/watchlist', label: 'Watchlist',      icon: Bell,      keywords: 'pin instruments universe symbols favourites' },
       { href: '/copy',      label: 'Copy Portfolio', icon: Repeat,    keywords: 'mirror auto follow allocation' },
       { href: '/analytics', label: 'Performance',    icon: BarChart3, keywords: 'pnl stats win rate analytics' },
     ],
