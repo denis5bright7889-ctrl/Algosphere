@@ -70,7 +70,17 @@ export default function SignalManager({ initialSignals, strategies }: Props) {
           ))}
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <span className="rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold px-2 py-0.5">
+          {/* Active chip — emerald only when there's actually something
+              live to indicate. '0 live' previously rendered in emerald,
+              same value-absent-in-tone family of bugs. */}
+          <span
+            className={cn(
+              'rounded-full px-2 py-0.5 text-xs font-bold',
+              active > 0
+                ? 'bg-emerald-100 text-emerald-700'
+                : 'bg-muted text-muted-foreground',
+            )}
+          >
             {active} live
           </span>
           <button
@@ -198,10 +208,17 @@ function SignalRow({
 }
 
 function Pip({ label, value, color }: { label: string; value: string | number | null | undefined; color?: string }) {
+  // The colour prop (red for SL, green for TP) only meaningfully
+  // applies when there's a real value. A '—' painted red previously
+  // suggested 'this signal has a stop loss of nothing, which is bad' —
+  // it's just absent data. Drop tone when value is nullish.
+  const hasValue = value != null && value !== ''
   return (
     <div>
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={cn('font-semibold', color)}>{value ?? '—'}</p>
+      <p className={cn('font-semibold', hasValue ? color : 'text-muted-foreground')}>
+        {hasValue ? value : '—'}
+      </p>
     </div>
   )
 }
