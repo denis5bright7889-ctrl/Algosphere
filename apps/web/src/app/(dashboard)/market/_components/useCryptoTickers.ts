@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import {
-  WS_URL, normalizeWs, type Ticker, type WsTicker,
+  WS_URL, REST_URL, normalizeRest, normalizeWs, type Ticker, type WsTicker,
 } from '@/lib/binance'
 
 export type StreamStatus = 'connecting' | 'live' | 'reconnecting' | 'offline'
@@ -61,13 +61,23 @@ export function useCryptoTickers() {
     })
   }, [])
 
+  /**
+   * Snapshot fetch goes directly to Binance public REST from the
+   * browser (CORS: `*`). A server proxy can't help here — Binance
+   * geoblocks Vercel's US-edge egress with HTTP 451, while the user's
+   * own IP almost always reaches the public API. When even the
+   * browser can't reach it, we honestly surface `offline` rather
+   * than fabricating prices.
+   */
   const seedFromRest = useCallback(async () => {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 4000)
     try {
-      const res = await fetch('/api/market/crypto', { cache: 'no-store' })
-      const json = await res.json().catch(() => null)
+      const res = await fetch(REST_URL, { signal: ctrl.signal, cache: 'no-store' })
+      const rows = await res.json().catch(() => null)
       if (!aliveRef.current) return
-      if (res.ok && json?.data?.length) {
-        for (const t of json.data as Ticker[]) applyTicker(t)
+      if (res.ok && Array.isArray(rows)) {
+        for (const t of normalizeRest(rows)) applyTicker(t)
       } else {
         setS((cur) => ({ ...cur, status: cur.tickers.length ? cur.status : 'offline' }))
       }
@@ -75,6 +85,8 @@ export function useCryptoTickers() {
       if (aliveRef.current) {
         setS((cur) => ({ ...cur, status: cur.tickers.length ? cur.status : 'offline' }))
       }
+    } finally {
+      clearTimeout(timer)
     }
   }, [applyTicker])
 
