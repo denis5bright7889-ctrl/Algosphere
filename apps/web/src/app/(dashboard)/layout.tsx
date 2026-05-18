@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { isAdmin } from '@/lib/admin'
 import { isDemo } from '@/lib/demo'
@@ -43,7 +44,19 @@ export default async function DashboardLayout({ children }: { children: React.Re
     onFreeTier &&
     (profile?.subscription_status === 'canceled' || trialElapsed)
 
-  if (isTrialExpired) redirect('/upgrade?reason=trial_expired')
+  // Routes that MUST stay reachable after the trial expires:
+  //   /upgrade — the conversion path itself. It lives inside this
+  //     group, so without this exemption a trial-expired user is
+  //     redirected to /upgrade, which re-runs this layout, which
+  //     redirects again → infinite loop. The page even has a
+  //     `reason=trial_expired` branch that was previously unreachable.
+  //   /learn  — Education hub kept open as a beginner-acquisition
+  //     funnel (free learning access survives trial expiry by design).
+  const pathname = (await headers()).get('x-pathname') ?? ''
+  const trialExempt =
+    pathname.startsWith('/upgrade') || pathname.startsWith('/learn')
+
+  if (isTrialExpired && !trialExempt) redirect('/upgrade?reason=trial_expired')
 
   // Upgrade prompt: skip for admin, anyone already on Pro/VIP (real or demo),
   // and skip entirely during open beta (everyone is effectively VIP).

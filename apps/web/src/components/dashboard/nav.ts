@@ -18,7 +18,7 @@ import {
   Cpu, ShieldCheck, Landmark, FlaskConical, Ghost, Target,
   CandlestickChart, CalendarDays, Newspaper, Brain, Trophy,
   Users, Network, Crown, MessagesSquare, Repeat,
-  BookOpen, Calculator, Briefcase, BrainCircuit, KeyRound, Rocket,
+  BookOpen, Calculator, Briefcase, BrainCircuit, KeyRound, Rocket, GraduationCap,
   Settings2, BadgeDollarSign, Handshake, BadgeCheck, LogOut,
   Compass, LineChart, MessageSquare, Wrench, UserCog, Waves,
   Building2, Coins, TrendingUp, Grid3x3, Sparkles,
@@ -112,6 +112,7 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Wrench,
     items: [
       { href: '/journal',       label: 'Journal',        icon: BookOpen,    keywords: 'trade log diary' },
+      { href: '/learn',         label: 'Academy',        icon: GraduationCap, keywords: 'education learn course lessons beginner training' },
       { href: '/calculators',   label: 'Calculators',    icon: Calculator,  keywords: 'position size lot pip' },
       { href: '/prop',          label: 'Prop Toolkit',   icon: Briefcase,   minTier: 'premium', keywords: 'ftmo challenge funded' },
       { href: '/quant-builder', label: 'Quant Builder',  icon: BrainCircuit, minTier: 'premium', keywords: 'strategy algo no-code' },
