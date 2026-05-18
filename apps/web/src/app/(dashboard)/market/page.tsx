@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
+import LiveCryptoStrip from './_components/LiveCryptoStrip'
 
 export const metadata = { title: 'Market Tracker — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'
@@ -71,6 +72,10 @@ export default async function MarketTrackerPage() {
           Trending traders, hottest pairs, and the platform fear & greed pulse.
         </p>
       </header>
+
+      <div className="mb-6">
+        <LiveCryptoStrip />
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <FearGreedGauge value={fg} label={fgLabel} />
@@ -164,8 +169,9 @@ export default async function MarketTrackerPage() {
       )}
 
       <p className="mt-6 text-[10px] text-muted-foreground text-center">
-        Pair volatility and crypto whale flow data activate when the chain-engine
-        service is deployed. <a href="/dashboard/learn" className="text-amber-300 hover:underline">Learn how →</a>
+        Live crypto prices stream above from Binance in real time. On-chain
+        whale-flow analytics activate when the chain-engine service is deployed.{' '}
+        <a href="/dashboard/learn" className="text-amber-300 hover:underline">Learn how →</a>
       </p>
     </div>
   )
