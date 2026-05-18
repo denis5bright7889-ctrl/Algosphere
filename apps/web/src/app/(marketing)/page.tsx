@@ -7,6 +7,7 @@ import LeadCaptureForm from '@/components/marketing/LeadCaptureForm'
 import PricingCard from '@/components/marketing/PricingCard'
 import FeatureMatrix from '@/components/marketing/FeatureMatrix'
 import BrandLockup from '@/components/brand/BrandLockup'
+import Card from '@/components/ui/Card'
 import HeroPreview from './_components/HeroPreview'
 import RegimeStrip from './_components/RegimeStrip'
 
@@ -181,14 +182,11 @@ export default function HomePage() {
           {FEATURES.map((f) => {
             const Icon = f.icon
             return (
-              <div
-                key={f.title}
-                className="rounded-xl border border-border/70 glass p-6 space-y-3 transition-colors hover:border-amber-500/30"
-              >
+              <Card key={f.title} variant="brand" pad="lg" interactive className="space-y-3">
                 <Icon className="h-6 w-6 text-amber-300/90" strokeWidth={1.75} aria-hidden />
                 <h3 className="font-semibold">{f.title}</h3>
                 <p className="text-sm text-muted-foreground">{f.description}</p>
-              </div>
+              </Card>
             )
           })}
         </div>
@@ -207,11 +205,11 @@ export default function HomePage() {
             {TRUST.map((t) => {
               const Icon = t.icon
               return (
-                <div key={t.title} className="rounded-xl border border-border/70 glass p-6 space-y-3">
+                <Card key={t.title} variant="glass" pad="lg" className="space-y-3">
                   <Icon className="h-6 w-6 text-amber-300/90" strokeWidth={1.75} aria-hidden />
                   <p className="font-semibold">{t.title}</p>
                   <p className="text-sm text-muted-foreground">{t.description}</p>
-                </div>
+                </Card>
               )
             })}
           </div>
@@ -270,7 +268,7 @@ export default function HomePage() {
       <section className="mx-auto max-w-xl px-4 py-20 text-center">
         <h2 className="text-2xl font-bold">Get a free signal to your inbox</h2>
         <p className="mt-2 mb-6 text-muted-foreground text-sm">
-          Join 500+ traders. One email per week. Unsubscribe any time.
+          Join the trader list. One email per week. Unsubscribe any time.
         </p>
         <LeadCaptureForm />
       </section>
