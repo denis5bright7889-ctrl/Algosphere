@@ -39,9 +39,15 @@ export default function DailyLossTracker({ todayPnl, todayRisked, todayTrades }:
       <div className="space-y-3">
         <div className="flex justify-between text-sm">
           <span className="text-muted-foreground">Today&apos;s P&L</span>
-          <span className={cn('font-bold text-lg', isNegative ? 'text-red-600' : 'text-green-600')}>
-            {isNegative ? '' : '+'}{todayPnl.toFixed(2)}
-          </span>
+          {/* No trades today → render '—' in plain tone. A '+0.00 green' on
+              a no-activity day previously read as 'you had a good day'. */}
+          {todayTrades === 0 ? (
+            <span className="text-lg font-bold text-muted-foreground">—</span>
+          ) : (
+            <span className={cn('font-bold text-lg', isNegative ? 'text-red-600' : 'text-green-600')}>
+              {isNegative ? '-$' : '+$'}{Math.abs(todayPnl).toFixed(2)}
+            </span>
+          )}
         </div>
         <div className="flex justify-between text-sm">
           <span className="text-muted-foreground">Capital risked today</span>

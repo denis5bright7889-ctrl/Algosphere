@@ -40,8 +40,10 @@ export default async function ExecutionPage() {
     )
   }
 
-  // Pull execution data from copy_trades (the live order ledger)
-  const [{ data: openCopies }, { data: closedCopies }] = await Promise.all([
+  // Pull execution data from copy_trades (the live order ledger) +
+  // broker readiness (no orders can execute without at least one
+  // 'connected' broker, so the LIVE badge has to reflect that truth).
+  const [{ data: openCopies }, { data: closedCopies }, { data: brokers }] = await Promise.all([
     supabase
       .from('copy_trades')
       .select('id, symbol, direction, follower_lot, follower_entry, status, created_at, opened_at')
@@ -56,12 +58,26 @@ export default async function ExecutionPage() {
       .eq('status', 'closed')
       .order('closed_at', { ascending: false })
       .limit(50),
+    supabase
+      .from('broker_connections')
+      .select('status')
+      .eq('user_id', user.id),
   ])
 
   const open   = openCopies ?? []
   const closed = closedCopies ?? []
   const realizedPnl = closed.reduce((s, c) => s + Number(c.follower_pnl ?? 0), 0)
   const wins = closed.filter(c => Number(c.follower_pnl ?? 0) > 0).length
+
+  // Truthful execution-state pill — never a static '● LIVE' claim.
+  const brokerReady = (brokers ?? []).some((b) => b.status === 'connected')
+  const liveState: 'live' | 'idle' | 'no-broker' =
+    !brokerReady ? 'no-broker' : open.length > 0 ? 'live' : 'idle'
+  const livePill = {
+    live:        { cls: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300', dot: 'bg-emerald-400', label: `Live · ${open.length} open` },
+    idle:        { cls: 'border-amber-500/40   bg-amber-500/10   text-amber-300',   dot: 'bg-amber-400',   label: 'Idle · no open positions' },
+    'no-broker': { cls: 'border-rose-500/40    bg-rose-500/10    text-rose-300',    dot: 'bg-rose-400',    label: 'No broker connected' },
+  }[liveState]
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
@@ -74,8 +90,12 @@ export default async function ExecutionPage() {
             Live order flow, risk telemetry, and bot health — institutional view.
           </p>
         </div>
-        <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-[11px] font-bold text-emerald-300">
-          ● LIVE
+        <span className={cn(
+          'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-bold',
+          livePill.cls,
+        )}>
+          <span className={cn('h-1.5 w-1.5 rounded-full', livePill.dot)} aria-hidden />
+          {livePill.label}
         </span>
       </header>
 
@@ -84,8 +104,11 @@ export default async function ExecutionPage() {
         <Card label="Open Positions" value={String(open.length)} />
         <Card
           label="Realized PnL"
-          value={`${realizedPnl >= 0 ? '+' : ''}$${realizedPnl.toFixed(2)}`}
-          tone={realizedPnl >= 0 ? 'green' : 'red'}
+          // No closed trades → '—'; previously rendered '+$0.00' in green.
+          value={closed.length > 0
+            ? `${realizedPnl >= 0 ? '+' : ''}$${realizedPnl.toFixed(2)}`
+            : '—'}
+          tone={closed.length === 0 ? 'plain' : realizedPnl >= 0 ? 'green' : 'red'}
         />
         <Card
           label="Win Rate"
