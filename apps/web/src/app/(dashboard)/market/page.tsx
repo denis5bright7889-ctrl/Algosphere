@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 import LiveCryptoStrip from '@/components/market/LiveCryptoStrip'
+import MarketUniversePanel from '@/components/market/MarketUniversePanel'
 
 export const metadata = { title: 'Market Tracker — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'
@@ -75,6 +76,10 @@ export default async function MarketTrackerPage() {
 
       <div className="mb-6">
         <LiveCryptoStrip />
+      </div>
+
+      <div className="mb-6">
+        <MarketUniversePanel />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
