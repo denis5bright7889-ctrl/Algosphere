@@ -23,7 +23,7 @@ export default async function NewStrategyPage() {
     <div className="mx-auto max-w-2xl px-4 py-6">
       <header className="mb-6">
         <a
-          href="/dashboard/strategies"
+          href="/strategies"
           className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mb-3"
         >
           ← Marketplace
@@ -42,7 +42,7 @@ export default async function NewStrategyPage() {
             You need a public trader profile before publishing strategies.
           </p>
           <a
-            href="/dashboard/settings"
+            href="/settings"
             className="btn-premium mt-3 inline-block !text-xs !py-2 !px-4"
           >
             Set up your handle

@@ -259,7 +259,7 @@ export default function QuantBuilderClient() {
                   publishing to the marketplace.
                 </p>
                 <a
-                  href="/dashboard/strategies/new"
+                  href="/strategies/new"
                   className={cn(
                     'btn-premium !text-xs !py-2 !px-4 inline-block',
                     ((result.sharpe ?? 0) < 1 || result.totalTrades < 30) && 'opacity-50 pointer-events-none',

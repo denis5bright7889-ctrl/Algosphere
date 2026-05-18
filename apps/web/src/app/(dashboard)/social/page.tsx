@@ -42,7 +42,7 @@ export default async function SocialPage() {
           </p>
         </div>
         <a
-          href="/dashboard/social/discover"
+          href="/social/discover"
           className="rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:border-amber-500/40 hover:text-amber-300 transition-colors whitespace-nowrap"
         >
           🔍 Discover Traders

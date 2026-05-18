@@ -43,7 +43,7 @@ export async function POST(
     return NextResponse.json({
       requires_payment: true,
       amount_usd: price,
-      payment_url: `/dashboard/upgrade?community=${id}&plan=${parsed.data.plan}`,
+      payment_url: `/upgrade?community=${id}&plan=${parsed.data.plan}`,
     })
   }
 

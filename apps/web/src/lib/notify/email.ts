@@ -96,11 +96,11 @@ export function tradeReviewEmail(args: {
       <h1>Your trade was reviewed</h1>
       <p><strong>${args.pair}</strong> — Grade <strong>${args.grade}</strong> · Score <strong>${args.score}/100</strong></p>
       <p>${args.summary}</p>
-      <a class="btn" href="${args.appUrl}/dashboard/journal">View Full Review</a>
+      <a class="btn" href="${args.appUrl}/journal">View Full Review</a>
       <hr>
       <p class="muted">You're receiving this because AI reviews are enabled in your alert preferences.</p>
     `),
-    text: `${args.pair} — ${args.grade} (${args.score}/100)\n\n${args.summary}\n\n${args.appUrl}/dashboard/journal`,
+    text: `${args.pair} — ${args.grade} (${args.score}/100)\n\n${args.summary}\n\n${args.appUrl}/journal`,
     eventType: 'trade_review',
   }
 }
@@ -115,9 +115,9 @@ export function propBreachEmail(args: {
       <h1>Stop trading this account</h1>
       <p>Your ${args.firm} challenge has reached the <strong>${args.breachType}</strong> drawdown limit.</p>
       <p>Continuing to trade now will fail the challenge. Step away, review the journal, return tomorrow with a plan.</p>
-      <a class="btn" href="${args.appUrl}/dashboard/prop">View Compliance Status</a>
+      <a class="btn" href="${args.appUrl}/prop">View Compliance Status</a>
     `),
-    text: `${args.firm} ${args.breachType} limit reached. Stop trading.\n${args.appUrl}/dashboard/prop`,
+    text: `${args.firm} ${args.breachType} limit reached. Stop trading.\n${args.appUrl}/prop`,
     eventType: 'prop_breach',
   }
 }
@@ -134,7 +134,7 @@ export function signalAlertEmail(args: {
       <p>Entry: <strong>${args.entry}</strong></p>
       <p>Stop Loss: <strong>${args.sl}</strong></p>
       <p>Take Profit: <strong>${args.tp}</strong></p>
-      <a class="btn" href="${args.appUrl}/dashboard/signals">View Signal</a>
+      <a class="btn" href="${args.appUrl}/signals">View Signal</a>
     `),
     text: `${args.direction.toUpperCase()} ${args.pair} @ ${args.entry} (SL ${args.sl} / TP ${args.tp})`,
     eventType: 'signal_alert',

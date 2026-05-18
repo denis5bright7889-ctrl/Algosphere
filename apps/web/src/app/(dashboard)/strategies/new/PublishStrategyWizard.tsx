@@ -82,7 +82,7 @@ export default function PublishStrategyWizard() {
         const data = await res.json()
         if (!res.ok) throw new Error(data.error ?? 'Failed to create')
         // Redirect to detail page
-        window.location.href = `/dashboard/strategies/${data.strategy.slug}`
+        window.location.href = `/strategies/${data.strategy.slug}`
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed')
       }

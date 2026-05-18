@@ -17,7 +17,7 @@ export async function POST() {
   const result = await sendPushToUser(user.id, {
     title: '✓ Push notifications working',
     body:  'You\'ll see signals, copy-trade fills, and prop alerts here.',
-    url:   '/dashboard/alerts',
+    url:   '/alerts',
     tag:   'test',
   })
 

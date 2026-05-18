@@ -38,7 +38,7 @@ export default async function LaunchpadPage() {
           </p>
         </div>
         <a
-          href="/dashboard/launchpad/new"
+          href="/launchpad/new"
           className="btn-premium !py-2 !px-4 !text-xs"
         >
           + Launch a Token

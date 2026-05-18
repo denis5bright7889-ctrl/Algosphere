@@ -73,7 +73,7 @@ export default function NewLaunchForm() {
         const data = await res.json()
         if (!res.ok) throw new Error(data.error ?? 'Failed')
         setSuccess(`Draft created. Service fee: $${data.service_fee.toLocaleString()}. Our team will reach out.`)
-        setTimeout(() => { window.location.href = '/dashboard/launchpad' }, 2000)
+        setTimeout(() => { window.location.href = '/launchpad' }, 2000)
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed')
       }
@@ -224,7 +224,7 @@ export default function NewLaunchForm() {
 
       <div className="flex justify-end gap-2">
         <a
-          href="/dashboard/launchpad"
+          href="/launchpad"
           className="rounded-lg border border-border px-4 py-2 text-xs font-medium hover:bg-muted/30"
         >
           Cancel

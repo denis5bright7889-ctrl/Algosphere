@@ -33,7 +33,7 @@ export default async function ExecutionPage() {
           Live bot positions, floating PnL, execution latency, and the
           institutional risk telemetry stream are part of the VIP / Institutional tier.
         </p>
-        <a href="/dashboard/upgrade" className="btn-premium mt-6 inline-block !text-sm">
+        <a href="/upgrade" className="btn-premium mt-6 inline-block !text-sm">
           Upgrade to VIP — $299/mo
         </a>
       </div>

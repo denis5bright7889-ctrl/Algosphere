@@ -210,7 +210,7 @@ function AttachedSignalCard({ signal }: { signal: NonNullable<SocialPost['signal
   const isBuy = signal.direction === 'buy'
   return (
     <a
-      href={`/dashboard/signals#${signal.id}`}
+      href={`/signals#${signal.id}`}
       className="block rounded-xl border border-border bg-background/50 p-3 hover:border-amber-500/40 transition-colors mb-1"
     >
       <div className="flex items-center justify-between mb-2">

@@ -16,7 +16,7 @@ export default function ApiDocsPage() {
           </a>
           <div className="flex items-center gap-3 text-xs">
             <a href="/api/openapi" className="text-amber-300 hover:underline">openapi.json</a>
-            <a href="/dashboard/api-keys" className="text-muted-foreground hover:text-foreground">
+            <a href="/api-keys" className="text-muted-foreground hover:text-foreground">
               Get a key
             </a>
           </div>

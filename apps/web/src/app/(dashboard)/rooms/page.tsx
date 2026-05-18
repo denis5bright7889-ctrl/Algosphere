@@ -143,7 +143,7 @@ function RoomCard({ room, unlocked, currentTier }: {
       ) : (
         <div className="mt-auto">
           <a
-            href="/dashboard/upgrade"
+            href="/upgrade"
             className="block text-center rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-300 px-3 py-2 text-xs font-semibold hover:bg-amber-500 hover:text-black transition-colors"
           >
             🔒 Upgrade to {room.required_tier.toUpperCase()}{currentTier && currentTier !== 'free' ? ` (you have ${currentTier.toUpperCase()})` : ''}

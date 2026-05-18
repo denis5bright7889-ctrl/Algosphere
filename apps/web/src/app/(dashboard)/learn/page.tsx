@@ -34,7 +34,7 @@ export default async function LearnPage() {
         {COURSES.map(c => (
           <a
             key={c.slug}
-            href={`/dashboard/learn/${c.slug}`}
+            href={`/learn/${c.slug}`}
             className="group rounded-2xl border border-border bg-card p-5 hover:border-amber-500/40 transition-colors"
           >
             <div className="flex items-start justify-between mb-2">

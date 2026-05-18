@@ -51,7 +51,7 @@ export default async function ApiUsagePage() {
             API access is included with <strong>Premium</strong> (10k calls/mo) and
             <strong> VIP</strong> (100k calls/mo).
           </p>
-          <a href="/dashboard/upgrade" className="btn-premium mt-4 inline-block !text-sm">
+          <a href="/upgrade" className="btn-premium mt-4 inline-block !text-sm">
             Upgrade for API access
           </a>
         </div>
@@ -88,7 +88,7 @@ export default async function ApiUsagePage() {
           </div>
 
           <a
-            href="/dashboard/api-keys"
+            href="/api-keys"
             className="block rounded-xl border border-border px-4 py-3 text-sm hover:border-amber-500/40 transition-colors"
           >
             Manage API keys →

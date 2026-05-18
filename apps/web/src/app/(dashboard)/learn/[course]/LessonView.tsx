@@ -102,7 +102,7 @@ export default function LessonView({ course }: { course: Course }) {
               Next Lesson →
             </button>
           ) : (
-            <a href="/dashboard/learn" className="btn-premium !text-xs !py-2 !px-5">
+            <a href="/learn" className="btn-premium !text-xs !py-2 !px-5">
               Finish Course
             </a>
           )}

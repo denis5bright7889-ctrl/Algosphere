@@ -84,7 +84,7 @@ export default async function StrategyDetailPage({
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
       <a
-        href="/dashboard/strategies"
+        href="/strategies"
         className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mb-4"
       >
         ← Marketplace
@@ -258,7 +258,7 @@ export default async function StrategyDetailPage({
                 <span className="capitalize text-foreground">{s.status}</span>
               </p>
               <a
-                href={`/dashboard/strategies/${s.slug}/edit`}
+                href={`/strategies/${s.slug}/edit`}
                 className="block w-full text-center rounded-lg border border-border py-2 text-xs font-semibold hover:border-primary/60 transition-colors mb-2"
               >
                 Edit Strategy

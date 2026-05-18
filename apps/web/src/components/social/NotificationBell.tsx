@@ -52,11 +52,11 @@ function timeAgo(ts: string): string {
 
 function entityHref(n: Notification): string {
   switch (n.entity_type) {
-    case 'thread': return `/dashboard/community/${n.entity_id}`
-    case 'signal': return `/dashboard/signals`
-    case 'post':   return `/dashboard/social`
+    case 'thread': return `/community/${n.entity_id}`
+    case 'signal': return `/signals`
+    case 'post':   return `/social`
     default:
-      if (n.notif_type === 'earning_accrued') return '/dashboard/earnings'
+      if (n.notif_type === 'earning_accrued') return '/earnings'
       if (n.notif_type === 'new_follower' && n.profiles?.public_handle)
         return `/traders/${n.profiles.public_handle}`
       return '#'

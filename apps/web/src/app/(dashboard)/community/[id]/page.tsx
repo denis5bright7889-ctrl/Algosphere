@@ -50,7 +50,7 @@ export default async function ThreadDetailPage({
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
       <a
-        href="/dashboard/community"
+        href="/community"
         className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mb-4"
       >
         ← Community

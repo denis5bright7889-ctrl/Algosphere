@@ -53,7 +53,7 @@ export default function EditStrategyForm({ strategy }: { strategy: PublishedStra
       try {
         const res = await fetch(`/api/social/strategies/${strategy.id}`, { method: 'DELETE' })
         if (!res.ok) throw new Error('Failed')
-        window.location.href = '/dashboard/strategies?scope=mine'
+        window.location.href = '/strategies?scope=mine'
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed')
       }

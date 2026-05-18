@@ -77,7 +77,7 @@ export default async function DiscoverPage({
       </header>
 
       {/* Search + filters */}
-      <form className="mb-5 flex flex-wrap gap-2" action="/dashboard/social/discover">
+      <form className="mb-5 flex flex-wrap gap-2" action="/social/discover">
         <input
           type="text"
           name="q"

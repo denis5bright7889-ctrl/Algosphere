@@ -27,7 +27,7 @@ export default async function CoursePage({
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
       <a
-        href="/dashboard/learn"
+        href="/learn"
         className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mb-4"
       >
         ← Education Hub

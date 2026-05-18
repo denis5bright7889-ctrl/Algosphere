@@ -51,7 +51,7 @@ export default async function ProfileEditPage() {
         </p>
         <p className="text-xs text-muted-foreground">
           Want a verification badge?{' '}
-          <a href="/dashboard/verification" className="text-amber-300 hover:underline">
+          <a href="/verification" className="text-amber-300 hover:underline">
             Check your verification status →
           </a>
         </p>

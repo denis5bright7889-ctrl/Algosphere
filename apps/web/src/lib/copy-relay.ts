@@ -158,7 +158,7 @@ async function handleSubscriber(
       tasks.push(sendPushToUser(sub.subscriber_id, {
         title: `${dirIcon} ${signal.pair} ${signal.direction.toUpperCase()}`,
         body:  `Entry ${signal.entry_price} · SL ${signal.stop_loss}${signal.take_profit_1 ? ` · TP ${signal.take_profit_1}` : ''}`,
-        url:   `/dashboard/signals#${signal.id}`,
+        url:   `/signals#${signal.id}`,
         tag:   `signal-${signal.id}`,
       }))
     }

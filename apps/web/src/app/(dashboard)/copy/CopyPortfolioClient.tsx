@@ -132,7 +132,7 @@ function SubscriptionRow({
         <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
           <div className="min-w-0">
             <a
-              href={`/dashboard/strategies/${strategy.slug}`}
+              href={`/strategies/${strategy.slug}`}
               className="text-base font-bold hover:text-amber-300 transition-colors"
             >
               {strategy.name}
@@ -198,7 +198,7 @@ function SubscriptionRow({
             {isEditing ? 'Close' : 'Edit Settings'}
           </button>
           <a
-            href={`/dashboard/strategies/${strategy.slug}`}
+            href={`/strategies/${strategy.slug}`}
             className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted/30"
           >
             View Strategy

@@ -86,7 +86,7 @@ export default async function CopyPortfolioPage() {
             You&apos;re not subscribed to any strategies yet.
           </p>
           <a
-            href="/dashboard/strategies"
+            href="/strategies"
             className="btn-premium inline-block !text-xs !py-2 !px-4"
           >
             Browse Marketplace

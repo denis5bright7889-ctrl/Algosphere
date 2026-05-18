@@ -103,8 +103,8 @@ export async function POST(req: Request) {
       amount_usd:       price,
       plan:             input.plan,
       strategy_id:      input.strategy_id,
-      // Frontend redirects to /dashboard/upgrade?strategy={id}&amount={price}
-      payment_url: `/dashboard/upgrade?strategy=${input.strategy_id}&plan=${input.plan}`,
+      // Frontend redirects to /upgrade?strategy={id}&amount={price}
+      payment_url: `/upgrade?strategy=${input.strategy_id}&plan=${input.plan}`,
     })
   }
 

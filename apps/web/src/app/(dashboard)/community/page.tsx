@@ -76,7 +76,7 @@ export default async function CommunityPage({
             return (
               <a
                 key={c.key}
-                href={`/dashboard/community?cat=${c.key}&sort=${sort}`}
+                href={`/community?cat=${c.key}&sort=${sort}`}
                 className={cn(
                   'flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
                   cat === c.key
@@ -97,7 +97,7 @@ export default async function CommunityPage({
             {(['hot','new','top'] as const).map(s => (
               <a
                 key={s}
-                href={`/dashboard/community?cat=${cat}&sort=${s}`}
+                href={`/community?cat=${cat}&sort=${s}`}
                 className={cn(
                   'rounded-full px-3 py-1 text-[11px] font-medium transition-colors',
                   sort === s
@@ -138,7 +138,7 @@ function ThreadCard({ thread }: { thread: any }) {
   const handle = thread.profiles?.public_handle ?? 'anonymous'
   return (
     <a
-      href={`/dashboard/community/${thread.id}`}
+      href={`/community/${thread.id}`}
       className="block rounded-xl border border-border bg-card p-4 hover:border-amber-500/30 transition-colors"
     >
       <div className="flex items-start gap-3">

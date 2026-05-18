@@ -135,7 +135,7 @@ export default async function TraderProfilePage({ params }: Props) {
             <div className="flex flex-wrap items-center gap-2">
               {isOwnProfile ? (
                 <a
-                  href="/dashboard/profile/edit"
+                  href="/profile/edit"
                   className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:border-primary/60 hover:text-primary transition-colors"
                 >
                   Edit Profile

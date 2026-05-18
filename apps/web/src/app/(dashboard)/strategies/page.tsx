@@ -82,7 +82,7 @@ export default async function StrategyMarketplacePage({
           </p>
         </div>
         <a
-          href="/dashboard/strategies/new"
+          href="/strategies/new"
           className="btn-premium !py-2 !px-4 !text-xs"
         >
           + Publish Strategy
@@ -95,7 +95,7 @@ export default async function StrategyMarketplacePage({
           {ASSET_FILTERS.map(f => (
             <a
               key={f.key}
-              href={`/dashboard/strategies?asset=${f.key}&sort=${sort}`}
+              href={`/strategies?asset=${f.key}&sort=${sort}`}
               className={cn(
                 'rounded-full border px-3 py-1 text-[11px] font-medium transition-colors',
                 asset === f.key
@@ -126,7 +126,7 @@ export default async function StrategyMarketplacePage({
             No strategies match these filters yet.
           </p>
           <a
-            href="/dashboard/strategies/new"
+            href="/strategies/new"
             className="btn-premium mt-4 inline-block !text-sm"
           >
             Be the first to publish
@@ -162,7 +162,7 @@ function StrategyCard({
 
   return (
     <a
-      href={`/dashboard/strategies/${s.slug}`}
+      href={`/strategies/${s.slug}`}
       className="group rounded-2xl border border-border bg-card p-5 hover:border-amber-500/40 hover:shadow-card-lift transition-all flex flex-col"
     >
       {/* Header */}

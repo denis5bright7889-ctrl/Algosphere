@@ -27,7 +27,7 @@ export default async function PropPage() {
             Track FTMO-style challenge progress, drawdown limits, and trading-day quotas.
           </p>
         </div>
-        <a href="/dashboard/prop/new" className="btn-premium !py-2 !px-4 !text-xs">
+        <a href="/prop/new" className="btn-premium !py-2 !px-4 !text-xs">
           + New Challenge
         </a>
       </header>

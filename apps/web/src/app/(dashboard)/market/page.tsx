@@ -171,7 +171,7 @@ export default async function MarketTrackerPage() {
       <p className="mt-6 text-[10px] text-muted-foreground text-center">
         Live crypto prices stream above from Binance in real time. On-chain
         whale-flow analytics activate when the chain-engine service is deployed.{' '}
-        <a href="/dashboard/learn" className="text-amber-300 hover:underline">Learn how →</a>
+        <a href="/learn" className="text-amber-300 hover:underline">Learn how →</a>
       </p>
     </div>
   )
