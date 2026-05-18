@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { Cpu } from 'lucide-react'
+import { Cpu, FlaskConical } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 import ExecutionClient from './ExecutionClient'
@@ -60,7 +60,7 @@ export default async function ExecutionPage() {
       .limit(50),
     supabase
       .from('broker_connections')
-      .select('status')
+      .select('status, is_live, is_testnet')
       .eq('user_id', user.id),
   ])
 
@@ -69,13 +69,22 @@ export default async function ExecutionPage() {
   const realizedPnl = closed.reduce((s, c) => s + Number(c.follower_pnl ?? 0), 0)
   const wins = closed.filter(c => Number(c.follower_pnl ?? 0) > 0).length
 
-  // Truthful execution-state pill — never a static '● LIVE' claim.
-  const brokerReady = (brokers ?? []).some((b) => b.status === 'connected')
-  const liveState: 'live' | 'idle' | 'no-broker' =
-    !brokerReady ? 'no-broker' : open.length > 0 ? 'live' : 'idle'
+  // Execution mode — strictly truthful. "Live" requires a broker that
+  // is BOTH connected AND live (is_live && !testnet). A connected
+  // testnet broker is still simulation (no real money) and must NOT
+  // read as live. No connected broker at all = no execution path.
+  const anyConnected  = (brokers ?? []).some((b) => b.status === 'connected')
+  const liveBrokerReady = (brokers ?? []).some(
+    (b) => b.status === 'connected' && b.is_live === true && b.is_testnet !== true,
+  )
+  const liveState: 'live' | 'idle' | 'simulation' | 'no-broker' =
+    liveBrokerReady ? (open.length > 0 ? 'live' : 'idle')
+    : anyConnected  ? 'simulation'
+    : 'no-broker'
   const livePill = {
     live:        { cls: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300', dot: 'bg-emerald-400', label: `Live · ${open.length} open` },
-    idle:        { cls: 'border-amber-500/40   bg-amber-500/10   text-amber-300',   dot: 'bg-amber-400',   label: 'Idle · no open positions' },
+    idle:        { cls: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300', dot: 'bg-emerald-400', label: 'Live · no open positions' },
+    simulation:  { cls: 'border-blue-500/40    bg-blue-500/10    text-blue-300',    dot: 'bg-blue-400',    label: 'Simulation Mode' },
     'no-broker': { cls: 'border-rose-500/40    bg-rose-500/10    text-rose-300',    dot: 'bg-rose-400',    label: 'No broker connected' },
   }[liveState]
 
@@ -98,6 +107,26 @@ export default async function ExecutionPage() {
           {livePill.label}
         </span>
       </header>
+
+      {/* Brief-mandated: when there's no live-broker handshake, the
+          order flow below is the copy-relay ledger / paper records —
+          NOT broker-confirmed fills. Say so unmistakably. */}
+      {!liveBrokerReady && (
+        <div className="mb-6 flex items-start gap-2 rounded-xl border border-blue-500/30 bg-blue-500/[0.06] px-3 py-2.5 text-xs text-blue-200">
+          <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
+          <span>
+            <span className="font-bold uppercase tracking-wider">Simulation Mode</span>
+            {' — '}
+            {anyConnected
+              ? 'a broker is connected but still on testnet, so orders are simulated, not real-money fills.'
+              : 'no live broker is connected. Order flow shown here is the copy-relay ledger / paper record, not broker-confirmed execution.'}
+            {' '}Real execution activates only after a broker is connected, validated in{' '}
+            <a href="/shadow" className="font-semibold underline hover:no-underline">Shadow Mode</a>,
+            and explicitly promoted to live on{' '}
+            <a href="/brokers" className="font-semibold underline hover:no-underline">Brokers</a>.
+          </span>
+        </div>
+      )}
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
