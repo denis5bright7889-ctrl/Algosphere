@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
-import LiveCryptoStrip from './_components/LiveCryptoStrip'
+import LiveCryptoStrip from '@/components/market/LiveCryptoStrip'
 
 export const metadata = { title: 'Market Tracker — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'

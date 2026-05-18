@@ -10,6 +10,7 @@ import BrandLockup from '@/components/brand/BrandLockup'
 import Card from '@/components/ui/Card'
 import HeroPreview from './_components/HeroPreview'
 import RegimeStrip from './_components/RegimeStrip'
+import MarketTickerStrip from '@/components/market/MarketTickerStrip'
 
 export const metadata = {
   title: 'AlgoSphere Quant — Professional Trading Signals & Analytics',
@@ -167,7 +168,10 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Live market regime strip */}
+      {/* Real-exchange price tape — first thing every visitor sees ticking */}
+      <MarketTickerStrip />
+
+      {/* Live market regime strip — categorical AI bias */}
       <RegimeStrip />
 
       {/* Features */}
