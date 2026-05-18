@@ -8,7 +8,12 @@
  * This is genuine exchange data. Nothing here is synthetic. When the
  * exchange is unreachable the callers degrade to an honest "stream
  * unavailable" state — they never fabricate a price.
+ *
+ * Implements the cross-exchange `MarketSource` contract — the UI is
+ * source-agnostic and can fall back to coinbase.ts on regional
+ * geoblocking (Binance.com returns 451 on US egress).
  */
+import type { MarketSource } from './market-source'
 
 export interface CryptoSymbol {
   /** Binance symbol, e.g. BTCUSDT. */
@@ -107,4 +112,39 @@ export function normalizeWs(d: WsTicker): Ticker | null {
     low: num(d.l),
     quoteVol: num(d.q),
   }
+}
+
+export const binanceSource: MarketSource = {
+  name: 'binance',
+  label: 'Binance',
+
+  async fetchSnapshot(signal) {
+    const res = await fetch(REST_URL, {
+      signal, cache: 'no-store', headers: { accept: 'application/json' },
+    })
+    if (!res.ok) throw new Error(`Binance ${res.status}`)
+    const rows = (await res.json()) as unknown
+    if (!Array.isArray(rows)) throw new Error('Binance snapshot malformed')
+    const out = normalizeRest(rows)
+    if (out.length === 0) throw new Error('Binance snapshot empty')
+    return out
+  },
+
+  openStream(onTicker, onClose) {
+    let ws: WebSocket
+    try { ws = new WebSocket(WS_URL) } catch { onClose(); return () => {} }
+
+    ws.onmessage = (ev) => {
+      try {
+        const env = JSON.parse(ev.data as string) as { data?: WsTicker }
+        if (!env?.data) return
+        const t = normalizeWs(env.data)
+        if (t) onTicker(t)
+      } catch { /* ignore malformed frame */ }
+    }
+    ws.onerror = () => { try { ws.close() } catch { /* noop */ } }
+    ws.onclose = onClose
+
+    return () => { try { ws.close() } catch { /* noop */ } }
+  },
 }

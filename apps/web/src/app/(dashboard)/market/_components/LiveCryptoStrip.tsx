@@ -29,7 +29,7 @@ const STATUS: Record<StreamStatus, { cls: string; label: string; icon: typeof Ra
  * and holds the last real values rather than inventing prices.
  */
 export default function LiveCryptoStrip() {
-  const { tickers, status, flash, updatedAt } = useCryptoTickers()
+  const { tickers, status, flash, updatedAt, sourceLabel } = useCryptoTickers()
   const st = STATUS[status]
   const StatusIcon = st.icon
 
@@ -136,8 +136,9 @@ export default function LiveCryptoStrip() {
       )}
 
       <p className="mt-3 text-[10px] text-muted-foreground">
-        Source: <span className="font-mono">Binance</span> public market data · real exchange feed,
-        not financial advice.
+        Source: <span className="font-mono">{sourceLabel ?? '—'}</span> public market data
+        {sourceLabel === 'Coinbase Exchange' && ' (US-legal fallback)'}{' '}
+        · real exchange feed, not financial advice.
       </p>
     </section>
   )
