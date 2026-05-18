@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
-import { Flame } from 'lucide-react'
+import { Flame, Activity, AlertCircle } from 'lucide-react'
 import Logo from '@/components/brand/Logo'
 import { formatDate } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -73,6 +73,15 @@ export default async function TraderProfilePage({ params }: Props) {
 
   const badge = verificationBadge(tier)
   const risk  = riskBadge(scores?.risk_label ?? 'medium')
+
+  // Sample-size gate. With zero trades there's nothing to display
+  // honestly — we replace the stat grid + 9-factor breakdown with an
+  // empty-state panel. With a small number of trades the panel is
+  // shown but caveated; the composite score is statistically thin
+  // until the sample stabilises.
+  const MIN_RELIABLE_SAMPLE = 5
+  const hasTrades   = profile.trades > 0
+  const lowSample   = hasTrades && profile.trades < MIN_RELIABLE_SAMPLE
 
   return (
     <main className="min-h-screen">
@@ -153,27 +162,55 @@ export default async function TraderProfilePage({ params }: Props) {
             </div>
           </div>
 
-          {/* ── Stat Pills ───────────────────────────────── */}
-          <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-            <Stat label="Composite Score"
-                  value={scores ? formatScore(scores.composite_score) : '—'}
-                  tone="gold" />
-            <Stat label="Win Rate"
-                  value={`${profile.win_rate ?? 0}%`}
-                  tone="plain" />
-            <Stat label="Net P&L"
-                  value={`${profile.total_pnl >= 0 ? '+' : ''}$${profile.total_pnl.toLocaleString()}`}
-                  tone={profile.total_pnl >= 0 ? 'green' : 'red'} />
-            <Stat label="Sharpe"
-                  value={formatRatio(scores?.sharpe_ratio ?? null)}
-                  tone="plain" />
-            <Stat label="Max DD"
-                  value={scores?.max_drawdown_pct != null ? `${scores.max_drawdown_pct.toFixed(1)}%` : '—'}
-                  tone="red" />
-            <Stat label="Trades"
-                  value={String(profile.trades)}
-                  tone="plain" />
-          </div>
+          {/* ── Stat Pills ─────────────────────────────────
+              Only rendered when the trader has at least one journal
+              entry. Otherwise we drop into an honest 'no track record'
+              panel below — never display 0% / +$0 / Composite 50 for
+              a profile that hasn't traded yet. */}
+          {hasTrades && (
+            <>
+              {lowSample && (
+                <p className="mt-5 inline-flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 py-1.5 text-[11px] text-amber-200/90">
+                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={1.75} aria-hidden />
+                  Limited sample — {profile.trades} trade{profile.trades === 1 ? '' : 's'} so far.
+                  Composite Score and ratios stabilise after roughly {MIN_RELIABLE_SAMPLE}+.
+                </p>
+              )}
+              <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+                <Stat label="Composite Score"
+                      value={scores ? formatScore(scores.composite_score) : '—'}
+                      tone={scores ? 'gold' : 'plain'} />
+                <Stat label="Win Rate"
+                      value={profile.win_rate != null ? `${profile.win_rate}%` : '—'}
+                      tone="plain" />
+                <Stat label="Net P&L"
+                      value={`${profile.total_pnl >= 0 ? '+' : ''}$${profile.total_pnl.toLocaleString()}`}
+                      tone={profile.total_pnl >= 0 ? 'green' : 'red'} />
+                <Stat label="Sharpe"
+                      value={formatRatio(scores?.sharpe_ratio ?? null)}
+                      tone="plain" />
+                <Stat label="Max DD"
+                      value={scores?.max_drawdown_pct != null ? `${scores.max_drawdown_pct.toFixed(1)}%` : '—'}
+                      // Red only when there's an actual drawdown to surface.
+                      tone={scores?.max_drawdown_pct != null && scores.max_drawdown_pct > 0 ? 'red' : 'plain'} />
+                <Stat label="Trades"
+                      value={String(profile.trades)}
+                      tone="plain" />
+              </div>
+            </>
+          )}
+
+          {!hasTrades && (
+            <div className="mt-6 flex items-start gap-2 rounded-xl border border-dashed border-border bg-muted/10 p-4 text-xs text-muted-foreground">
+              <Activity className="mt-0.5 h-4 w-4 shrink-0 text-amber-300/60" strokeWidth={1.75} aria-hidden />
+              <p>
+                <span className="font-semibold text-foreground">No track record yet.</span>{' '}
+                This profile is registered but hasn&apos;t logged any trades. Win rate, P&amp;L,
+                Sharpe, drawdown and the 9-factor composite score will appear here once the
+                trade journal has at least one entry. No placeholder metrics are shown.
+              </p>
+            </div>
+          )}
 
           {/* ── Social Stats ────────────────────────────── */}
           {scores && (
@@ -204,8 +241,10 @@ export default async function TraderProfilePage({ params }: Props) {
           <CopyFilterBadge userId={profileLookup.id} />
         </div>
 
-        {/* ── Score Breakdown ─────────────────────────────── */}
-        {scores && (
+        {/* ── Score Breakdown ───────────────────────────────
+            Same sample-size gate as the stat grid — the 9-factor
+            composite is meaningless without trades to score against. */}
+        {scores && hasTrades && (
           <div className="relative mt-6 rounded-2xl border border-border bg-card p-6 sm:p-8">
             <h2 className="text-xs uppercase tracking-widest text-muted-foreground mb-4">
               Score Breakdown — 9-Factor Composite
