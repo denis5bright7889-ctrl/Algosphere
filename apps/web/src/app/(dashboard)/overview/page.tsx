@@ -14,6 +14,7 @@ import Kpi from '@/components/dashboard/overview/Kpi'
 import GettingStarted from '@/components/dashboard/overview/GettingStarted'
 
 export const metadata = { title: 'Command Center' }
+export const dynamic = 'force-dynamic'
 
 type Sb = Awaited<ReturnType<typeof createClient>>
 

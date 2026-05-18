@@ -7,6 +7,7 @@ import { effectiveTierForFeatures } from '@/lib/demo'
 import type { SubscriptionTier } from '@/lib/types'
 
 export const metadata = { title: 'Risk Management' }
+export const dynamic = 'force-dynamic'
 
 export default async function RiskPage() {
   const supabase = await createClient()

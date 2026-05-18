@@ -5,6 +5,7 @@ import { generateDemoJournal } from '@/lib/demo-data'
 import type { JournalEntry } from '@/lib/types'
 
 export const metadata = { title: 'Trade Journal' }
+export const dynamic = 'force-dynamic'
 
 export default async function JournalPage() {
   const supabase = await createClient()

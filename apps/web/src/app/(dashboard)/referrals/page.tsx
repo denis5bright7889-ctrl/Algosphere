@@ -6,6 +6,7 @@ import ReferralLinkCard from './ReferralLinkCard'
 import AnimatedNumber from '@/components/ui/AnimatedNumber'
 
 export const metadata = { title: 'Affiliate' }
+export const dynamic = 'force-dynamic'
 
 const STATUS_FALLBACK = { label: 'Signed up', cls: 'bg-muted/40 text-muted-foreground' }
 const STATUS_META: Record<string, { label: string; cls: string }> = {

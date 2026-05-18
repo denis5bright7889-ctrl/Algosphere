@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import {
   effectivePrice,
   verificationLevelLabel,
+  trustScore,
   type PublishedStrategy,
 } from '@/lib/strategies'
 
@@ -27,6 +28,7 @@ const ASSET_FILTERS = [
 ] as const
 
 const SORT_OPTIONS = [
+  { key: 'trust',     label: 'Trust Score',    col: 'subscribers_count' },
   { key: 'popular',   label: 'Most Popular',   col: 'subscribers_count' },
   { key: 'newest',    label: 'Newest',          col: 'published_at'     },
   { key: 'return',    label: 'Highest Return',  col: 'monthly_return_avg' },
@@ -60,7 +62,14 @@ export default async function StrategyMarketplacePage({
   }
 
   const { data } = await query
-  const strategies = (data ?? []) as StrategyWithCreator[]
+  let strategies = (data ?? []) as StrategyWithCreator[]
+
+  // 'Trust' has no single DB column — it's a transparent composite.
+  // We fetch the top-engagement 60 (via sortOpt.col) then re-rank that
+  // set by trustScore so verification + ratings + depth decide order.
+  if (sort === 'trust') {
+    strategies = [...strategies].sort((a, b) => trustScore(b) - trustScore(a))
+  }
 
   // Check user's existing subscriptions
   const { data: mySubs } = await supabase
@@ -172,6 +181,7 @@ function StrategyCard({
 }) {
   const handle = s.profiles?.public_handle
   const monthly = effectivePrice(s, 'monthly')
+  const trust = trustScore(s)
 
   // Same data-source taxonomy as the detail page's PerformanceSection:
   // 'live' > 'backtest' > 'unverified'. Drives both the source chip
@@ -258,6 +268,18 @@ function StrategyCard({
 
       {/* Stats row */}
       <div className="mb-4 flex items-center gap-3 text-[10px] text-muted-foreground">
+        <span
+          title="Transparent composite: verification level + engagement + ratings + track-record depth"
+          className={cn(
+            'rounded px-1.5 py-0.5 font-bold tabular-nums',
+            trust >= 60 ? 'bg-emerald-500/15 text-emerald-300'
+              : trust >= 30 ? 'bg-amber-500/15 text-amber-300'
+              : 'bg-muted text-muted-foreground',
+          )}
+        >
+          Trust {trust}
+        </span>
+        <span>·</span>
         <span>⭐ {s.rating_avg ? s.rating_avg.toFixed(1) : '—'} ({s.rating_count})</span>
         <span>·</span>
         <span>{s.subscribers_count.toLocaleString()} subs</span>

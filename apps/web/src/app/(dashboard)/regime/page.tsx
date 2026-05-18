@@ -5,6 +5,9 @@ import { cn } from '@/lib/utils'
 import RegimeBadge from '@/components/algo/RegimeBadge'
 import { ConfidencePill } from '@/components/algo/ConfidenceGauge'
 
+export const metadata = { title: 'Market Regime' }
+export const dynamic = 'force-dynamic'
+
 /** Three times the claimed 5-min refresh — anything older counts as stale. */
 const STALE_MS = 15 * 60_000
 

@@ -12,6 +12,7 @@ import QuickLink from './QuickLink'
 import SignOutEverywhereButton from './SignOutEverywhereButton'
 
 export const metadata = { title: 'Settings' }
+export const dynamic = 'force-dynamic'
 
 type Sb = Awaited<ReturnType<typeof createClient>>
 

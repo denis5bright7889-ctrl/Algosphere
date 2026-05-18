@@ -7,6 +7,7 @@ import TierGate from '@/components/algo/TierGate'
 import ApiKeyManager from './ApiKeyManager'
 
 export const metadata = { title: 'API Access' }
+export const dynamic = 'force-dynamic'
 
 export default async function ApiKeysPage() {
   const supabase = await createClient()

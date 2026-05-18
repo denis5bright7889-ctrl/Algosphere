@@ -108,6 +108,58 @@ export function verificationLevelLabel(level: VerificationLevel): string {
   }
 }
 
+// ─── Trust composite ────────────────────────────────────────
+/**
+ * Transparent, deterministic trust score (0–100) for marketplace
+ * ranking. NOT an opaque "AI score" — every input is a real,
+ * inspectable column, and an unverified strategy with no engagement
+ * scores genuinely low rather than defaulting to a flattering number.
+ *
+ * Weighting rationale:
+ *   • Verification level dominates (max 55) — a 6-month live track
+ *     record is the strongest trust signal we have.
+ *   • Engagement (subscribers) is log-scaled (max ~22) so a few
+ *     whales can't manufacture a top rank, and a brand-new strategy
+ *     isn't buried forever.
+ *   • Ratings contribute (max ~15) but only with enough reviews to
+ *     matter (log-scaled count × normalised average).
+ *   • Track-record depth (days_live + signals, max ~8) rewards
+ *     longevity without letting it substitute for verification.
+ */
+const VERIFICATION_WEIGHT: Record<VerificationLevel, number> = {
+  live_180d:  55,
+  live_90d:   42,
+  live_30d:   28,
+  backtested: 10,
+  none:       0,
+}
+
+export function trustScore(
+  s: Pick<PublishedStrategy,
+    'verification_level' | 'subscribers_count' | 'rating_avg' |
+    'rating_count' | 'days_live' | 'total_signals'>,
+): number {
+  const verification = VERIFICATION_WEIGHT[s.verification_level] ?? 0
+
+  // log1p so the curve flattens — diminishing returns past a point.
+  const engagement = Math.min(22, Math.log1p(Math.max(0, s.subscribers_count)) * 4)
+
+  const ratings =
+    s.rating_count > 0 && s.rating_avg != null
+      ? Math.min(15, (s.rating_avg / 5) * Math.log1p(s.rating_count) * 5)
+      : 0
+
+  const depth = Math.min(
+    8,
+    Math.log1p(Math.max(0, s.days_live)) * 1.2 +
+      Math.log1p(Math.max(0, s.total_signals)) * 0.8,
+  )
+
+  return Math.round(
+    Math.max(0, Math.min(100, verification + engagement + ratings + depth)),
+  )
+}
+
 // ─── Validation ─────────────────────────────────────────────
 export function validateStrategyDraft(d: Partial<PublishedStrategy>): string | null {
   if (!d.name || d.name.length < 3 || d.name.length > 80)

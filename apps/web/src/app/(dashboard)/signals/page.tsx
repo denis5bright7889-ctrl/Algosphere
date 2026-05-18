@@ -6,6 +6,7 @@ import type { Signal, SubscriptionTier } from '@/lib/types'
 import SignalsFeed from './SignalsFeed'
 
 export const metadata = { title: 'Intelligence Feed' }
+export const dynamic = 'force-dynamic'
 
 // Starter demo: signals delayed by 30 min so they feel realistic but lag the live feed
 const STARTER_DEMO_DELAY_MIN = 30

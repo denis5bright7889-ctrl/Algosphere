@@ -9,6 +9,7 @@ import PnlChart from './PnlChart'
 import DrawdownChart from './DrawdownChart'
 
 export const metadata = { title: 'Performance Analytics' }
+export const dynamic = 'force-dynamic'
 
 function groupBy<T>(arr: T[], key: (item: T) => string): Record<string, T[]> {
   return arr.reduce<Record<string, T[]>>((acc, item) => {
