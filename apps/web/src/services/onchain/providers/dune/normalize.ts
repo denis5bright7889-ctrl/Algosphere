@@ -112,25 +112,33 @@ function asIso(value: string | null): string | null {
 
 /**
  * Smart Money buys.
- * Required columns: chain, token_symbol, token_address, wallet_address, amount_usd, observed_at.
- * Optional: wallet_label, price_usd, conviction (0..1), sector.
+ * Required columns: chain, token_symbol, wallet (the actor address),
+ *   amount_usd, observed_at.
+ * Optional: token_address, wallet_label, price_usd, conviction (0..1
+ *   or 0..100), sector. token_address is optional for symbol-keyed
+ *   queries — consistent with mapWhaleRow, which never required it.
  */
 export function mapSmartMoneyRow(row: DuneRow, idx: number): SmartMoneyBuy | null {
   const chain = asChain(str(row, ['chain', 'blockchain', 'network']))
   const symbol = str(row, ['token_symbol', 'symbol', 'token'])
-  const addr = str(row, ['token_address', 'contract_address', 'address'])
-  const wallet = str(row, ['wallet_address', 'wallet', 'buyer', 'trader_address'])
+  const addr = str(row, ['token_address', 'contract_address'])
+  // The actor wallet. `from` is the conventional Dune column for the
+  // address that initiated the move (= the smart-money wallet here).
+  const wallet = str(row, [
+    'wallet_address', 'wallet', 'buyer', 'trader_address',
+    'from', 'from_address', 'sender', 'address',
+  ])
   const amount = num(row, ['amount_usd', 'usd_amount', 'usd_value', 'value_usd'])
   const observed = asIso(str(row, ['observed_at', 'block_time', 'timestamp', 'time']))
 
-  if (!chain || !symbol || !addr || !wallet || amount == null || !observed) return null
+  if (!chain || !symbol || !wallet || amount == null || !observed) return null
 
   const conviction = num(row, ['conviction', 'score', 'quality_score'])
   return {
     id: str(row, ['id', 'tx_hash', 'hash']) ?? `dune-sm-${idx}`,
     chain,
     token_symbol: symbol,
-    token_address: addr,
+    token_address: addr ?? '',
     wallet_address: wallet,
     wallet_label: str(row, ['wallet_label', 'label', 'wallet_name']),
     amount_usd: amount,
