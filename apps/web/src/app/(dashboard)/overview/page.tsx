@@ -12,6 +12,8 @@ import LiveMarketPill from '@/components/ui/LiveMarketPill'
 import Panel from '@/components/dashboard/overview/Panel'
 import Kpi from '@/components/dashboard/overview/Kpi'
 import GettingStarted from '@/components/dashboard/overview/GettingStarted'
+import SessionIntelligence from '@/components/dashboard/overview/SessionIntelligence'
+import { Clock } from 'lucide-react'
 
 export const metadata = { title: 'Command Center' }
 export const dynamic = 'force-dynamic'
@@ -262,6 +264,17 @@ export default async function OverviewPage() {
 
         {/* Intelligence rail */}
         <div className="space-y-5">
+          <Panel
+            title="Session Intelligence"
+            icon={Clock}
+            hint={{
+              id: 'overview-session',
+              text: 'Real spot FX/Gold trading-session state derived from the UTC clock — not a feed. The weekend close (Fri 22:00 → Sun 22:00 UTC) is exact; session bands are conventional UTC windows and indicative. Tells you which liquidity centre is driving price right now.',
+            }}
+          >
+            <SessionIntelligence />
+          </Panel>
+
           <Panel
             title="AI Insights"
             icon={Sparkles}
