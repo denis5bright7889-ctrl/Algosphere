@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { BadgeCheck } from 'lucide-react'
+import { BadgeCheck, FlaskConical, AlertCircle, Activity } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   effectivePrice,
@@ -89,9 +89,13 @@ export default async function StrategyMarketplacePage({
         </a>
       </header>
 
-      {/* Filters */}
+      {/* Filters — link-driven, zero JS. The previous <select> had
+          onChange={undefined}, so changing it did nothing; this row of
+          links reuses the same href pattern as the asset filters above
+          so the UI stays consistent and the URL is the single source
+          of truth for filter+sort state. */}
       <div className="mb-5 flex flex-wrap items-center gap-3">
-        <div className="flex gap-1 flex-wrap">
+        <div className="flex flex-wrap gap-1">
           {ASSET_FILTERS.map(f => (
             <a
               key={f.key}
@@ -107,16 +111,25 @@ export default async function StrategyMarketplacePage({
             </a>
           ))}
         </div>
-        <select
-          defaultValue={sort}
-          onChange={undefined}
-          className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs ml-auto focus:outline-none"
-          aria-label="Sort strategies"
-        >
+        <div className="ml-auto flex flex-wrap items-center gap-1">
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground/70 mr-1">
+            Sort
+          </span>
           {SORT_OPTIONS.map(o => (
-            <option key={o.key} value={o.key}>{o.label}</option>
+            <a
+              key={o.key}
+              href={`/strategies?asset=${asset}&sort=${o.key}`}
+              className={cn(
+                'rounded-full border px-3 py-1 text-[11px] font-medium transition-colors',
+                sort === o.key
+                  ? 'border-amber-500/50 bg-amber-500/10 text-amber-300'
+                  : 'border-border text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {o.label}
+            </a>
           ))}
-        </select>
+        </div>
       </div>
 
       {/* Grid */}
@@ -160,39 +173,49 @@ function StrategyCard({
   const handle = s.profiles?.public_handle
   const monthly = effectivePrice(s, 'monthly')
 
+  // Same data-source taxonomy as the detail page's PerformanceSection:
+  // 'live' > 'backtest' > 'unverified'. Drives both the source chip
+  // and whether we show the metric grid at all.
+  const hasSignals = s.total_signals > 0
+  const isLive = s.verification_level === 'live_30d'
+              || s.verification_level === 'live_90d'
+              || s.verification_level === 'live_180d'
+  const isBacktest = s.verification_level === 'backtested'
+  const isUnverified = !isLive && !isBacktest && !hasSignals
+
   return (
     <a
       href={`/strategies/${s.slug}`}
-      className="group rounded-2xl border border-border bg-card p-5 hover:border-amber-500/40 hover:shadow-card-lift transition-all flex flex-col"
+      className="group flex flex-col rounded-2xl border border-border bg-card p-5 transition-all hover:border-amber-500/40 hover:shadow-card-lift"
     >
       {/* Header */}
-      <div className="flex items-start justify-between gap-2 mb-2">
+      <div className="mb-2 flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="font-bold text-base truncate group-hover:text-amber-300 transition-colors">
+          <h3 className="truncate text-base font-bold transition-colors group-hover:text-amber-300">
             {s.name}
           </h3>
           {handle && (
-            <p className="text-[11px] text-muted-foreground mt-0.5">
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
               by <span className="text-foreground">@{handle}</span>
             </p>
           )}
         </div>
-        {s.verified && (
-          <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
-            <BadgeCheck className="h-3 w-3" strokeWidth={2} aria-hidden />
-            {verificationLevelLabel(s.verification_level)}
-          </span>
-        )}
+        <SourceChip
+          isLive={isLive}
+          isBacktest={isBacktest}
+          isUnverified={isUnverified}
+          level={s.verification_level}
+        />
       </div>
 
       {s.tagline && (
-        <p className="text-xs text-muted-foreground line-clamp-2 mb-3">
+        <p className="mb-3 line-clamp-2 text-xs text-muted-foreground">
           {s.tagline}
         </p>
       )}
 
       {/* Asset class chips */}
-      <div className="flex flex-wrap gap-1 mb-3">
+      <div className="mb-3 flex flex-wrap gap-1">
         {s.asset_classes.slice(0, 3).map(ac => (
           <span
             key={ac}
@@ -203,29 +226,38 @@ function StrategyCard({
         ))}
       </div>
 
-      {/* Performance grid */}
-      <div className="grid grid-cols-3 gap-2 mb-4 text-center">
-        <Metric
-          label="Win Rate"
-          value={s.win_rate != null ? `${s.win_rate.toFixed(0)}%` : '—'}
-          tone="plain"
-        />
-        <Metric
-          label="Mo. Return"
-          value={s.monthly_return_avg != null
-            ? `${s.monthly_return_avg >= 0 ? '+' : ''}${s.monthly_return_avg.toFixed(1)}%`
-            : '—'}
-          tone={s.monthly_return_avg != null && s.monthly_return_avg >= 0 ? 'green' : 'red'}
-        />
-        <Metric
-          label="Sharpe"
-          value={s.sharpe_ratio != null ? s.sharpe_ratio.toFixed(2) : '—'}
-          tone="plain"
-        />
-      </div>
+      {/* Performance grid — hidden for unverified/0-signal strategies so
+          dashed metrics don't read as 'zero performance'. Honest empty
+          state is shown instead. */}
+      {isUnverified ? (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-dashed border-border bg-muted/10 px-3 py-2 text-[11px] text-muted-foreground">
+          <Activity className="h-3.5 w-3.5 shrink-0 text-amber-300/60" strokeWidth={1.75} aria-hidden />
+          <span>Awaiting first signals — no track record to display yet.</span>
+        </div>
+      ) : (
+        <div className="mb-4 grid grid-cols-3 gap-2 text-center">
+          <Metric
+            label="Win Rate"
+            value={s.win_rate != null ? `${s.win_rate.toFixed(0)}%` : '—'}
+            tone="plain"
+          />
+          <Metric
+            label="Mo. Return"
+            value={s.monthly_return_avg != null
+              ? `${s.monthly_return_avg >= 0 ? '+' : ''}${s.monthly_return_avg.toFixed(1)}%`
+              : '—'}
+            tone={s.monthly_return_avg != null && s.monthly_return_avg >= 0 ? 'green' : 'red'}
+          />
+          <Metric
+            label="Sharpe"
+            value={s.sharpe_ratio != null ? s.sharpe_ratio.toFixed(2) : '—'}
+            tone="plain"
+          />
+        </div>
+      )}
 
       {/* Stats row */}
-      <div className="flex items-center gap-3 text-[10px] text-muted-foreground mb-4">
+      <div className="mb-4 flex items-center gap-3 text-[10px] text-muted-foreground">
         <span>⭐ {s.rating_avg ? s.rating_avg.toFixed(1) : '—'} ({s.rating_count})</span>
         <span>·</span>
         <span>{s.subscribers_count.toLocaleString()} subs</span>
@@ -260,6 +292,55 @@ function StrategyCard({
         </span>
       </div>
     </a>
+  )
+}
+
+/**
+ * Truthful source-of-data chip for a marketplace card. Priority:
+ *   live  → emerald 'Live N+ days' (existing verified treatment)
+ *   backtested → violet 'Simulation · Backtest'
+ *   unverified → amber 'Unverified'
+ * Mirrors the chip system on the detail page so a viewer scanning the
+ * grid sees the same truth they'll see after clicking.
+ */
+function SourceChip({
+  isLive, isBacktest, isUnverified, level,
+}: {
+  isLive: boolean
+  isBacktest: boolean
+  isUnverified: boolean
+  level: PublishedStrategy['verification_level']
+}) {
+  if (isLive) {
+    return (
+      <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
+        <BadgeCheck className="h-3 w-3" strokeWidth={2} aria-hidden />
+        {verificationLevelLabel(level)}
+      </span>
+    )
+  }
+  if (isBacktest) {
+    return (
+      <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-bold text-violet-300">
+        <FlaskConical className="h-3 w-3" strokeWidth={2} aria-hidden />
+        Simulation
+      </span>
+    )
+  }
+  if (isUnverified) {
+    return (
+      <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-300">
+        <AlertCircle className="h-3 w-3" strokeWidth={2} aria-hidden />
+        Unverified
+      </span>
+    )
+  }
+  // Strategy has published signals but isn't yet at a live-Nd threshold.
+  return (
+    <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-300">
+      <AlertCircle className="h-3 w-3" strokeWidth={2} aria-hidden />
+      Building track record
+    </span>
   )
 }
 
