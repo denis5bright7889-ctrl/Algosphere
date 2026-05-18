@@ -11,6 +11,7 @@ import AnimatedNumber from '@/components/ui/AnimatedNumber'
 import LiveMarketPill from '@/components/ui/LiveMarketPill'
 import Panel from '@/components/dashboard/overview/Panel'
 import Kpi from '@/components/dashboard/overview/Kpi'
+import GettingStarted from '@/components/dashboard/overview/GettingStarted'
 
 export const metadata = { title: 'Command Center' }
 
@@ -47,6 +48,7 @@ export default async function OverviewPage() {
   const [
     { data: profile }, { data: signals }, { data: journal }, regimes,
     { data: brokers }, { data: shadow }, { data: notifs },
+    { count: pushCount }, { count: stratSubCount },
   ] = await Promise.all([
     supabase.from('profiles')
       .select('full_name, subscription_tier, account_type')
@@ -67,6 +69,13 @@ export default async function OverviewPage() {
     supabase.from('social_notifications')
       .select('notif_type, message, created_at')
       .eq('recipient_id', user!.id).order('created_at', { ascending: false }).limit(6),
+    // Onboarding signals — only counts, no rows. Cheap.
+    supabase.from('push_subscriptions')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user!.id),
+    supabase.from('strategy_subscriptions')
+      .select('id', { count: 'exact', head: true })
+      .eq('subscriber_id', user!.id),
   ])
 
   // Demo accounts keep their established synthetic fallback (gated by isDemo).
@@ -116,8 +125,25 @@ export default async function OverviewPage() {
 
   const firstName = profile?.full_name ? `, ${profile.full_name.split(' ')[0]}` : ''
 
+  // Onboarding checklist signals — all derived from real fetches above.
+  // GettingStarted self-hides once every box is checked.
+  // Uses the *raw* journal/signals data, not the demo-gated `jrnl`/`sigs`
+  // overrides — a demo user shouldn't tick 'Log your first trade' from
+  // synthetic data they didn't enter.
+  const brokerConnected = brokers?.some((b) => b.status === 'connected') ?? false
+  const hasJournalEntry = (journal?.length ?? 0) > 0
+  const pushEnabled     = (pushCount ?? 0) > 0
+  const hasStrategySub  = (stratSubCount ?? 0) > 0
+
   return (
     <div className="space-y-5 animate-fade-in">
+      <GettingStarted
+        brokerConnected={brokerConnected}
+        hasJournalEntry={hasJournalEntry}
+        pushEnabled={pushEnabled}
+        hasStrategySub={hasStrategySub}
+      />
+
       {/* Hero */}
       <div className="relative overflow-hidden rounded-2xl border border-border/70 glass p-5 sm:p-6">
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-primary" aria-hidden />
