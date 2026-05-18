@@ -25,6 +25,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             { href: '/admin/payments',     label: 'Payments' },
             { href: '/admin/verification', label: 'Verifications' },
             { href: '/admin/compliance',   label: 'Compliance & Audit' },
+            { href: '/admin/dune-probe',   label: 'Dune Probe' },
           ].map(link => (
             <a key={link.href} href={link.href} className="text-sm text-muted-foreground hover:text-foreground">
               {link.label}

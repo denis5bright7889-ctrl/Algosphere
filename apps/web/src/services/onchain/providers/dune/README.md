@@ -26,14 +26,23 @@ single method only. Partial wiring is safe.
 
 ## Verify a query before wiring
 
-```bash
-curl -X POST https://algospherequant.com/api/admin/dune-probe \
-  -H 'content-type: application/json' \
-  -d '{"query_id": <id>, "mode": "latest", "limit": 5}'
-```
+Easiest path — the admin UI at **`/admin/dune-probe`** (auth-gated by the
+admin layout). Type the query ID, hit "Run probe", and the page shows the
+column list + the first 5 rows so you can sanity-check the schema against
+the contract below without leaving the browser.
 
-(admin email only). Returns the first 5 rows + column list so you can sanity
-check the schema matches the contract below.
+If you prefer the API directly, run this from the browser DevTools console on
+any algospherequant.com tab where you're logged in as admin (it carries the
+Supabase session cookie automatically — curl/Invoke-WebRequest from a fresh
+shell will 403):
+
+```js
+fetch('/api/admin/dune-probe', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ query_id: <id>, mode: 'latest', limit: 5 }),
+}).then(r => r.json()).then(j => console.table(j.rows ?? j))
+```
 
 ## Expected column schemas
 
