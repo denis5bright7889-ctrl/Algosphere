@@ -4,6 +4,10 @@ import { useEffect, useState, useCallback } from 'react'
 
 export interface IntelMeta {
   source:        string
+  /** Provider configured via ONCHAIN_PROVIDER (may differ from source). */
+  configured:    string
+  /** True when configured for a real provider but this surface fell back to mock. */
+  fallback:      boolean
   fetched_at:    string
   delayed:       boolean
   band:          'FREE' | 'PRO' | 'ELITE' | 'INSTITUTIONAL'
@@ -43,7 +47,9 @@ export function useIntel<T>(
       setS({
         data:    Array.isArray(json.data) ? json.data : [],
         meta:    {
-          source: json.source, fetched_at: json.fetched_at,
+          source: json.source, configured: json.configured ?? json.source,
+          fallback: !!json.fallback,
+          fetched_at: json.fetched_at,
           delayed: !!json.delayed, band: json.band,
           capped: !!json.capped, delay_minutes: json.delay_minutes ?? 0,
         },

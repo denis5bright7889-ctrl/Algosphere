@@ -49,17 +49,44 @@ export function activeProviderName(): ProviderName {
 }
 
 /**
- * Returns the active provider. With { fallbackToMock: true } the
- * returned object wraps every method so a ProviderNotWired error
- * silently degrades to the mock implementation for THAT method —
- * letting the product surface ship before every adapter is complete.
+ * A provider plus a truthful read of which source actually served
+ * the most recent call. `lastSource()` is per-instance and a fresh
+ * instance is created per `getOnchainProvider()` call (one per
+ * request), so it's concurrency-safe.
+ */
+export interface TrackedProvider extends OnchainProvider {
+  /**
+   * The source that answered the LAST get* call:
+   *   - the configured provider name when it served the data, OR
+   *   - 'mock' when that surface wasn't wired and silently fell back.
+   * The route reports THIS — never the configured name blindly — so
+   * a half-wired Dune deployment can't label mock rows as real.
+   */
+  lastSource(): ProviderName
+}
+
+/**
+ * Returns the active provider. With { fallbackToMock: true } a
+ * ProviderNotWired from the configured provider degrades to mock for
+ * THAT method — letting the product ship before every adapter is
+ * complete. Critically, the fallback is RECORDED: `lastSource()`
+ * tells the caller whether real-provider or mock data was returned,
+ * so the transparency footer never lies.
  */
 export function getOnchainProvider(
   opts: { fallbackToMock?: boolean } = {},
-): OnchainProvider {
+): TrackedProvider {
   const name = activeProviderName()
   const primary = build(name)
-  if (name === 'mock' || !opts.fallbackToMock) return primary
+  let effective: ProviderName = name
+
+  // Mock provider, or fallback disabled → no ambiguity: every call is
+  // the configured provider. Still expose lastSource() uniformly.
+  if (name === 'mock' || !opts.fallbackToMock) {
+    return Object.assign(Object.create(Object.getPrototypeOf(primary)), primary, {
+      lastSource: () => name,
+    }) as TrackedProvider
+  }
 
   const mock = new MockProvider()
   const wrap = <A extends unknown[], R>(
@@ -67,15 +94,21 @@ export function getOnchainProvider(
     mockFn:    (...a: A) => Promise<R>,
   ) => async (...a: A): Promise<R> => {
     try {
-      return await primaryFn.apply(primary, a)
+      const r = await primaryFn.apply(primary, a)
+      effective = name
+      return r
     } catch (e) {
-      if (e instanceof ProviderNotWired) return mockFn.apply(mock, a)
+      if (e instanceof ProviderNotWired) {
+        effective = 'mock'
+        return mockFn.apply(mock, a)
+      }
       throw e
     }
   }
 
   return {
     name: `${name}+mockfallback`,
+    lastSource: () => effective,
     getSmartMoneyBuys:    wrap(primary.getSmartMoneyBuys,    mock.getSmartMoneyBuys),
     getWhaleFlows:        wrap(primary.getWhaleFlows,        mock.getWhaleFlows),
     getExchangeFlows:     wrap(primary.getExchangeFlows,     mock.getExchangeFlows),

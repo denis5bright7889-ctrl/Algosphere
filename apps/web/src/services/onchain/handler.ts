@@ -49,9 +49,18 @@ export function intelligenceRoute<T>(fetcher: Fetcher<T>) {
     try {
       const provider = getOnchainProvider({ fallbackToMock: true })
       const rows = await fetcher(provider, q)
+      const configured = activeProviderName()
+      // The TRUE source for THIS surface — 'mock' if the configured
+      // provider wasn't wired for it and silently fell back. Never
+      // report `configured` blindly: that would label mock rows real.
+      const source = provider.lastSource()
       return NextResponse.json({
         data:       rows,
-        source:     activeProviderName(),
+        source,
+        configured,
+        // Explicit so the footer can say "configured for dune, this
+        // surface still on mock — wire DUNE_QUERY_*".
+        fallback:   source === 'mock' && configured !== 'mock',
         fetched_at: new Date().toISOString(),
         delayed:    !ent.liveData,
         band:       ent.band,
