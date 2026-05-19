@@ -4,12 +4,16 @@ import { useMemo, useState, useTransition } from 'react'
 import { Plus, X, Radio, CircleSlash } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useCryptoTickerForPair } from '@/components/market/useCryptoTickers'
+import { useInstrumentQuotes } from '@/components/market/useInstrumentQuotes'
+import type { UniverseQuote } from '@/lib/quotes'
+
+type ProviderName = 'crypto-stream' | 'twelvedata' | 'finnhub' | null
 
 interface UniInstrument {
-  symbol:     string
-  label:      string
-  group:      string | null
-  dataSource: 'crypto-stream' | null
+  symbol:   string
+  label:    string
+  group:    string | null
+  provider: ProviderName
 }
 interface UniCategory {
   assetClass: string
@@ -53,6 +57,17 @@ export default function WatchlistClient({ initial, universe }: Props) {
 
   // Items already pinned, for hiding in the picker.
   const pinned = useMemo(() => new Set(items.map((i) => i.symbol)), [items])
+
+  // Symbols served by /api/quotes (Twelve Data + Finnhub). Crypto rows
+  // tick from the WS singleton and are excluded here.
+  const restSymbols = useMemo(
+    () => items
+      .map((it) => lookup.get(it.symbol)?.provider)
+      .map((p, i) => (p === 'twelvedata' || p === 'finnhub') ? items[i]!.symbol : null)
+      .filter((x): x is string => x !== null),
+    [items, lookup],
+  )
+  const { quotes, providers } = useInstrumentQuotes(restSymbols)
 
   function add(symbol: string) {
     setError(null)
@@ -113,7 +128,13 @@ export default function WatchlistClient({ initial, universe }: Props) {
             {universe.map((c) => {
               const available = c.instruments.filter((i) => !pinned.has(i.symbol))
               if (available.length === 0) return null
-              const liveClass = c.instruments.some((i) => i.dataSource !== null)
+              // A category is "live" in the picker when any instrument
+              // declares a provider AND that provider is keyed server-side.
+              const liveClass = c.instruments.some((i) =>
+                i.provider === 'crypto-stream'
+                || (i.provider === 'twelvedata' && providers.twelvedata)
+                || (i.provider === 'finnhub' && providers.finnhub),
+              )
               return (
                 <div key={c.assetClass}>
                   <div className="mb-1.5 flex items-center gap-1.5">
@@ -157,7 +178,16 @@ export default function WatchlistClient({ initial, universe }: Props) {
         <ul className="space-y-2">
           {items.map((it) => {
             const meta = lookup.get(it.symbol)
-            const isLive = meta?.dataSource !== null && meta?.dataSource !== undefined
+            const provider: ProviderName = meta?.provider ?? null
+            // Effective live = provider declared AND configured server-side.
+            // For crypto-stream we treat configured as always true (no key
+            // required — public WS); for TD/Finnhub we read the meta from
+            // /api/quotes.
+            const configured =
+              provider === 'crypto-stream' ? true
+              : provider === 'twelvedata'  ? providers.twelvedata
+              : provider === 'finnhub'     ? providers.finnhub
+              : false
             return (
               <li key={it.symbol} className="rounded-xl border border-border bg-card p-3">
                 <div className="flex items-center justify-between gap-3">
@@ -176,11 +206,21 @@ export default function WatchlistClient({ initial, universe }: Props) {
                     )}
                   </div>
                   <div className="flex items-center gap-3">
-                    {isLive
-                      ? <LivePrice symbol={it.symbol} />
-                      : <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-                          <CircleSlash className="h-3 w-3" strokeWidth={2} aria-hidden />Feed not connected
-                        </span>}
+                    {provider === 'crypto-stream' ? (
+                      <CryptoPrice symbol={it.symbol} />
+                    ) : configured ? (
+                      <RestPrice quote={quotes.get(it.symbol)} />
+                    ) : (
+                      <span
+                        title={provider
+                          ? `${provider} API key not configured on the server`
+                          : 'No provider declared for this asset class yet'}
+                        className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"
+                      >
+                        <CircleSlash className="h-3 w-3" strokeWidth={2} aria-hidden />
+                        Feed not connected
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={() => remove(it.symbol)}
@@ -201,23 +241,43 @@ export default function WatchlistClient({ initial, universe }: Props) {
   )
 }
 
-/** Live price chip — uses the shared crypto-stream singleton; for
- *  non-crypto symbols the hook returns null and the row already
- *  rendered "Feed not connected" upstream. */
-function LivePrice({ symbol }: { symbol: string }) {
+function fmtPrice(p: number): string {
+  if (p >= 1000) return p.toLocaleString('en-US', { maximumFractionDigits: 0 })
+  if (p >= 1)    return p.toLocaleString('en-US', { maximumFractionDigits: 2 })
+  return p.toLocaleString('en-US', { maximumFractionDigits: 4 })
+}
+
+/** Live crypto chip — reads the shared crypto-stream WS singleton. */
+function CryptoPrice({ symbol }: { symbol: string }) {
   const t = useCryptoTickerForPair(symbol)
-  if (!t) {
-    return <span className="text-[10px] text-muted-foreground">Connecting…</span>
-  }
+  if (!t) return <span className="text-[10px] text-muted-foreground">Connecting…</span>
   const up = t.changePct >= 0
   return (
     <span className="flex items-baseline gap-1.5 tabular-nums">
-      <span className="text-xs font-semibold">
-        ${t.price >= 1000 ? t.price.toLocaleString('en-US', { maximumFractionDigits: 0 })
-                          : t.price.toLocaleString('en-US', { maximumFractionDigits: 4 })}
-      </span>
+      <span className="text-xs font-semibold">${fmtPrice(t.price)}</span>
       <span className={cn('text-[10px] font-bold', up ? 'text-emerald-400' : 'text-rose-400')}>
         {up ? '+' : ''}{t.changePct.toFixed(2)}%
+      </span>
+    </span>
+  )
+}
+
+/** Non-crypto price chip — reads a polled REST quote from /api/quotes.
+ *  No quote yet → "fetching…" (transient: the hook polls every 15s).
+ *  The provider's source label is surfaced via title for transparency. */
+function RestPrice({ quote }: { quote: UniverseQuote | undefined }) {
+  if (!quote) {
+    return <span className="text-[10px] text-muted-foreground">fetching…</span>
+  }
+  const up = quote.changePct >= 0
+  return (
+    <span
+      title={`Source: ${quote.source} · ${new Date(quote.fetchedAt).toLocaleTimeString()}`}
+      className="flex items-baseline gap-1.5 tabular-nums"
+    >
+      <span className="text-xs font-semibold">${fmtPrice(quote.price)}</span>
+      <span className={cn('text-[10px] font-bold', up ? 'text-emerald-400' : 'text-rose-400')}>
+        {up ? '+' : ''}{quote.changePct.toFixed(2)}%
       </span>
     </span>
   )

@@ -57,10 +57,10 @@ export default async function WatchlistPage() {
             assetClass: c.assetClass,
             label:      c.label,
             instruments: c.instruments.map((i) => ({
-              symbol:     i.symbol,
-              label:      i.label,
-              group:      i.group ?? null,
-              dataSource: i.dataSource,
+              symbol:   i.symbol,
+              label:    i.label,
+              group:    i.group ?? null,
+              provider: i.provider,
             })),
           }))}
         />
