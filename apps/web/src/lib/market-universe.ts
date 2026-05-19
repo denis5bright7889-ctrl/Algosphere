@@ -12,7 +12,7 @@
  *
  *   'crypto-stream' → Binance/Coinbase public WS singleton (no key
  *                     required; always live in practice)
- *   'twelvedata'    → Twelve Data REST (TWELVEDATA_API_KEY)
+ *   'twelvedata'    → Twelve Data REST (TWELVE_DATA_API_KEY)
  *   'finnhub'       → Finnhub REST (FINNHUB_API_KEY)
  *   null            → catalogued, no provider declared
  *
@@ -174,7 +174,7 @@ export const MARKET_UNIVERSE: UniverseCategory[] = [
  */
 export function configuredProviders(): Set<Provider> {
   const s = new Set<Provider>(['crypto-stream'])
-  if (process.env.TWELVEDATA_API_KEY) s.add('twelvedata')
+  if (process.env.TWELVE_DATA_API_KEY) s.add('twelvedata')
   if (process.env.FINNHUB_API_KEY)    s.add('finnhub')
   return s
 }

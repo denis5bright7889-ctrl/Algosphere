@@ -19,8 +19,8 @@ const BASE = 'https://api.twelvedata.com'
 const TIMEOUT_MS = 6000
 
 export function isTwelveDataConfigured(): boolean {
-  return typeof process.env.TWELVEDATA_API_KEY === 'string'
-      && process.env.TWELVEDATA_API_KEY.length > 4
+  return typeof process.env.TWELVE_DATA_API_KEY === 'string'
+      && process.env.TWELVE_DATA_API_KEY.length > 4
 }
 
 interface TdQuoteRow {
@@ -61,7 +61,7 @@ export async function getQuotes(providerSymbols: string[]): Promise<Map<string, 
   await Promise.all(chunks.map(async (chunk) => {
     const url = new URL(`${BASE}/quote`)
     url.searchParams.set('symbol', chunk.join(','))
-    url.searchParams.set('apikey', process.env.TWELVEDATA_API_KEY!)
+    url.searchParams.set('apikey', process.env.TWELVE_DATA_API_KEY!)
 
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
