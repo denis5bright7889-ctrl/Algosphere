@@ -1,0 +1,9 @@
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.10.2
+python-dotenv==1.0.1
+loguru==0.7.2
+
+# Windows-only — the whole reason this service exists. Bridge.py
+# imports it lazily so the module loads on Linux for inspection too.
+MetaTrader5==5.0.45 ; sys_platform == "win32"

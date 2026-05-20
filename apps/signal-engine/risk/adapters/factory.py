@@ -24,11 +24,14 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 from loguru import logger
 
+import os
+
 from risk.adapters.base import ExecutionAdapter
 from risk.adapters.binance_adapter import BinanceAdapter
 from risk.adapters.bybit_adapter   import BybitAdapter
 from risk.adapters.okx_adapter     import OKXAdapter
 from risk.adapters.mt5_adapter     import MT5Adapter
+from risk.adapters.mt5_bridge_adapter import MT5BridgeAdapter
 from risk.adapters.paper_adapter   import PaperBroker
 from risk.broker_state import disabled_reason_for
 from risk.vault import decrypt as vault_decrypt, VaultError
@@ -154,6 +157,13 @@ def _build_adapter(conn: _ConnRow, user_id: str) -> ExecutionAdapter:
             raise BrokerNotConnected(
                 "MT5 api_key_enc must decrypt to a numeric login"
             ) from e
+        # Two execution paths — bridge mode wins when configured because
+        # it's the only viable path on Linux. Local mode is for the rare
+        # Windows-hosted engine deploy.
+        if os.environ.get('MT5_BRIDGE_URL', '').strip():
+            return MT5BridgeAdapter(
+                login_id, conn.api_secret, conn.passphrase, testnet=conn.is_testnet,
+            )
         return MT5Adapter(
             login_id, conn.api_secret, conn.passphrase, testnet=conn.is_testnet,
         )

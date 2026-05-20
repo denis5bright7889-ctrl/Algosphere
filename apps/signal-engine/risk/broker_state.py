@@ -99,15 +99,26 @@ def disabled_reason_for(broker: str) -> Optional[str]:
     """
     Return a human-readable explanation if `broker` is structurally
     unavailable in this environment, else None.
+
+    For MT5 there are two paths to "available":
+      1. Local mode — the MetaTrader5 package imports successfully
+         (engine running on Windows alongside the terminal).
+      2. Bridge mode — MT5_BRIDGE_URL is configured (engine on
+         Linux/Railway delegates to a Windows VPS running
+         apps/mt5-bridge).
+    DISABLED is returned only when BOTH paths are unavailable.
     """
     if broker == 'mt5':
+        import os
+        if os.environ.get('MT5_BRIDGE_URL', '').strip():
+            return None  # bridge configured — let it handle errors at handshake
         ok, reason = mt5_available()
         if not ok:
             return (
-                'MT5 requires a Windows execution node running the MetaTrader5 '
-                'terminal. This engine is running on Linux. Set up the MT5 '
-                'bridge service on a Windows VPS and point the engine at it to '
-                f'enable. ({reason})'
+                'MT5 requires either the MetaTrader5 Python package locally '
+                '(Windows engine deploy) or a configured MT5 bridge service '
+                'on a Windows VPS (set MT5_BRIDGE_URL on the engine). Neither '
+                f'is present in this environment. ({reason})'
             )
     if broker == 'ctrader':
         return 'cTrader adapter is not implemented yet.'
