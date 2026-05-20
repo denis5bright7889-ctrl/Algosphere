@@ -29,6 +29,7 @@ from risk.adapters.binance_adapter import BinanceAdapter
 from risk.adapters.bybit_adapter   import BybitAdapter
 from risk.adapters.okx_adapter     import OKXAdapter
 from risk.adapters.mt5_adapter     import MT5Adapter
+from risk.broker_state import disabled_reason_for
 from risk.vault import decrypt as vault_decrypt, VaultError
 
 
@@ -46,6 +47,13 @@ class BrokerNotConnected(RuntimeError):
 class BrokerDecryptError(RuntimeError):
     """Credentials exist but couldn't be decrypted — usually means
     CREDENTIAL_ENCRYPTION_KEY was rotated or never set."""
+
+
+class BrokerDisabled(RuntimeError):
+    """The broker is structurally unavailable in this environment
+    (e.g. MT5 on Linux). The connection should be marked DISABLED with
+    a clear reason rather than retried — only an infrastructure change
+    can resolve it."""
 
 
 # ─── Lookup ────────────────────────────────────────────────────────────
@@ -107,6 +115,14 @@ def _load_connection(db, user_id: str, broker: str) -> Optional[_ConnRow]:
 # ─── Build ─────────────────────────────────────────────────────────────
 
 def _build_adapter(conn: _ConnRow, user_id: str) -> ExecutionAdapter:
+    # Environment-level guard: if the broker is structurally unsupported
+    # in this deploy (MT5 on Linux, cTrader not implemented), refuse
+    # immediately so the probe can mark the row DISABLED instead of
+    # cycling through retries forever.
+    reason = disabled_reason_for(conn.broker)
+    if reason is not None:
+        raise BrokerDisabled(reason)
+
     login = f"{conn.broker}_{user_id[:8]}"
 
     if conn.broker == 'binance':
