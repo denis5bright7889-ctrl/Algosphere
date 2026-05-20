@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { FlaskConical, AlertTriangle, Info, Pin } from 'lucide-react'
+import { FlaskConical, AlertTriangle, Info, Pin, RefreshCw, Ban } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Conn {
@@ -55,12 +55,31 @@ const BROKERS = [
   },
 ] as const
 
+// State machine: pending (transient, capped at 2 cycles), testing
+// (synchronous handshake in flight), connected, failed, disabled
+// (environment-level — e.g. MT5 on Linux), revoked. Legacy values
+// 'error' / 'disconnected' map onto 'failed' for older rows that
+// existed before the migration; both kept here defensively.
 const STATUS_CLS: Record<string, string> = {
   pending:      'text-amber-300 border-amber-500/40 bg-amber-500/10',
+  testing:      'text-amber-200 border-amber-500/40 bg-amber-500/10 animate-pulse',
   connected:    'text-emerald-300 border-emerald-500/40 bg-emerald-500/10',
+  failed:       'text-rose-300 border-rose-500/40 bg-rose-500/10',
   error:        'text-rose-300 border-rose-500/40 bg-rose-500/10',
-  disconnected: 'text-muted-foreground border-border bg-muted/20',
+  disconnected: 'text-rose-300 border-rose-500/40 bg-rose-500/10',
+  disabled:     'text-zinc-300 border-zinc-500/40 bg-zinc-500/10',
   revoked:      'text-rose-400 border-rose-500/40 bg-rose-500/10',
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  pending:   'Pending',
+  testing:   'Testing…',
+  connected: 'Connected',
+  failed:    'Failed',
+  error:     'Failed',
+  disconnected: 'Failed',
+  disabled:  'Disabled',
+  revoked:   'Revoked',
 }
 
 const inputCls =
@@ -145,18 +164,47 @@ interface Readiness {
 }
 
 function ConnectionCard({
-  c, onRemoved, onPromoted, onDefaulted,
+  c: initial, onRemoved, onPromoted, onDefaulted,
 }: {
   c: Conn
   onRemoved: (id: string) => void
   onPromoted: (id: string) => void
   onDefaulted: (id: string) => void
 }) {
+  const [c, setConn] = useState<Conn>(initial)
   const [pending, startTransition] = useTransition()
   const [confirming, setConfirming] = useState(false)
   const [readiness, setReadiness] = useState<Readiness | null>(null)
   const [showGate, setShowGate] = useState(false)
   const [goLiveErr, setGoLiveErr] = useState<string | null>(null)
+  const [retrying, setRetrying] = useState(false)
+  const [retryError, setRetryError] = useState<string | null>(null)
+
+  // Retry the engine handshake on demand. DISABLED rows are excluded
+  // — re-pinging the engine won't change a structural environment
+  // limitation. REVOKED rows are read-only too.
+  function retryConnection() {
+    if (c.status === 'disabled' || c.status === 'revoked') return
+    setRetryError(null)
+    setRetrying(true)
+    startTransition(async () => {
+      try {
+        const res = await fetch(`/api/brokers/${c.id}/test`, { method: 'POST' })
+        const d = await res.json()
+        if (!res.ok) {
+          setRetryError(d.error ?? 'engine unreachable')
+          return
+        }
+        if (d.connection) {
+          setConn(d.connection as Conn)
+        }
+      } catch {
+        setRetryError('Network error')
+      } finally {
+        setRetrying(false)
+      }
+    })
+  }
 
   function setDefault() {
     startTransition(async () => {
@@ -232,10 +280,11 @@ function ConnectionCard({
           </p>
         </div>
         <span className={cn(
-          'rounded-full border px-2.5 py-0.5 text-[10px] font-bold capitalize',
+          'rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider',
           STATUS_CLS[c.status] ?? STATUS_CLS.pending,
         )}>
-          ● {c.status}
+          {c.status === 'disabled' ? <Ban className="-mt-px mr-1 inline h-3 w-3" strokeWidth={2} aria-hidden /> : '● '}
+          {STATUS_LABEL[c.status] ?? c.status}
         </span>
       </div>
 
@@ -303,7 +352,27 @@ function ConnectionCard({
         </div>
       )}
 
+      {retryError && (
+        <p className="mt-2 text-[11px] text-rose-400">
+          Retry failed: {retryError}
+        </p>
+      )}
+
       <div className="mt-3 flex flex-wrap justify-end gap-2">
+        {c.status !== 'connected'
+          && c.status !== 'disabled'
+          && c.status !== 'revoked'
+          && (
+          <button
+            type="button"
+            onClick={retryConnection}
+            disabled={pending || retrying}
+            className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-amber-500/40 hover:text-amber-300 disabled:opacity-50"
+          >
+            <RefreshCw className={cn('h-3 w-3', retrying && 'animate-spin')} strokeWidth={2} aria-hidden />
+            {retrying ? 'Testing…' : 'Retry connection'}
+          </button>
+        )}
         {!c.is_default && (
           <button
             type="button"
@@ -501,28 +570,29 @@ function AddConnectionForm({
 /**
  * Tells the user — truthfully — what the current status means and
  * what unlocks the next transition. Critically: never claims a
- * handshake happened when one hasn't. For MT5 the message names the
- * external dependency (signal-engine + MT5 bridge) so the user
- * doesn't assume the platform itself is broken.
+ * handshake happened when one hasn't. DISABLED specifically names
+ * the environment limitation (MT5 on Linux) so the user doesn't
+ * conflate it with a credential issue they can fix.
  */
 function StatusExplainer({ c }: { c: Conn }) {
   const isMt5 = c.broker === 'mt5'
 
-  if (c.status === 'pending') {
+  if (c.status === 'disabled') {
     return (
-      <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] p-3 text-[11px] text-amber-200/90">
-        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={1.75} aria-hidden />
+      <div className="mt-3 flex items-start gap-2 rounded-lg border border-zinc-500/40 bg-zinc-500/10 p-3 text-[11px] text-zinc-200">
+        <Ban className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={1.75} aria-hidden />
         <div className="space-y-1">
           <p>
-            <span className="font-semibold">Encrypted credentials saved.</span>{' '}
-            Status will flip to <span className="font-mono">connected</span> after the
-            signal-engine performs its first successful broker API handshake — we never
-            mark a connection live without the round-trip.
+            <span className="font-semibold">Disabled in this environment.</span>{' '}
+            {isMt5
+              ? 'MT5 requires the MetaTrader 5 terminal running on a Windows host. The current engine deploy is Linux (Railway), so no handshake is possible from here.'
+              : (c.error_message ?? 'This broker is not supported in the current deploy.')}
           </p>
           {isMt5 && (
-            <p className="text-amber-200/70">
-              MT5 specifically requires the engine&apos;s MT5 bridge to be reachable. Until then
-              this stays pending — that&apos;s the correct state, not a UI bug.
+            <p className="text-zinc-300/80">
+              To enable: provision a Windows VPS, install the MT5 bridge service on it,
+              and point <span className="font-mono">SIGNAL_ENGINE_URL</span> there.
+              Crypto testnet brokers (Binance / Bybit / OKX) work as-is.
             </p>
           )}
         </div>
@@ -530,14 +600,33 @@ function StatusExplainer({ c }: { c: Conn }) {
     )
   }
 
-  if (c.status === 'error' || c.status === 'disconnected' || c.status === 'revoked') {
+  if (c.status === 'pending' || c.status === 'testing') {
+    return (
+      <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] p-3 text-[11px] text-amber-200/90">
+        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={1.75} aria-hidden />
+        <div className="space-y-1">
+          <p>
+            <span className="font-semibold">
+              {c.status === 'testing' ? 'Handshake in progress.' : 'Encrypted credentials saved.'}
+            </span>{' '}
+            Status flips to <span className="font-mono">connected</span> after the engine
+            completes a successful broker API round-trip — we never mark a connection live
+            without it. If the handshake doesn&apos;t resolve within 2 probe cycles
+            (~20 minutes), the row auto-flips to <span className="font-mono">failed</span>.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  if (c.status === 'failed' || c.status === 'error' || c.status === 'disconnected' || c.status === 'revoked') {
     return (
       <div className="mt-3 flex items-start gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-[11px] text-rose-200">
         <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={1.75} aria-hidden />
         <div className="space-y-1">
           <p>
-            <span className="font-semibold capitalize">{c.status}</span> — the engine&apos;s
-            last attempt to reach the broker failed.
+            <span className="font-semibold">{STATUS_LABEL[c.status] ?? c.status}</span> — the
+            engine&apos;s last attempt to reach the broker failed.
           </p>
           {c.error_message && (
             <p className="font-mono text-[10px] text-rose-300/80 break-all">{c.error_message}</p>
@@ -545,7 +634,8 @@ function StatusExplainer({ c }: { c: Conn }) {
           <p className="text-rose-200/70">
             Check API key permissions (read + trade, no withdrawal),{' '}
             {isMt5 ? 'verify the MT5 server name exactly matches your broker, ' : ''}
-            or remove and re-add the connection with fresh credentials.
+            or click <span className="font-semibold">Retry connection</span> after fixing the
+            credentials.
           </p>
         </div>
       </div>

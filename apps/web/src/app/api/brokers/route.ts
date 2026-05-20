@@ -2,6 +2,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { encrypt, isVaultAvailable, mask } from '@/lib/vault'
+import { testBrokerConnection } from '@/lib/engine-client'
 
 // GET — list my broker connections (secrets never returned in plaintext)
 export async function GET() {
@@ -111,8 +112,27 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Failed to save connection' }, { status: 500 })
   }
 
+  // Immediately handshake against the engine so the user gets a verdict
+  // in the same response — no 10-minute pending limbo. If the engine is
+  // unreachable, we leave the row as 'pending' and let the periodic
+  // probe pick it up; the UI explains that explicitly.
+  let resolved = data
+  const verdict = await testBrokerConnection(user.id, d.broker)
+  if (verdict.ok) {
+    // The engine already persisted status + error_message; refetch so
+    // the client sees the resolved state in this single round-trip.
+    const { data: fresh } = await svc
+      .from('broker_connections')
+      .select('id, broker, label, is_testnet, is_default, status, error_message, equity_usd, equity_updated_at, created_at')
+      .eq('id', data.id)
+      .single()
+    if (fresh) resolved = fresh
+  }
+
   return NextResponse.json({
-    connection: data,
-    masked_key: mask(d.api_key),
+    connection:    resolved,
+    masked_key:    mask(d.api_key),
+    handshake:     verdict.ok ? verdict.data : null,
+    engine_error:  verdict.ok ? null : verdict.error,
   }, { status: 201 })
 }
