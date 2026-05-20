@@ -26,15 +26,7 @@ export default function MobileNav({ tier = 'free', isAdmin = false }: Props) {
 
   // Portal target only exists on the client — wait one tick before
   // rendering anything that depends on document.body.
-  useEffect(() => {
-    setMounted(true)
-    // TEMP debug marker — remove once portal architecture is confirmed live.
-    // eslint-disable-next-line no-console
-    console.log('[NAV TRACE] Dashboard MobileNav mounted')
-    if (typeof window !== 'undefined') {
-      ;(window as unknown as { __NAV_BUILD?: string }).__NAV_BUILD = 'PORTAL_FIX_V3'
-    }
-  }, [])
+  useEffect(() => { setMounted(true) }, [])
 
   // Body-scroll lock while open: stops the page beneath from
   // scrolling on touch and prevents iOS rubber-banding through the
@@ -144,9 +136,8 @@ export default function MobileNav({ tier = 'free', isAdmin = false }: Props) {
     <>
       <button
         type="button"
-        data-nav-trace="DashboardMobileNav"
         onClick={() => setOpen(true)}
-        className="md:hidden flex h-10 w-10 items-center justify-center rounded-lg border-t-[6px] border-t-lime-400 text-foreground transition-colors hover:bg-accent touch-manipulation"
+        className="md:hidden flex h-10 w-10 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-accent touch-manipulation"
         aria-label="Open menu"
         aria-haspopup="dialog"
       >

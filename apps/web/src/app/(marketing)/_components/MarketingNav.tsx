@@ -27,15 +27,7 @@ export default function MarketingNav() {
   const [open, setOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
 
-  useEffect(() => {
-    setMounted(true)
-    // TEMP debug marker — remove once portal architecture is confirmed live.
-    // eslint-disable-next-line no-console
-    console.log('[NAV TRACE] MarketingNav mounted')
-    if (typeof window !== 'undefined') {
-      ;(window as unknown as { __NAV_BUILD?: string }).__NAV_BUILD = 'PORTAL_FIX_V3'
-    }
-  }, [])
+  useEffect(() => { setMounted(true) }, [])
 
   // Body-scroll lock while the mobile drawer is open.
   useEffect(() => {
@@ -141,10 +133,7 @@ export default function MarketingNav() {
   )
 
   return (
-    <header
-      data-nav-trace="MarketingNav"
-      className="sticky top-0 z-50 border-t-[6px] border-t-red-500 border-b border-border bg-background/95 backdrop-blur"
-    >
+    <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
         <BrandLockup priority />
 
