@@ -19,6 +19,12 @@ interface Props {
   /** Role-based visibility — defaults to free / non-admin. */
   tier?: Tier
   isAdmin?: boolean
+  /**
+   * Mobile drawer: exclusive accordion — at most one group expanded
+   * at a time so section headers stay legible and tapping a section
+   * collapses the others. State is not persisted (drawer is ephemeral).
+   */
+  exclusive?: boolean
 }
 
 const LS_OPEN = 'as_sidebar_open_groups'
@@ -39,7 +45,7 @@ async function doLogout() {
 
 export default function Sidebar({
   onNavigate, collapsed = false, onRequestExpand, pendingExpand,
-  tier = 'free', isAdmin = false,
+  tier = 'free', isAdmin = false, exclusive = false,
 }: Props) {
   const pathname = usePathname()
   const { pinned, toggle: togglePin, mounted: pinsMounted } = usePinnedNav()
@@ -69,6 +75,13 @@ export default function Sidebar({
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
+    // Mobile drawer: exclusive accordion. Open only the active group
+    // (if any) so the user lands on a clean list of section headers.
+    if (exclusive) {
+      setOpenGroups(activeGroupLabel ? new Set([activeGroupLabel]) : new Set())
+      setMounted(true)
+      return
+    }
     let initial: string[]
     try {
       const raw = localStorage.getItem(LS_OPEN)
@@ -105,10 +118,15 @@ export default function Sidebar({
   }, [pendingTick])
 
   function persist(set: Set<string>) {
+    if (exclusive) return
     try { localStorage.setItem(LS_OPEN, JSON.stringify([...set])) } catch {}
   }
   function toggle(label: string) {
     setOpenGroups((prev) => {
+      // Mobile drawer: exclusive — opening a group collapses the others.
+      if (exclusive) {
+        return prev.has(label) ? new Set() : new Set([label])
+      }
       const next = new Set(prev)
       next.has(label) ? next.delete(label) : next.add(label)
       persist(next)
@@ -180,7 +198,9 @@ export default function Sidebar({
 
       {groups.map((group) => {
         const Icon = group.icon
-        const isOpen = mounted ? openGroups.has(group.label) : group.label === activeGroupLabel
+        const isOpen = mounted
+          ? openGroups.has(group.label)
+          : group.label === activeGroupLabel
         const hasActive = group.label === activeGroupLabel
         return (
           <div key={group.label} className="flex flex-col">
@@ -192,11 +212,11 @@ export default function Sidebar({
               // eslint-disable-next-line jsx-a11y/aria-proptypes
               aria-expanded={isOpen}
               className={cn(
-                'group flex items-center gap-3 rounded-lg px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em]',
+                'group flex items-center gap-3 rounded-lg px-3 py-3 text-[13px] font-bold uppercase tracking-[0.12em]',
                 'transition-all duration-200',
                 hasActive
-                  ? 'text-foreground'
-                  : 'text-muted-foreground/80 hover:bg-accent/40 hover:text-foreground',
+                  ? 'text-amber-300'
+                  : 'text-white hover:bg-accent/40',
               )}
             >
               <Icon
@@ -280,10 +300,10 @@ function NavRow({
         onClick={onNavigate}
         aria-current={active ? 'page' : undefined}
         className={cn(
-          'relative flex flex-1 items-center gap-2.5 rounded-md px-2.5 py-2 pr-8 text-[13px] font-medium transition-all duration-200 min-h-[40px]',
+          'relative flex flex-1 items-center gap-2.5 rounded-md px-2.5 py-2 pr-8 text-[14px] font-medium transition-all duration-200 min-h-[40px]',
           active
             ? 'bg-gradient-primary text-white shadow-glow'
-            : 'text-muted-foreground hover:bg-accent/40 hover:text-foreground',
+            : 'text-white/95 hover:bg-accent/40 hover:text-white',
         )}
       >
         {active && (
