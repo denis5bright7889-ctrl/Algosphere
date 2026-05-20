@@ -49,9 +49,9 @@ export default function MobileNav({ tier = 'free', isAdmin = false }: Props) {
   const drawer = (
     <div
       data-mobile-drawer-root
-      aria-hidden={open ? 'false' : 'true'}
-      // The wrapper itself is non-interactive when closed (overlay +
-      // panel each manage their own pointer-events when open).
+      // Modal semantics live on the inner <aside role="dialog"
+      // aria-modal="true"> — that's the canonical signal for screen
+      // readers. The wrapper just gates pointer events.
       className={open ? 'pointer-events-auto' : 'pointer-events-none'}
     >
       {/* Scoped style override: in-app browsers (Telegram, Samsung
@@ -139,7 +139,7 @@ export default function MobileNav({ tier = 'free', isAdmin = false }: Props) {
         onClick={() => setOpen(true)}
         className="md:hidden flex h-10 w-10 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-accent touch-manipulation"
         aria-label="Open menu"
-        aria-expanded={open ? 'true' : 'false'}
+        aria-haspopup="dialog"
       >
         <Menu className="h-5 w-5" strokeWidth={1.75} />
       </button>
