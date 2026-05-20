@@ -6,11 +6,14 @@ import { PLANS } from '@/lib/plans'
 import LeadCaptureForm from '@/components/marketing/LeadCaptureForm'
 import PricingCard from '@/components/marketing/PricingCard'
 import FeatureMatrix from '@/components/marketing/FeatureMatrix'
-import BrandLockup from '@/components/brand/BrandLockup'
 import Card from '@/components/ui/Card'
 import HeroPreview from './_components/HeroPreview'
 import RegimeStrip from './_components/RegimeStrip'
 import MarketTickerStrip from '@/components/market/MarketTickerStrip'
+import MarketingNav from './_components/MarketingNav'
+import StatsBand from './_components/StatsBand'
+import HowItWorks from './_components/HowItWorks'
+import MobileCtaBar from './_components/MobileCtaBar'
 
 export const metadata = {
   title: 'AlgoSphere Quant — Professional Trading Signals & Analytics',
@@ -100,29 +103,8 @@ const FAQS = [
 export default function HomePage() {
   return (
     <div className="bg-background text-foreground">
-      {/* Nav */}
-      <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <BrandLockup priority />
-          <nav className="hidden gap-6 text-sm md:flex">
-            <a href="#features" className="text-muted-foreground hover:text-foreground">Features</a>
-            <a href="#pricing" className="text-muted-foreground hover:text-foreground">Pricing</a>
-            <a href="/traders" className="text-muted-foreground hover:text-foreground">Leaderboard</a>
-            <a href="#faq" className="text-muted-foreground hover:text-foreground">FAQ</a>
-          </nav>
-          <div className="flex items-center gap-3">
-            <a href="/login" className="text-sm font-medium text-muted-foreground hover:text-foreground">
-              Sign in
-            </a>
-            <a
-              href="/signup"
-              className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
-            >
-              Start free
-            </a>
-          </div>
-        </div>
-      </header>
+      {/* Nav — desktop links + mobile hamburger drawer */}
+      <MarketingNav />
 
       {/* Hero — 2-column on desktop, stacked on mobile */}
       <section className="relative overflow-hidden">
@@ -174,11 +156,14 @@ export default function HomePage() {
       {/* Live market regime strip — categorical AI bias */}
       <RegimeStrip />
 
+      {/* Honest credibility band — real source-of-truth scale numbers */}
+      <StatsBand />
+
       {/* Features */}
-      <section id="features" className="mx-auto max-w-5xl px-4 py-20">
-        <div className="text-center mb-12">
-          <h2 className="text-3xl font-bold">Everything you need to trade consistently</h2>
-          <p className="mt-3 text-muted-foreground">
+      <section id="features" className="mx-auto max-w-5xl scroll-mt-20 px-4 py-14 sm:py-20">
+        <div className="mb-10 text-center sm:mb-12">
+          <h2 className="text-2xl font-bold sm:text-3xl">Everything you need to trade consistently</h2>
+          <p className="mt-3 text-sm text-muted-foreground sm:text-base">
             One subscription. All the tools. No spreadsheets needed.
           </p>
         </div>
@@ -196,8 +181,11 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* How it works — 3-step comprehension aid */}
+      <HowItWorks />
+
       {/* Trust band — factual platform guarantees, not fabricated testimonials */}
-      <section className="border-y border-border bg-muted/30 py-16">
+      <section className="border-y border-border bg-muted/30 py-14 sm:py-16">
         <div className="mx-auto max-w-5xl px-4">
           <h2 className="mb-2 text-center text-2xl font-bold tracking-tight">
             Built to <span className="text-gradient">institutional standards</span>
@@ -221,15 +209,15 @@ export default function HomePage() {
       </section>
 
       {/* Pricing */}
-      <section id="pricing" className="mx-auto max-w-6xl px-4 py-20">
-        <div className="text-center mb-12">
+      <section id="pricing" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-14 sm:py-20">
+        <div className="mb-10 text-center sm:mb-12">
           <span className="inline-block rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-[10px] font-bold tracking-widest text-amber-300 uppercase">
             Upgrade your plan
           </span>
-          <h2 className="mt-4 text-3xl sm:text-4xl font-bold tracking-tight">
+          <h2 className="mt-4 text-2xl font-bold tracking-tight sm:text-4xl">
             Choose the perfect <span className="text-gradient">AI trading package</span>
           </h2>
-          <p className="mt-3 text-muted-foreground max-w-2xl mx-auto">
+          <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground sm:text-base">
             Three institutional-grade tiers. Try any with a free demo — no card required.
           </p>
         </div>
@@ -246,9 +234,9 @@ export default function HomePage() {
       </section>
 
       {/* FAQ */}
-      <section id="faq" className="bg-muted/40 border-y border-border py-16">
+      <section id="faq" className="scroll-mt-20 border-y border-border bg-muted/40 py-14 sm:py-16">
         <div className="mx-auto max-w-2xl px-4">
-          <h2 className="text-center text-2xl font-bold mb-10">Frequently asked questions</h2>
+          <h2 className="mb-8 text-center text-2xl font-bold sm:mb-10">Frequently asked questions</h2>
           <div className="space-y-4">
             {FAQS.map((faq) => (
               <details
@@ -269,22 +257,25 @@ export default function HomePage() {
       </section>
 
       {/* Lead capture */}
-      <section className="mx-auto max-w-xl px-4 py-20 text-center">
+      <section className="mx-auto max-w-xl px-4 py-14 text-center sm:py-20">
         <h2 className="text-2xl font-bold">Get a free signal to your inbox</h2>
-        <p className="mt-2 mb-6 text-muted-foreground text-sm">
+        <p className="mt-2 mb-6 text-sm text-muted-foreground">
           Join the trader list. One email per week. Unsubscribe any time.
         </p>
         <LeadCaptureForm />
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-border py-8 text-center text-xs text-muted-foreground">
+      {/* Footer — extra bottom space on mobile so the sticky CTA never overlaps */}
+      <footer className="border-t border-border py-8 pb-28 text-center text-xs text-muted-foreground md:pb-8">
         <p>© {new Date().getFullYear()} AlgoSphere Quant. Trading involves risk — signals are educational, not financial advice.</p>
         <div className="mt-2 flex justify-center gap-4">
           <a href="/terms" className="hover:underline">Terms</a>
           <a href="/privacy" className="hover:underline">Privacy</a>
         </div>
       </footer>
+
+      {/* Sticky mobile conversion bar */}
+      <MobileCtaBar />
     </div>
   )
 }
