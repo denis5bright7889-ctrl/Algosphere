@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { FlaskConical, AlertTriangle, Info, Pin, RefreshCw, Ban } from 'lucide-react'
+import { FlaskConical, AlertTriangle, Info, Pin, RefreshCw, Ban, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Conn {
@@ -88,6 +88,31 @@ const inputCls =
 export default function BrokersClient({ initialConnections }: { initialConnections: Conn[] }) {
   const [conns, setConns] = useState<Conn[]>(initialConnections)
   const [adding, setAdding] = useState(false)
+  const [paperPending, paperStart] = useTransition()
+  const [paperError, setPaperError] = useState<string | null>(null)
+
+  const hasPaper = conns.some(c => c.broker === 'paper')
+
+  function startPaperTrading() {
+    setPaperError(null)
+    paperStart(async () => {
+      try {
+        const res = await fetch('/api/brokers/paper', { method: 'POST' })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error ?? 'Failed')
+        // 201 = inserted; 200 = existing row returned.
+        if (res.status === 201) {
+          setConns(arr => [data.connection, ...arr])
+        } else {
+          setConns(arr => arr.map(c =>
+            c.id === data.connection.id ? data.connection : c,
+          ))
+        }
+      } catch (e) {
+        setPaperError(e instanceof Error ? e.message : 'Failed')
+      }
+    })
+  }
 
   function onAdded(c: Conn) {
     setConns(arr => [c, ...arr])
@@ -107,6 +132,34 @@ export default function BrokersClient({ initialConnections }: { initialConnectio
 
   return (
     <>
+      {!hasPaper && (
+        <div className="mb-4 rounded-2xl border border-amber-500/40 bg-gradient-to-br from-amber-500/[0.08] to-amber-500/[0.02] p-5">
+          <div className="flex items-start gap-3">
+            <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" strokeWidth={1.75} aria-hidden />
+            <div className="flex-1">
+              <h3 className="text-sm font-bold">Try paper trading — no API keys needed</h3>
+              <p className="mt-1 text-[12px] text-muted-foreground">
+                Spin up a $10,000 virtual account. The engine simulates fills with
+                realistic slippage (5 bps), latency (50–500 ms), and a 1% rejection
+                rate — so equity, drawdown, win rate, and execution analytics
+                surface the same friction you&apos;d see live.
+              </p>
+              {paperError && (
+                <p className="mt-2 text-[11px] text-rose-400">Error: {paperError}</p>
+              )}
+              <button
+                type="button"
+                onClick={startPaperTrading}
+                disabled={paperPending}
+                className={cn('btn-premium mt-3 !text-xs !py-2 !px-4', paperPending && 'opacity-50 cursor-not-allowed')}
+              >
+                {paperPending ? 'Setting up…' : 'Start paper trading'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {conns.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border p-12 text-center">
           <p className="text-sm text-muted-foreground">

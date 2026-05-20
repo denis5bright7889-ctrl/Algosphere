@@ -29,6 +29,7 @@ from risk.adapters.binance_adapter import BinanceAdapter
 from risk.adapters.bybit_adapter   import BybitAdapter
 from risk.adapters.okx_adapter     import OKXAdapter
 from risk.adapters.mt5_adapter     import MT5Adapter
+from risk.adapters.paper_adapter   import PaperBroker
 from risk.broker_state import disabled_reason_for
 from risk.vault import decrypt as vault_decrypt, VaultError
 
@@ -175,6 +176,19 @@ async def get_adapter_for_user(
         cached = _cache.get(key)
         if cached is not None:
             return cached
+
+    # Paper broker has no credentials — short-circuit the
+    # broker_connections / vault path entirely.
+    if broker == 'paper':
+        adapter: ExecutionAdapter = PaperBroker(user_id)
+        await adapter.connect()
+        async with _cache_lock:
+            existing = _cache.get(key)
+            if existing is not None:
+                await adapter.close()
+                return existing
+            _cache[key] = adapter
+        return adapter
 
     conn = await asyncio.to_thread(_load_connection, db, user_id, broker)
     if conn is None:

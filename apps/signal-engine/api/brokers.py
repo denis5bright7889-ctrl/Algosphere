@@ -45,7 +45,7 @@ def _verify_engine_key(x_engine_key: Optional[str] = Header(default=None)) -> No
 
 # ─── Request / response models ─────────────────────────────────────────
 
-PROBEABLE = {'binance', 'bybit', 'okx', 'mt5'}
+PROBEABLE = {'binance', 'bybit', 'okx', 'mt5', 'paper'}
 
 
 class TestRequest(BaseModel):
