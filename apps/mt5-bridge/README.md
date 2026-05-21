@@ -255,11 +255,41 @@ Require `MT5_LOGIN`, `MT5_PASSWORD`, `MT5_SERVER` in `.env`.
 | POST | `/trade/place` | Place order using `{symbol, lot, direction, sl, tp}` shape |
 | POST | `/trade/close` | Close ONE open position by ticket |
 
-### Health
+### Health + control dashboard
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/health` | Public (no auth). Returns mt5_loaded + watchdog state + account + execution_ready |
+| GET | `/health` | Public (no auth). Canonical `{status, mt5_loaded, timestamp}` + extended watchdog/account fields |
+| GET | `/processes` | Snapshot of OS processes (bridge.py, uvicorn, cloudflared, MT5 terminal, etc.) via `psutil` |
+| GET | `/logs?lines=20` | Tail the rotating `logs/mt5bridge.log` for the dashboard's activity feed |
+| GET | `/dashboard` | Operator control dashboard (HTML page; prompts for X-Bridge-Key on first load) |
+
+## Operator dashboard
+
+Open **`https://mt5.algospherequant.com/dashboard`** in any browser.
+You'll be prompted for the `BRIDGE_API_KEY` once per browser tab
+(stored in `sessionStorage`, cleared on Logout / tab close — never
+in cookies, never sent anywhere except as `X-Bridge-Key` on internal
+fetches).
+
+Four live cards, auto-refreshing every 4 seconds:
+
+- **System Processes** — running state of `bridge.py`, `uvicorn`,
+  `cloudflared`, the MT5 terminal, plus any `start.py / watchdog.py
+  / guardian.py` if you've set them up. Critical processes missing
+  turns the card red.
+- **MT5 Bridge** — status / mt5_loaded / mt5_ready / current_login /
+  execution_ready / watchdog failures.
+- **Tunnel** — round-trip latency to `/health` through the named
+  Cloudflare Tunnel. The fact that the dashboard loaded at all proves
+  the tunnel is up; the latency number tells you whether it's healthy.
+- **Account** — equity, account number (single-account mode only).
+- **Recent Activity** — tail of the last 20 log lines, colorized by
+  level (errors red, warnings amber, accepted orders green).
+
+No framework, no build step — `dashboard.html` is a single static
+file served verbatim from the bridge. Works on any browser, including
+the in-app browser of mobile / Telegram.
 
 A "healthy" `/health` in single-account mode reports
 `mt5_connected: true`, `execution_ready: true`, a non-null `account`,

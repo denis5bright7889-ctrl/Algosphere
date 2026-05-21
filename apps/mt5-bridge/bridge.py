@@ -1129,3 +1129,120 @@ async def get_positions():
                 'opened_at':      int(p.time),
             })
         return {'positions': out, 'count': len(out)}
+
+
+# ───────────────────────────────────────────────────────────────────────
+# Operator control dashboard
+# ───────────────────────────────────────────────────────────────────────
+# Self-contained ops console served at /dashboard. The frontend is
+# a plain HTML/JS file (no build step, no framework) that polls the
+# /processes /logs /health endpoints on a short interval. Useful for
+# at-a-glance "is the bridge alive, is MT5 connected, what just
+# logged" answers without SSHing into the VPS.
+#
+# Auth: the dashboard prompts for the X-Bridge-Key on first load,
+# stores it in sessionStorage, and includes it on every fetch. To
+# expire the session, close the tab.
+
+# Processes the operator typically cares about. start.py / watchdog.py
+# / guardian.py are NSSM's job in our setup — they're listed so the
+# dashboard explicitly reports their absence as "not running" rather
+# than pretending they exist.
+EXPECTED_PROCESSES = [
+    'bridge.py',          # this service
+    'uvicorn',            # ASGI server hosting bridge.py
+    'cloudflared',        # tunnel exposing it
+    'terminal64.exe',     # MT5 terminal (Windows x64)
+    'terminal.exe',       # MT5 terminal (legacy)
+    'start.py',           # operator-supplied (not in repo — will show as not running)
+    'watchdog.py',        # operator-supplied (NSSM covers auto-restart in our setup)
+    'guardian.py',        # operator-supplied (same)
+]
+
+
+@app.get('/processes', dependencies=[Depends(_verify_bridge_key)])
+async def list_processes():
+    """Snapshot of OS processes the operator cares about. Uses psutil
+    to scan all running processes once, then groups matches by the
+    expected names. For Python scripts we look at the cmdline (the .py
+    name doesn't show up as the process name)."""
+    import psutil
+    found: dict[str, list[dict]] = {}
+
+    for p in psutil.process_iter(['pid', 'name', 'cmdline', 'create_time']):
+        try:
+            info = p.info
+            name = (info.get('name') or '').lower()
+            cmdline_str = ' '.join(info.get('cmdline') or []).lower()
+            for expected in EXPECTED_PROCESSES:
+                exp = expected.lower()
+                # For .py scripts, match on cmdline; for .exe match on name.
+                if exp.endswith('.py'):
+                    matched = exp in cmdline_str
+                elif exp.endswith('.exe'):
+                    matched = exp in name
+                else:
+                    matched = exp in name or exp in cmdline_str
+                if matched:
+                    found.setdefault(expected, []).append({
+                        'pid':         info['pid'],
+                        'name':        info.get('name'),
+                        'created_at':  info.get('create_time'),
+                        'uptime_s':    max(0, int(time.time() - (info.get('create_time') or time.time()))),
+                    })
+                    break
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    return {
+        'processes': [
+            {
+                'name':      name,
+                'running':   name in found,
+                'count':     len(found.get(name, [])),
+                'instances': found.get(name, []),
+            }
+            for name in EXPECTED_PROCESSES
+        ],
+        'timestamp': time.time(),
+    }
+
+
+@app.get('/logs', dependencies=[Depends(_verify_bridge_key)])
+async def get_recent_logs(lines: int = 20):
+    """Tail the last N lines from logs/mt5bridge.log. Memory-efficient
+    (uses a bounded deque so the full file is never loaded). Used by
+    the dashboard's TRADES card to surface recent activity."""
+    if lines <= 0 or lines > 500:
+        raise HTTPException(status_code=422, detail='lines must be 1..500')
+    log_file = LOG_DIR / 'mt5bridge.log'
+    if not log_file.exists():
+        return {'logs': [], 'count': 0, 'log_file': str(log_file), 'message': 'log file not found yet'}
+    try:
+        with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+            tail = deque(f, maxlen=lines)
+        return {
+            'logs':     [line.rstrip() for line in tail],
+            'count':    len(tail),
+            'log_file': str(log_file),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'failed to read log: {e}')
+
+
+_DASHBOARD_HTML_PATH = pathlib.Path(__file__).resolve().parent / 'dashboard.html'
+
+
+@app.get('/dashboard')
+async def serve_dashboard():
+    """Serve the operator control dashboard. Public route (no auth on
+    the page itself) — the dashboard prompts for X-Bridge-Key once
+    and uses it for every API call. Without the key, the API calls
+    return 401 and the cards show 'auth required'."""
+    from fastapi.responses import HTMLResponse, PlainTextResponse
+    if not _DASHBOARD_HTML_PATH.exists():
+        return PlainTextResponse(
+            f'dashboard.html not found at {_DASHBOARD_HTML_PATH}',
+            status_code=500,
+        )
+    return HTMLResponse(_DASHBOARD_HTML_PATH.read_text(encoding='utf-8'))

@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AlgoSphere — MT5 Bridge Control</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<style>
+  /* Institutional dark — no framework. */
+  :root {
+    --bg:        #0a0a0a;
+    --panel:    #131313;
+    --panel-2:  #1a1a1a;
+    --border:   #232323;
+    --text:     #e6e6e6;
+    --muted:    #888;
+    --ok:       #34d399;
+    --warn:     #f59e0b;
+    --bad:      #f43f5e;
+    --accent:   #fbbf24;
+    --mono:     ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, monospace;
+  }
+  *  { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 22px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #161616 0%, #0f0f0f 100%);
+  }
+  header h1 { margin: 0; font-size: 14px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+  header h1 .accent { color: var(--accent); }
+  header .meta { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  header .meta b { color: var(--text); }
+
+  main { padding: 22px; max-width: 1400px; margin: 0 auto; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  @media (min-width: 1100px) {
+    .grid { grid-template-columns: repeat(4, 1fr); }
+    .card.span-2 { grid-column: span 2; }
+  }
+  @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    min-height: 200px;
+  }
+  .card h2 {
+    margin: 0 0 12px 0;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--muted);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card h2 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .card.ok    h2 .dot { background: var(--ok);   box-shadow: 0 0 8px var(--ok);   }
+  .card.warn  h2 .dot { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+  .card.bad   h2 .dot { background: var(--bad);  box-shadow: 0 0 8px var(--bad);  }
+
+  .kv  { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; }
+  .kv span:first-child { color: var(--muted); }
+  .kv span:last-child  { font-family: var(--mono); }
+
+  .pill {
+    display: inline-block; padding: 1px 8px; border-radius: 999px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+    border: 1px solid;
+  }
+  .pill.ok   { color: var(--ok);   border-color: var(--ok);   background: rgba(52,211,153,0.08); }
+  .pill.warn { color: var(--warn); border-color: var(--warn); background: rgba(245,158,11,0.08); }
+  .pill.bad  { color: var(--bad);  border-color: var(--bad);  background: rgba(244,63,94,0.08); }
+
+  .proc-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dashed var(--border); font-size: 12px; }
+  .proc-row:last-child { border-bottom: none; }
+  .proc-row .name { font-family: var(--mono); }
+  .proc-row .info { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+
+  .log-box {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.55;
+    color: #c8c8c8;
+    max-height: 320px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .log-box .err { color: var(--bad); }
+  .log-box .warn { color: var(--warn); }
+  .log-box .ok { color: var(--ok); }
+
+  button {
+    background: transparent; border: 1px solid var(--border); color: var(--text);
+    padding: 5px 10px; border-radius: 6px; font-size: 11px; cursor: pointer;
+    font-family: inherit;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+
+  .auth-overlay {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); z-index: 100;
+  }
+  .auth-overlay .box {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 24px; width: 380px; max-width: calc(100vw - 32px);
+  }
+  .auth-overlay h3 { margin: 0 0 6px 0; font-size: 14px; }
+  .auth-overlay p { color: var(--muted); font-size: 12px; margin: 0 0 14px 0; }
+  .auth-overlay input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); padding: 8px 10px; border-radius: 6px;
+    font-family: var(--mono); font-size: 12px;
+  }
+  .auth-overlay .row { display: flex; gap: 8px; margin-top: 12px; }
+  .auth-overlay button { flex: 1; padding: 8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="accent">AlgoSphere</span> · MT5 Bridge Control</h1>
+  <div class="meta">
+    Refresh: <b id="meta-refresh">—</b> · Last update: <b id="meta-last">—</b>
+    <button onclick="logout()" style="margin-left:12px;">Logout</button>
+  </div>
+</header>
+
+<main>
+  <div class="grid">
+
+    <div class="card" id="card-system">
+      <h2><span class="dot"></span>System Processes</h2>
+      <div id="proc-list"></div>
+    </div>
+
+    <div class="card" id="card-mt5">
+      <h2><span class="dot"></span>MT5 Bridge</h2>
+      <div class="kv"><span>Status</span><span id="mt5-status">—</span></div>
+      <div class="kv"><span>MetaTrader5 loaded</span><span id="mt5-loaded">—</span></div>
+      <div class="kv"><span>Terminal ready</span><span id="mt5-ready">—</span></div>
+      <div class="kv"><span>Current login</span><span id="mt5-login">—</span></div>
+      <div class="kv"><span>Execution ready</span><span id="mt5-exec-ready">—</span></div>
+      <div class="kv"><span>Watchdog failures</span><span id="mt5-failures">—</span></div>
+    </div>
+
+    <div class="card" id="card-tunnel">
+      <h2><span class="dot"></span>Tunnel</h2>
+      <div class="kv"><span>Endpoint</span><span id="tunnel-url">—</span></div>
+      <div class="kv"><span>Status code</span><span id="tunnel-status">—</span></div>
+      <div class="kv"><span>Round-trip latency</span><span id="tunnel-latency">—</span></div>
+      <div class="kv"><span>Last successful check</span><span id="tunnel-last">—</span></div>
+    </div>
+
+    <div class="card" id="card-account">
+      <h2><span class="dot"></span>Account</h2>
+      <div class="kv"><span>Equity</span><span id="acct-equity">—</span></div>
+      <div class="kv"><span>Account #</span><span id="acct-num">—</span></div>
+      <div class="kv"><span>Creds in env</span><span id="acct-creds">—</span></div>
+    </div>
+
+    <div class="card span-2" id="card-logs">
+      <h2><span class="dot"></span>Recent Activity (last 20 log lines)</h2>
+      <div class="log-box" id="log-box">Awaiting connection…</div>
+    </div>
+
+  </div>
+</main>
+
+<div class="auth-overlay" id="auth" style="display:none;">
+  <div class="box">
+    <h3>Bridge API key required</h3>
+    <p>Paste the value of <code>BRIDGE_API_KEY</code> from your bridge's <code>.env</code>. Stored only in this browser tab.</p>
+    <input id="auth-input" type="password" placeholder="hS3HjIUQcDSm…" autocomplete="off">
+    <div class="row">
+      <button onclick="saveKey()">Authenticate</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ─── Auth ─────────────────────────────────────────────────────────
+  const KEY = 'mt5_bridge_key';
+  function getKey()  { return sessionStorage.getItem(KEY); }
+  function saveKey() {
+    const v = document.getElementById('auth-input').value.trim();
+    if (!v) return;
+    sessionStorage.setItem(KEY, v);
+    document.getElementById('auth').style.display = 'none';
+    refresh();
+  }
+  function logout() {
+    sessionStorage.removeItem(KEY);
+    location.reload();
+  }
+  function promptAuth() { document.getElementById('auth').style.display = 'flex'; }
+
+  // ─── Fetch helpers ────────────────────────────────────────────────
+  async function api(path) {
+    const key = getKey();
+    if (!key) { promptAuth(); throw new Error('no auth'); }
+    const res = await fetch(path, { headers: { 'X-Bridge-Key': key }, cache: 'no-store' });
+    if (res.status === 401 || res.status === 503 && path !== '/health') {
+      // 503 from /processes / /logs means BRIDGE_API_KEY isn't set on the bridge,
+      // not a wrong client key. Don't re-prompt for those; surface in the cards.
+      if (res.status === 401) { sessionStorage.removeItem(KEY); promptAuth(); throw new Error('unauthorized'); }
+    }
+    return res;
+  }
+
+  async function publicApi(path) {
+    return fetch(path, { cache: 'no-store' });
+  }
+
+  // ─── Card painters ────────────────────────────────────────────────
+  function setCardTone(id, tone) {
+    const el = document.getElementById(id);
+    el.classList.remove('ok','warn','bad');
+    if (tone) el.classList.add(tone);
+  }
+
+  async function loadHealth() {
+    const t0 = performance.now();
+    let res, data, ok = false;
+    try {
+      res = await publicApi('/health');
+      data = await res.json();
+      ok = res.ok;
+    } catch (e) {
+      document.getElementById('mt5-status').innerHTML = `<span class="pill bad">unreachable</span>`;
+      setCardTone('card-mt5', 'bad');
+      setCardTone('card-tunnel', 'bad');
+      document.getElementById('tunnel-status').textContent = 'fetch failed';
+      return;
+    }
+    const ms = Math.round(performance.now() - t0);
+
+    // MT5 card
+    const status = (data.status || '').toLowerCase();
+    const mt5_loaded = !!data.mt5_loaded;
+    const mt5_ready  = !!data.mt5_ready;
+    const exec_ready = !!data.execution_ready;
+    document.getElementById('mt5-status').innerHTML =
+      status === 'ok' ? `<span class="pill ok">ok</span>` :
+      status === 'degraded' ? `<span class="pill warn">degraded</span>` :
+      `<span class="pill bad">${status||'?'}</span>`;
+    document.getElementById('mt5-loaded').textContent = mt5_loaded ? 'yes' : 'NO';
+    document.getElementById('mt5-ready').textContent  = mt5_ready  ? 'yes' : 'NO';
+    document.getElementById('mt5-login').textContent  = data.current_login ?? 'none';
+    document.getElementById('mt5-exec-ready').textContent = data.creds_configured ? (exec_ready ? 'yes' : 'NO') : 'n/a (multi-tenant)';
+    document.getElementById('mt5-failures').textContent = data.consec_failures ?? 0;
+    setCardTone('card-mt5', status === 'ok' ? 'ok' : (status === 'degraded' ? 'warn' : 'bad'));
+
+    // Tunnel card (we're loaded THROUGH the tunnel — the fact that fetch succeeded proves it works)
+    document.getElementById('tunnel-url').textContent = location.host;
+    document.getElementById('tunnel-status').innerHTML = `<span class="pill ok">${res.status}</span>`;
+    document.getElementById('tunnel-latency').textContent = `${ms} ms`;
+    document.getElementById('tunnel-last').textContent = new Date().toLocaleTimeString();
+    setCardTone('card-tunnel', ms < 800 ? 'ok' : 'warn');
+
+    // Account card
+    document.getElementById('acct-equity').textContent = data.equity != null ? `$${Number(data.equity).toLocaleString()}` : '—';
+    document.getElementById('acct-num').textContent = data.account ?? '—';
+    document.getElementById('acct-creds').textContent = data.creds_configured ? 'yes (single-account mode)' : 'no (multi-tenant)';
+    setCardTone('card-account', data.creds_configured ? 'ok' : 'warn');
+
+    return data;
+  }
+
+  async function loadProcesses() {
+    let data;
+    try {
+      const res = await api('/processes');
+      if (!res.ok) {
+        document.getElementById('proc-list').innerHTML = `<div class="kv"><span>error</span><span>HTTP ${res.status}</span></div>`;
+        return;
+      }
+      data = await res.json();
+    } catch (e) { return; }
+    const list = document.getElementById('proc-list');
+    list.innerHTML = '';
+    let anyMissing = false;
+    for (const p of data.processes) {
+      const row = document.createElement('div');
+      row.className = 'proc-row';
+      const pill = p.running
+        ? `<span class="pill ok">running${p.count > 1 ? ` x${p.count}` : ''}</span>`
+        : `<span class="pill bad">not running</span>`;
+      const detail = p.running && p.instances.length
+        ? `<span class="info">pid ${p.instances[0].pid} · up ${Math.floor((p.instances[0].uptime_s||0)/60)}m</span>`
+        : '';
+      row.innerHTML = `<span class="name">${p.name}</span><span>${pill} ${detail}</span>`;
+      list.appendChild(row);
+      if (!p.running) anyMissing = true;
+    }
+    // The first 4 entries (bridge / uvicorn / cloudflared / MT5 terminal) are the REAL critical ones.
+    // start.py/watchdog.py/guardian.py are NSSM's job — treat their absence as informational, not bad.
+    const critical = data.processes.slice(0, 5);
+    const criticalMissing = critical.some(p => !p.running);
+    setCardTone('card-system', criticalMissing ? 'bad' : (anyMissing ? 'warn' : 'ok'));
+  }
+
+  async function loadLogs() {
+    let data;
+    try {
+      const res = await api('/logs?lines=20');
+      if (!res.ok) {
+        document.getElementById('log-box').textContent = `HTTP ${res.status} fetching logs`;
+        return;
+      }
+      data = await res.json();
+    } catch (e) { return; }
+    const box = document.getElementById('log-box');
+    if (!data.logs || !data.logs.length) {
+      box.textContent = data.message || '(no log lines yet)';
+      return;
+    }
+    // Colorize INFO / WARNING / ERROR
+    box.innerHTML = data.logs.map(line => {
+      const safe = line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      if (/ERROR|EXC/i.test(line))    return `<div class="err">${safe}</div>`;
+      if (/WARN/i.test(line))         return `<div class="warn">${safe}</div>`;
+      if (/order accepted|connected|ready/i.test(line)) return `<div class="ok">${safe}</div>`;
+      return `<div>${safe}</div>`;
+    }).join('');
+    box.scrollTop = box.scrollHeight;
+  }
+
+  // ─── Refresh loop ─────────────────────────────────────────────────
+  const REFRESH_MS = 4000;
+  document.getElementById('meta-refresh').textContent = `${REFRESH_MS/1000}s`;
+
+  async function refresh() {
+    if (!getKey()) { promptAuth(); return; }
+    try {
+      await Promise.all([loadHealth(), loadProcesses(), loadLogs()]);
+      document.getElementById('meta-last').textContent = new Date().toLocaleTimeString();
+    } catch {}
+  }
+
+  // Kick off
+  if (!getKey()) {
+    promptAuth();
+  } else {
+    refresh();
+    setInterval(refresh, REFRESH_MS);
+  }
+  document.getElementById('auth-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') saveKey();
+  });
+  // After first auth, start the interval (refresh() is called inside saveKey)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && getKey()) refresh();
+  });
+  if (getKey()) setInterval(refresh, REFRESH_MS);
+</script>
+</body>
+</html>
