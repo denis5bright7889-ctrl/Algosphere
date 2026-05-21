@@ -103,6 +103,88 @@ _current_login: Optional[int] = None
 PIN_LOGIN = os.environ.get('MT5_PIN_LOGIN', 'false').lower() == 'true'
 
 
+# ─── Global MT5 readiness gate ─────────────────────────────────────────
+# Tracks whether the MT5 terminal has been initialized and is
+# reachable. Set True by wait_for_mt5_ready() at startup. Trading
+# endpoints depend on require_mt5_ready() — they return HTTP 503 until
+# this flag is True, preventing orders from being submitted to a
+# half-booted bridge.
+#
+# This is the BASELINE terminal-aliveness check — it does NOT verify
+# any specific account login (per-request _ensure_login handles that
+# in multi-tenant mode). The bridge is "ready" when the MT5 process is
+# alive and the Python package can talk to it.
+
+mt5_ready: bool = False
+_ready_lock = asyncio.Lock()
+try:
+    _MT5_READY_TIMEOUT_S = int(os.environ.get('MT5_READY_TIMEOUT_S', '30'))
+except ValueError:
+    _MT5_READY_TIMEOUT_S = 30
+
+
+async def wait_for_mt5_ready(timeout_s: Optional[int] = None) -> bool:
+    """Initialize the MT5 terminal and verify it responds via
+    terminal_info(). No account login is performed — multi-tenant
+    bridges log in per request. Sets global `mt5_ready`. Re-callable;
+    idempotent once successful.
+
+    Returns True on success, False otherwise. Never raises."""
+    global mt5_ready
+    timeout = timeout_s if timeout_s is not None else _MT5_READY_TIMEOUT_S
+
+    async with _ready_lock:
+        if mt5_ready:
+            return True
+        try:
+            mt5 = _load_mt5()
+        except Exception as e:
+            logger.error(f'wait_for_mt5_ready: MetaTrader5 import failed — {e}')
+            mt5_ready = False
+            return False
+
+        async with _MT5_LOCK:
+            try:
+                init_ok = await asyncio.to_thread(mt5.initialize, timeout=timeout * 1000)
+            except Exception as e:
+                logger.error(f'wait_for_mt5_ready: initialize() raised — {e}')
+                mt5_ready = False
+                return False
+            if not init_ok:
+                logger.error(f'wait_for_mt5_ready: initialize() returned False — {mt5.last_error()}')
+                mt5_ready = False
+                return False
+            try:
+                info = await asyncio.to_thread(mt5.terminal_info)
+            except Exception as e:
+                logger.error(f'wait_for_mt5_ready: terminal_info() raised — {e}')
+                mt5_ready = False
+                return False
+            if info is None:
+                logger.error('wait_for_mt5_ready: terminal_info() returned None')
+                mt5_ready = False
+                return False
+            logger.info(
+                f'wait_for_mt5_ready: terminal OK — {info.name!r} build {info.build}, '
+                f'connected={bool(info.connected)}'
+            )
+
+        mt5_ready = True
+        return True
+
+
+def require_mt5_ready() -> None:
+    """FastAPI dependency. Raises HTTP 503 if the bridge isn't ready
+    to execute. Attach via Depends() on every trading endpoint."""
+    if not mt5_ready:
+        raise HTTPException(
+            status_code=503,
+            detail='MT5 not ready — terminal not initialized. Bridge is '
+                   'starting up, or the MT5 terminal process is down. '
+                   'Check /health for current state.',
+        )
+
+
 # ─── Single-account env mode ───────────────────────────────────────────
 # Optional: if MT5_LOGIN/MT5_PASSWORD/MT5_SERVER are present in .env,
 # the bridge exposes GET endpoints (/account, /positions, /health-full)
@@ -360,6 +442,19 @@ async def lifespan(app: FastAPI):
         # Don't crash — let /health surface the failure so the operator
         # can see it without restarting.
 
+    # Initialize the MT5 terminal eagerly so trading endpoints don't
+    # have to pay the cold-start cost on the first user request. Sets
+    # the global `mt5_ready` flag. Trading endpoints gate on it via
+    # Depends(require_mt5_ready) and 503 until it's True.
+    ok = await wait_for_mt5_ready()
+    if ok:
+        logger.info('MT5 bridge: ✅ ready to execute (mt5_ready=True)')
+    else:
+        logger.warning(
+            'MT5 bridge: ⚠️ NOT ready at startup — trading endpoints will 503 '
+            'until the terminal becomes reachable. Check MT5 terminal process.'
+        )
+
     # Start the watchdog only if default creds are present — otherwise
     # there's nothing to ping (we'd just be re-logging random accounts).
     wd_task: Optional[asyncio.Task] = None
@@ -489,10 +584,15 @@ async def health():
     """Public — no auth. Lets Railway probe whether the bridge is
     reachable before sending real traffic.
 
-    Surfaces the watchdog's view of MT5 health so a single GET tells
-    you whether the bridge is *executable* (mt5_connected = up to date
-    ping, execution_ready = ≥1 successful ping in the last cycle and
-    no streak of consecutive failures)."""
+    Canonical fields (always present):
+        status:     'ok' | 'degraded'
+        mt5_loaded: bool  — MetaTrader5 package importable
+        timestamp:  float — epoch seconds
+
+    Extended fields (back-compat for richer dashboards):
+        mt5_ready, mt5_connected, execution_ready, account, equity,
+        consec_failures, last_ok_age_s, pin_login, current_login,
+        creds_configured."""
     mt5 = _mt5
     wd  = _watchdog_state
     creds_configured = _default_creds() is not None
@@ -505,10 +605,19 @@ async def health():
         and last_ok_age_s is not None
         and last_ok_age_s < (WATCHDOG_INTERVAL_S * 3)
     )
+    mt5_loaded = mt5 is not None
+    # Canonical status: degraded if the package didn't load, OR if
+    # we're in single-account mode and the watchdog says we've lost
+    # contact with the account.
+    status = 'ok' if mt5_loaded and mt5_ready and (mt5_connected or not creds_configured) else 'degraded'
     return {
-        'status':           'ok' if mt5_connected or not creds_configured else 'degraded',
+        # ── Canonical ───────────────────────────────
+        'status':           status,
+        'mt5_loaded':       mt5_loaded,
+        'timestamp':        time.time(),
+        # ── Extended (back-compat) ──────────────────
         'service':          'algosphere-mt5-bridge',
-        'mt5_loaded':       mt5 is not None,
+        'mt5_ready':        mt5_ready,
         'mt5_connected':    mt5_connected,
         'execution_ready':  bool(wd['execution_ready']) if creds_configured else False,
         'account':          wd['account'],
@@ -518,6 +627,7 @@ async def health():
         'pin_login':        PIN_LOGIN,
         'current_login':    _current_login,
         'creds_configured': creds_configured,
+        # Legacy alias — older clients may still read `time`
         'time':             time.time(),
     }
 
@@ -568,7 +678,7 @@ async def account(req: AccountRequest):
         }
 
 
-@app.post('/order', dependencies=[Depends(_verify_bridge_key)])
+@app.post('/order', dependencies=[Depends(_verify_bridge_key), Depends(require_mt5_ready)])
 async def submit_order(req: OrderRequest):
     """Submit a market or limit order. Returns the broker's full retcode
     + fill details so the engine can compute slippage + reconcile.
@@ -656,7 +766,7 @@ async def submit_order(req: OrderRequest):
         }
 
 
-@app.post('/cancel', dependencies=[Depends(_verify_bridge_key)])
+@app.post('/cancel', dependencies=[Depends(_verify_bridge_key), Depends(require_mt5_ready)])
 async def cancel_order(req: CancelRequest):
     """Cancel a pending limit order. For market positions, use /close."""
     async with _MT5_LOCK:
@@ -692,7 +802,7 @@ async def positions(req: AccountRequest):
         return {'positions': out}
 
 
-@app.post('/close_all', dependencies=[Depends(_verify_bridge_key)])
+@app.post('/close_all', dependencies=[Depends(_verify_bridge_key), Depends(require_mt5_ready)])
 async def close_all(req: AccountRequest):
     """Emergency flatten — kill-switch path."""
     async with _MT5_LOCK:
@@ -870,7 +980,7 @@ class TradeCloseRequest(BaseModel):
     ticket: int = Field(..., gt=0)
 
 
-@app.post('/trade/place', dependencies=[Depends(_verify_bridge_key)])
+@app.post('/trade/place', dependencies=[Depends(_verify_bridge_key), Depends(require_mt5_ready)])
 async def trade_place(req: TradePlaceRequest):
     """Single-account place-order using .env credentials. Maps the
     spec's {symbol, lot, direction, sl, tp} shape onto the existing
@@ -896,7 +1006,7 @@ async def trade_place(req: TradePlaceRequest):
     ))
 
 
-@app.post('/trade/close', dependencies=[Depends(_verify_bridge_key)])
+@app.post('/trade/close', dependencies=[Depends(_verify_bridge_key), Depends(require_mt5_ready)])
 async def trade_close(req: TradeCloseRequest):
     """Close a specific OPEN position by its broker ticket. Different
     from /cancel (which removes pending orders) and /close_all (which
