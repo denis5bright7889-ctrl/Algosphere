@@ -50,6 +50,13 @@ from dataclasses import dataclass, field
 from typing import Optional
 from contextlib import asynccontextmanager
 
+# Load .env BEFORE any module-level os.environ reads. python-dotenv is
+# a no-op if .env is missing (Windows system env vars still work), and
+# never overrides existing env (system vars win over .env values — that
+# matches operator expectations).
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, Header, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
 from loguru import logger
