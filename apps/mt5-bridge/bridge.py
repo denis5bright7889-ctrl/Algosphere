@@ -46,6 +46,7 @@ import os
 import pathlib
 import time
 from collections import deque
+from dataclasses import dataclass, field
 from typing import Optional
 from contextlib import asynccontextmanager
 
@@ -129,11 +130,94 @@ def _safe_float_env(name: str, default: float) -> float:
 # the execution boundary in case the engine has a bug or is mis-configured.
 MAX_LOT_LIMIT       = _safe_float_env('MAX_LOT_LIMIT',     100.0)  # hard ceiling regardless of broker max
 MAX_ORDERS_PER_MIN  = _safe_int_env  ('MAX_ORDERS_PER_MIN', 30)    # per-bridge rate limit
-SYMBOL_WHITELIST    = {
-    s.strip().upper()
-    for s in os.environ.get('SYMBOL_WHITELIST', '').split(',')
-    if s.strip()
-}   # empty set ⇒ all symbols allowed
+SYMBOL_CACHE_TTL_S  = _safe_int_env  ('SYMBOL_CACHE_TTL_S', 3600)  # refetch broker symbol list after this many seconds
+
+
+# ─── Dynamic symbol cache (per-server, lazy, TTL'd) ───────────────────
+# Brokers use different suffixes — `XAUUSDm`, `EURUSD.r`, `BTCUSD#`, etc.
+# Maintaining a static SYMBOL_WHITELIST forces ops to manually mirror
+# each broker's naming. Instead, on first contact with a server we pull
+# the live list via `mt5.symbols_get()` and cache it. Subsequent orders
+# validate against the cached list; the /symbols endpoint exposes it.
+#
+# Cache is keyed by SERVER name (different brokers => different symbols).
+# Same server across users shares one cache entry.
+
+@dataclass
+class _SymbolCacheEntry:
+    server:     str
+    names:      set[str]            # uppercased for O(1) lookup
+    full:       list[dict]          # serialized rows for /symbols endpoint
+    fetched_at: float
+
+_symbol_cache:      dict[str, _SymbolCacheEntry] = {}
+_symbol_cache_lock = asyncio.Lock()
+
+
+def _serialize_symbol(s) -> dict:
+    """Pull the fields callers actually care about. Names match the
+    /symbols response shape so the engine can downstream them."""
+    return {
+        'name':           s.name,
+        'description':    getattr(s, 'description', '') or '',
+        'currency_base':  getattr(s, 'currency_base', '') or '',
+        'currency_profit':getattr(s, 'currency_profit', '') or '',
+        'digits':         int(getattr(s, 'digits', 5)),
+        'point':          float(getattr(s, 'point', 0.0)),
+        'volume_min':     float(getattr(s, 'volume_min', 0.0)),
+        'volume_max':     float(getattr(s, 'volume_max', 0.0)),
+        'volume_step':    float(getattr(s, 'volume_step', 0.0)),
+        'contract_size':  float(getattr(s, 'trade_contract_size', 0.0) or 0.0),
+        'trade_mode':     int(getattr(s, 'trade_mode', 0)),    # 0=disabled, 4=full
+        'visible':        bool(getattr(s, 'visible', True)),
+        'path':           getattr(s, 'path', '') or '',         # broker group ("Forex\Majors\EURUSD")
+    }
+
+
+async def _fetch_and_cache_symbols(server: str) -> _SymbolCacheEntry:
+    """Pull live symbols from MT5 for whoever is currently logged in.
+    MUST be called with _MT5_LOCK already held AND the terminal already
+    logged into `server` — the caller is responsible for that."""
+    mt5 = _load_mt5()
+    raw = await asyncio.to_thread(mt5.symbols_get) or []
+    # Filter: keep only symbols that are visible and have trade_mode != 0.
+    # `visible` defaults True if MT5 doesn't supply it. trade_mode == 0
+    # means TRADE_DISABLED — broker explicitly forbids trading it.
+    keepers = [
+        s for s in raw
+        if getattr(s, 'visible', True)
+        and int(getattr(s, 'trade_mode', 4)) != 0
+    ]
+    entry = _SymbolCacheEntry(
+        server     = server,
+        names      = {s.name.upper() for s in keepers},
+        full       = [_serialize_symbol(s) for s in keepers],
+        fetched_at = time.time(),
+    )
+    _symbol_cache[server] = entry
+    logger.info(f'symbol cache refreshed for {server}: {len(entry.names)} tradable symbols')
+    return entry
+
+
+async def _ensure_symbol_cache(
+    login: int, password: str, server: str, *, force: bool = False,
+) -> _SymbolCacheEntry:
+    """Return a cached entry for `server`, refreshing if missing/stale.
+    Acquires _MT5_LOCK and re-logs the terminal as needed."""
+    cached = _symbol_cache.get(server)
+    if cached and not force and (time.time() - cached.fetched_at) < SYMBOL_CACHE_TTL_S:
+        return cached
+
+    async with _symbol_cache_lock:
+        # Re-check inside the lock — another task may have populated.
+        cached = _symbol_cache.get(server)
+        if cached and not force and (time.time() - cached.fetched_at) < SYMBOL_CACHE_TTL_S:
+            return cached
+        async with _MT5_LOCK:
+            ok, err = await _ensure_login(login, password, server)
+            if not ok:
+                raise HTTPException(status_code=400, detail=err)
+            return await _fetch_and_cache_symbols(server)
 
 
 # ─── Watchdog state (background MT5 liveness ping) ─────────────────────
@@ -168,15 +252,9 @@ def _rate_limit_check() -> None:
         )
 
 
-def _validate_order_safety(symbol: str, qty: float) -> None:
-    """Last-line guardrails applied before any MT5 call. Raises
-    HTTPException on violation; caller propagates as 4xx response."""
-    s = symbol.upper().strip()
-    if SYMBOL_WHITELIST and s not in SYMBOL_WHITELIST:
-        raise HTTPException(
-            status_code=403,
-            detail=f'symbol {s!r} not in SYMBOL_WHITELIST',
-        )
+def _validate_qty(qty: float) -> None:
+    """Quantity-only guardrails — symbol validation is dynamic (see
+    _validate_order_safety_async)."""
     if qty <= 0:
         raise HTTPException(status_code=422, detail=f'qty must be > 0 (got {qty})')
     if qty > MAX_LOT_LIMIT:
@@ -184,6 +262,29 @@ def _validate_order_safety(symbol: str, qty: float) -> None:
             status_code=422,
             detail=f'qty {qty:g} exceeds MAX_LOT_LIMIT {MAX_LOT_LIMIT:g}',
         )
+
+
+async def _validate_order_safety_async(
+    login: int, password: str, server: str, symbol: str, qty: float,
+) -> None:
+    """Full order safety check: quantity caps + dynamic symbol
+    validation against the broker's live symbol list. Lazy-populates
+    the cache on first request for this server. Raises HTTPException
+    on violation."""
+    _validate_qty(qty)
+    s = symbol.upper().strip()
+    entry = await _ensure_symbol_cache(login, password, server)
+    if s not in entry.names:
+        # Include a small sample to help the engine/operator pick a
+        # broker-correct suffix (e.g. XAUUSDm vs XAUUSD).
+        sample = sorted([n for n in entry.names if s.replace('.', '').replace('#', '') in n])[:5]
+        detail = (
+            f'symbol {s!r} not in broker symbol list for server {server!r} '
+            f'({len(entry.names)} known)'
+        )
+        if sample:
+            detail += f'. Similar: {sample}'
+        raise HTTPException(status_code=422, detail=detail)
 
 
 # ─── Auth ──────────────────────────────────────────────────────────────
@@ -465,12 +566,14 @@ async def submit_order(req: OrderRequest):
     """Submit a market or limit order. Returns the broker's full retcode
     + fill details so the engine can compute slippage + reconcile.
 
-    Last-line safety: rejects orders that violate MAX_LOT_LIMIT,
-    SYMBOL_WHITELIST, or the per-minute rate limit BEFORE any MT5
-    call is made. These are guardrails — the signal-engine has its
-    own 12-gate risk stack upstream."""
+    Last-line safety: rejects orders that violate MAX_LOT_LIMIT, the
+    per-minute rate limit, or aren't in the broker's live symbol list
+    BEFORE any MT5 order call. These are guardrails — the signal-engine
+    has its own 12-gate risk stack upstream."""
     _rate_limit_check()
-    _validate_order_safety(req.symbol, req.quantity)
+    await _validate_order_safety_async(
+        req.login, req.password, req.server, req.symbol, req.quantity,
+    )
 
     async with _MT5_LOCK:
         ok, err = await _ensure_login(req.login, req.password, req.server)
@@ -659,6 +762,59 @@ async def quote(req: SymbolRequest):
             'last':   float(tick.last) if tick.last else None,
             'time':   int(tick.time),
         }}
+
+
+class SymbolsRequest(AccountRequest):
+    refresh:  bool          = False    # force a re-pull from MT5 even if cache is fresh
+    category: Optional[str] = None     # 'forex' | 'metals' | 'indices' | 'crypto' | 'commodities'
+
+
+# Best-effort category guesses based on MT5 `path` (broker group) +
+# common naming. Brokers don't use a standard taxonomy, so we look at
+# the symbol path first (e.g. "Forex\Majors\EURUSD") then fall back
+# to suffix heuristics. Returns None when nothing matches.
+def _guess_category(sym: dict) -> Optional[str]:
+    path = (sym.get('path') or '').lower()
+    name = (sym.get('name') or '').upper()
+    if 'forex'   in path or 'fx'    in path: return 'forex'
+    if 'metal'   in path or 'spot' in path and any(m in name for m in ('XAU','XAG','XPT','XPD')): return 'metals'
+    if 'crypto'  in path or any(c in name for c in ('BTC','ETH','XRP','SOL','DOGE','ADA')): return 'crypto'
+    if 'indic'   in path or 'index' in path or name in {'US30','NAS100','SPX500','GER40','UK100','JP225'}: return 'indices'
+    if 'oil'     in path or 'energ' in path or name in {'USOIL','UKOIL','NGAS','BRENT'}: return 'commodities'
+    if any(m in name for m in ('XAU','XAG','XPT','XPD')): return 'metals'
+    # 6-letter currency pair convention (EURUSD, GBPJPY, etc.)
+    if len(name) == 6 and name.isalpha(): return 'forex'
+    return None
+
+
+@app.post('/symbols', dependencies=[Depends(_verify_bridge_key)])
+async def symbols(req: SymbolsRequest):
+    """Return the broker's live tradable symbol list for `req.server`.
+
+    Lazily populated on first call per server, cached for
+    SYMBOL_CACHE_TTL_S seconds (default 1h). Set `refresh: true` to
+    force a re-pull from MT5. Optional `category` filter narrows the
+    result to a heuristic class (forex/metals/indices/crypto/commodities).
+
+    This is the source of truth for what symbols the engine can
+    actually submit orders against — /order validates against this
+    same cache."""
+    entry = await _ensure_symbol_cache(
+        req.login, req.password, req.server, force=req.refresh,
+    )
+    items = entry.full
+    if req.category:
+        wanted = req.category.lower().strip()
+        items = [s for s in items if _guess_category(s) == wanted]
+    return {
+        'server':     entry.server,
+        'count':      len(items),
+        'total':      len(entry.full),
+        'fetched_at': entry.fetched_at,
+        'cache_age_s': max(0, int(time.time() - entry.fetched_at)),
+        'category':   req.category,
+        'symbols':    items,
+    }
 
 
 # ───────────────────────────────────────────────────────────────────────

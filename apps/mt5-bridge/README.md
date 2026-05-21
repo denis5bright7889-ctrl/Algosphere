@@ -240,7 +240,8 @@ All endpoints (except `GET /health`) require the `X-Bridge-Key` header.
 | POST | `/cancel` | Cancel a pending order by id |
 | POST | `/positions` | List open positions |
 | POST | `/close_all` | Emergency flatten (kill-switch path) |
-| POST | `/symbol_spec` | Broker-side symbol spec |
+| POST | `/symbols` | Live tradable-symbol list for that broker (cached, with optional category filter) |
+| POST | `/symbol_spec` | Broker-side spec for ONE symbol |
 | POST | `/quote` | Current bid/ask tick |
 
 ### Single-account (read creds from .env)
@@ -274,14 +275,47 @@ limits, kill switch, position sizing). These bridge-side checks are an
 
 - **`MAX_LOT_LIMIT`** (default 100.0): hard ceiling on lot size,
   regardless of broker's `volume_max`.
-- **`SYMBOL_WHITELIST`** (default unset): comma-separated list. When
-  set, any order on a symbol not in the list is rejected with HTTP 403.
 - **`MAX_ORDERS_PER_MIN`** (default 30): rolling 60-second cap on
   order submissions per bridge. Exceeding it returns HTTP 429.
+- **Dynamic symbol validation**: every `/order` request is checked
+  against the broker's live `mt5.symbols_get()` list for that server.
+  Unknown or trade-disabled symbols return HTTP 422 with a similar-
+  symbol hint so the engine knows whether it's a broker-suffix
+  mismatch (`XAUUSDm` vs `XAUUSD`, `EURUSD.r` vs `EURUSD`, etc.). The
+  list is fetched on first contact per server and cached for
+  `SYMBOL_CACHE_TTL_S` seconds (default 3600 = 1 hour). No static
+  whitelist to maintain.
 
 Every order submission and rejection is structured-logged to
 `logs/mt5bridge.log` (rotating, 10 MB × 10 files) so you can audit
 post-hoc.
+
+### `/symbols` endpoint
+
+Lets the engine (or an admin tool) introspect what's actually tradable
+on each broker, with optional category filtering:
+
+```bash
+curl -X POST https://mt5.algospherequant.com/symbols \
+  -H "X-Bridge-Key: $BRIDGE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "login":    12345678,
+    "password": "...",
+    "server":   "Pepperstone-Demo01",
+    "category": "forex"
+  }'
+```
+
+Returns `{server, count, total, fetched_at, cache_age_s, category,
+symbols: [...]}`. Each symbol row has name, description, base/quote
+currencies, digits, volume_min/max/step, contract_size, trade_mode,
+and the broker's path/group string. Set `"refresh": true` in the body
+to force a re-pull (bypass cache).
+
+Supported categories (heuristic match on broker path + symbol name):
+`forex`, `metals`, `indices`, `crypto`, `commodities`. Symbols that
+don't match any category are still returned when no filter is set.
 
 ## What this bridge does NOT do
 
