@@ -116,6 +116,8 @@
   }
   .auth-overlay.is-hidden { display: none; }
   .header-btn { margin-left: 12px; }
+  .ctrl-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+  .ctrl-note { margin-top: 10px; color: var(--muted); font-size: 11px; }
   .auth-overlay .box {
     background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
     padding: 24px; width: 380px; max-width: calc(100vw - 32px);
@@ -164,6 +166,7 @@
       <div class="kv"><span>Endpoint</span><span id="tunnel-url">—</span></div>
       <div class="kv"><span>Status code</span><span id="tunnel-status">—</span></div>
       <div class="kv"><span>Round-trip latency</span><span id="tunnel-latency">—</span></div>
+      <div class="kv"><span>Bridge uptime</span><span id="tunnel-uptime">—</span></div>
       <div class="kv"><span>Last successful check</span><span id="tunnel-last">—</span></div>
     </div>
 
@@ -191,6 +194,18 @@
       <div class="kv"><span>/processes round-trip</span><span id="lat-proc">—</span></div>
       <div class="kv"><span>/logs round-trip</span><span id="lat-logs">—</span></div>
       <div class="kv"><span>Last sample at</span><span id="lat-when">—</span></div>
+    </div>
+
+    <div class="card" id="card-controls">
+      <h2><span class="dot"></span>Controls</h2>
+      <div class="kv"><span>Restart bridge</span><span><button type="button" class="ctrl-btn" disabled title="Requires NSSM">Disabled</button></span></div>
+      <div class="kv"><span>Restart cloudflared</span><span><button type="button" class="ctrl-btn" disabled title="Requires NSSM">Disabled</button></span></div>
+      <div class="kv"><span>Restart watchdog</span><span><button type="button" class="ctrl-btn" disabled title="Internal asyncio task — restart the bridge">Disabled</button></span></div>
+      <p class="ctrl-note">
+        Controls require <b>NSSM</b> as the process supervisor. Without it,
+        restarting kills the bridge with no auto-respawn. Install NSSM
+        (see README) then a follow-up commit enables these buttons.
+      </p>
     </div>
 
     <div class="card span-2" id="card-logs">
@@ -253,6 +268,19 @@
     if (tone) el.classList.add(tone);
   }
 
+  function fmtUptime(seconds) {
+    if (seconds == null) return '—';
+    const s = Math.max(0, Math.floor(seconds));
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (d > 0) return `${d}d ${h}h ${m}m`;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${sec}s`;
+    return `${sec}s`;
+  }
+
   async function loadHealth() {
     const t0 = performance.now();
     let res, data, ok = false;
@@ -289,6 +317,7 @@
     document.getElementById('tunnel-url').textContent = location.host;
     document.getElementById('tunnel-status').innerHTML = `<span class="pill ok">${res.status}</span>`;
     document.getElementById('tunnel-latency').textContent = `${ms} ms`;
+    document.getElementById('tunnel-uptime').textContent = fmtUptime(data.service_uptime_s);
     document.getElementById('tunnel-last').textContent = new Date().toLocaleTimeString();
     setCardTone('card-tunnel', ms < 800 ? 'ok' : 'warn');
 

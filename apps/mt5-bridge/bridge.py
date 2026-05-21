@@ -132,6 +132,10 @@ try:
 except ValueError:
     _MT5_READY_TIMEOUT_S = 30
 
+# Bridge service start time — surfaced as service_uptime_s on /health
+# so the dashboard can render an "Uptime" widget. Set once at import.
+SERVICE_STARTED_AT: float = time.time()
+
 
 async def wait_for_mt5_ready(timeout_s: Optional[int] = None) -> bool:
     """Initialize the MT5 terminal and verify it responds via
@@ -638,7 +642,9 @@ async def health():
         'timestamp':        time.time(),
         # ── Extended (back-compat) ──────────────────
         'service':          'algosphere-mt5-bridge',
+        'service_uptime_s': int(time.time() - SERVICE_STARTED_AT),
         'mt5_ready':        mt5_ready,
+        'bridge_ready':     mt5_ready,   # alias — spec name for the same flag
         'mt5_connected':    mt5_connected,
         'execution_ready':  bool(wd['execution_ready']) if creds_configured else False,
         'account':          wd['account'],
@@ -1278,3 +1284,31 @@ async def serve_dashboard_alias():
     right place."""
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url='/admin', status_code=308)
+
+
+# ───────────────────────────────────────────────────────────────────────
+# /system/* alias namespace
+# ───────────────────────────────────────────────────────────────────────
+# Operator-facing alternate paths. Same handlers as the bare endpoints
+# above — exposes them under a /system/ prefix for ops scripts that
+# prefer a clearer namespace ("everything under /system is internal
+# monitoring, never user-facing"). Trading endpoints (/order, /trade/*)
+# stay at the root since they're business APIs, not system telemetry.
+
+@app.get('/system/health')
+async def system_health():
+    return await health()
+
+@app.get('/system/status')
+async def system_status():
+    """Alias for /health — the spec calls this 'status' since it
+    answers the "is the whole stack OK?" question."""
+    return await health()
+
+@app.get('/system/processes', dependencies=[Depends(_verify_bridge_key)])
+async def system_processes():
+    return await list_processes()
+
+@app.get('/system/logs', dependencies=[Depends(_verify_bridge_key)])
+async def system_logs(lines: int = 50):
+    return await get_recent_logs(lines)

@@ -24,8 +24,10 @@ interface HealthData {
   status?:           string
   mt5_loaded?:       boolean
   mt5_ready?:        boolean
+  bridge_ready?:     boolean   // alias of mt5_ready (per spec)
   mt5_connected?:    boolean
   execution_ready?:  boolean
+  service_uptime_s?: number
   account?:          number | null
   equity?:           number | null
   consec_failures?:  number
@@ -189,6 +191,7 @@ export default function BridgeClient() {
           <KV label="Endpoint" value="mt5.algospherequant.com" />
           <KV label="/health round-trip" value={latency.health != null ? `${latency.health} ms` : '—'} />
           <KV label="Status" value={health ? <Pill tone="ok">200</Pill> : <Pill tone="bad">unreachable</Pill>} />
+          <KV label="Bridge uptime" value={fmtUptime(health?.service_uptime_s)} />
           <KV label="Last check" value={lastUpdate} />
         </Card>
 
@@ -197,6 +200,25 @@ export default function BridgeClient() {
           <KV label="Equity" value={health?.equity != null ? `$${Number(health.equity).toLocaleString()}` : '—'} />
           <KV label="Account #" value={health?.account ?? '—'} />
           <KV label="Creds in env" value={credsConfigured ? 'yes (single-account)' : 'no (multi-tenant)'} />
+        </Card>
+
+        {/* CONTROLS (placeholder until NSSM is installed on the VPS) */}
+        <Card tone="muted" title="Controls">
+          <KV label="Restart bridge" value={
+            <button type="button" disabled className="rounded-md border border-border bg-muted/30 px-3 py-1 text-[10px] opacity-50 cursor-not-allowed font-mono">disabled</button>
+          } />
+          <KV label="Restart cloudflared" value={
+            <button type="button" disabled className="rounded-md border border-border bg-muted/30 px-3 py-1 text-[10px] opacity-50 cursor-not-allowed font-mono">disabled</button>
+          } />
+          <KV label="Restart watchdog" value={
+            <button type="button" disabled className="rounded-md border border-border bg-muted/30 px-3 py-1 text-[10px] opacity-50 cursor-not-allowed font-mono">disabled</button>
+          } />
+          <p className="mt-2 text-[10px] text-muted-foreground">
+            Requires <b>NSSM</b> as the process supervisor on the VPS. Without
+            it, restart kills the bridge with no auto-respawn. Install NSSM
+            (see <span className="font-mono">apps/mt5-bridge/README.md</span>),
+            then a follow-up commit enables these buttons.
+          </p>
         </Card>
 
         {/* RISK */}
@@ -328,6 +350,19 @@ function LatencyStat({ label, ms }: { label: string; ms: number | null }) {
 function fmtBool(v: boolean | undefined): string {
   if (v == null) return '—'
   return v ? 'yes' : 'NO'
+}
+
+function fmtUptime(seconds: number | null | undefined): string {
+  if (seconds == null) return '—'
+  const s = Math.max(0, Math.floor(seconds))
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (d > 0) return `${d}d ${h}h ${m}m`
+  if (h > 0) return `${h}h ${m}m`
+  if (m > 0) return `${m}m ${sec}s`
+  return `${sec}s`
 }
 
 async function timedFetch(url: string) {
