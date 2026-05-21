@@ -1,0 +1,54 @@
+# ──────────────────────────────────────────────────────────────────────
+# Normalize line endings to LF everywhere in git history.
+#
+# Without this, Windows checkouts get CRLF endings while the same
+# files on Linux (Vercel build / Railway engine / VPS bridge under
+# python) stay LF — and every commit shows a fake "modified" state
+# that blocks subsequent `git pull`s on Windows.
+#
+# `* text=auto eol=lf` says: treat all files as text, normalize to
+# LF on commit, and check out LF (NOT CRLF) on every platform. The
+# remaining lines opt out for true binary formats and explicitly
+# pin the formats that mix poorly.
+# ──────────────────────────────────────────────────────────────────────
+
+* text=auto eol=lf
+
+# Force LF for source / config files (defensive — most are covered
+# by the wildcard above, but stating explicitly avoids edge cases).
+*.py    text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.sql   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.toml  text eol=lf
+*.env*  text eol=lf
+*.sh    text eol=lf
+
+# Windows-only scripts can keep CRLF (cmd.exe / PowerShell prefer it).
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# Binary formats — don't touch line endings.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.eot   binary
+*.otf   binary
+*.mp4   binary
+*.mov   binary
