@@ -620,6 +620,17 @@ async def health():
     # we're in single-account mode and the watchdog says we've lost
     # contact with the account.
     status = 'ok' if mt5_loaded and mt5_ready and (mt5_connected or not creds_configured) else 'degraded'
+    # ── Risk-panel config snapshot ──────────────────
+    # Surface the bridge's own safety caps so the /admin Risk panel
+    # can show them. Also include the current rate-window usage so
+    # operators see proximity to the rate limit.
+    now = time.time()
+    rate_used = sum(1 for t in _order_times if (now - t) < 60)
+    rate_status = (
+        'safe'    if rate_used < 0.6 * MAX_ORDERS_PER_MIN
+        else 'warn' if rate_used < 0.9 * MAX_ORDERS_PER_MIN
+        else 'breach'
+    )
     return {
         # ── Canonical ───────────────────────────────
         'status':           status,
@@ -637,6 +648,16 @@ async def health():
         'pin_login':        PIN_LOGIN,
         'current_login':    _current_login,
         'creds_configured': creds_configured,
+        # ── Risk panel ──────────────────────────────
+        'risk': {
+            'max_lot_limit':       MAX_LOT_LIMIT,
+            'max_orders_per_min':  MAX_ORDERS_PER_MIN,
+            'orders_last_60s':     rate_used,
+            'rate_status':         rate_status,
+            'symbol_cache_ttl_s':  SYMBOL_CACHE_TTL_S,
+            'symbol_servers':      sorted(_symbol_cache.keys()),
+            'symbol_total':        sum(len(e.names) for e in _symbol_cache.values()),
+        },
         # Legacy alias — older clients may still read `time`
         'time':             time.time(),
     }
@@ -1233,12 +1254,14 @@ async def get_recent_logs(lines: int = 20):
 _DASHBOARD_HTML_PATH = pathlib.Path(__file__).resolve().parent / 'dashboard.html'
 
 
-@app.get('/dashboard')
-async def serve_dashboard():
-    """Serve the operator control dashboard. Public route (no auth on
-    the page itself) — the dashboard prompts for X-Bridge-Key once
-    and uses it for every API call. Without the key, the API calls
-    return 401 and the cards show 'auth required'."""
+@app.get('/admin')
+async def serve_admin():
+    """Operator command center. Bloomberg-style terminal UI rendered
+    from dashboard.html — the canonical single-page control interface
+    for this bridge instance. Public route (no auth on the page itself);
+    the JS prompts for X-Bridge-Key once on first load and uses it for
+    every API call. Without the key, /processes and /logs return 401
+    and the cards show 'auth required'."""
     from fastapi.responses import HTMLResponse, PlainTextResponse
     if not _DASHBOARD_HTML_PATH.exists():
         return PlainTextResponse(
@@ -1246,3 +1269,12 @@ async def serve_dashboard():
             status_code=500,
         )
     return HTMLResponse(_DASHBOARD_HTML_PATH.read_text(encoding='utf-8'))
+
+
+@app.get('/dashboard')
+async def serve_dashboard_alias():
+    """Back-compat alias for the old /dashboard URL. Redirects to
+    /admin so anyone with the old URL bookmarked still lands on the
+    right place."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url='/admin', status_code=308)

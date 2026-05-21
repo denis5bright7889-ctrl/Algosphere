@@ -262,17 +262,18 @@ Require `MT5_LOGIN`, `MT5_PASSWORD`, `MT5_SERVER` in `.env`.
 | GET | `/health` | Public (no auth). Canonical `{status, mt5_loaded, timestamp}` + extended watchdog/account fields |
 | GET | `/processes` | Snapshot of OS processes (bridge.py, uvicorn, cloudflared, MT5 terminal, etc.) via `psutil` |
 | GET | `/logs?lines=20` | Tail the rotating `logs/mt5bridge.log` for the dashboard's activity feed |
-| GET | `/dashboard` | Operator control dashboard (HTML page; prompts for X-Bridge-Key on first load) |
+| GET | `/admin` | **Command Center** — operator control dashboard. Bloomberg-style UI; prompts for X-Bridge-Key on first load |
+| GET | `/dashboard` | Back-compat 308 redirect to `/admin` |
 
-## Operator dashboard
+## Command Center (`/admin`)
 
-Open **`https://mt5.algospherequant.com/dashboard`** in any browser.
+Open **`https://mt5.algospherequant.com/admin`** in any browser.
 You'll be prompted for the `BRIDGE_API_KEY` once per browser tab
 (stored in `sessionStorage`, cleared on Logout / tab close — never
 in cookies, never sent anywhere except as `X-Bridge-Key` on internal
 fetches).
 
-Four live cards, auto-refreshing every 4 seconds:
+Seven live cards, auto-refreshing every 3 seconds:
 
 - **System Processes** — running state of `bridge.py`, `uvicorn`,
   `cloudflared`, the MT5 terminal, plus any `start.py / watchdog.py
@@ -284,7 +285,14 @@ Four live cards, auto-refreshing every 4 seconds:
   Cloudflare Tunnel. The fact that the dashboard loaded at all proves
   the tunnel is up; the latency number tells you whether it's healthy.
 - **Account** — equity, account number (single-account mode only).
-- **Recent Activity** — tail of the last 20 log lines, colorized by
+- **Risk Caps** — `MAX_LOT_LIMIT`, `MAX_ORDERS_PER_MIN`, current rate
+  window usage (`orders_last_60s`), rate status (safe / warning /
+  breached), symbol-cache TTL, list of servers whose symbol lists
+  are currently cached, total cached symbols across all servers.
+- **Latency** — round-trip ms for each of `/health`, `/processes`,
+  `/logs` on the most recent refresh. Card turns amber > 400ms,
+  red > 1s.
+- **Recent Activity** — tail of the last 50 log lines, colorized by
   level (errors red, warnings amber, accepted orders green).
 
 No framework, no build step — `dashboard.html` is a single static

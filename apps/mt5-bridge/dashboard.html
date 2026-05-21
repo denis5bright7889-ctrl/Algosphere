@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>AlgoSphere — MT5 Bridge Control</title>
+<title>AlgoSphere — MT5 Command Center</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <style>
@@ -109,8 +109,13 @@
 
   .auth-overlay {
     position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-    background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); z-index: 100;
+    background: rgba(0,0,0,0.85);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    z-index: 100;
   }
+  .auth-overlay.is-hidden { display: none; }
+  .header-btn { margin-left: 12px; }
   .auth-overlay .box {
     background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
     padding: 24px; width: 380px; max-width: calc(100vw - 32px);
@@ -129,10 +134,10 @@
 <body>
 
 <header>
-  <h1><span class="accent">AlgoSphere</span> · MT5 Bridge Control</h1>
+  <h1><span class="accent">AlgoSphere</span> · MT5 Command Center</h1>
   <div class="meta">
     Refresh: <b id="meta-refresh">—</b> · Last update: <b id="meta-last">—</b>
-    <button onclick="logout()" style="margin-left:12px;">Logout</button>
+    <button type="button" class="header-btn" onclick="logout()">Logout</button>
   </div>
 </header>
 
@@ -169,21 +174,40 @@
       <div class="kv"><span>Creds in env</span><span id="acct-creds">—</span></div>
     </div>
 
+    <div class="card" id="card-risk">
+      <h2><span class="dot"></span>Risk Caps</h2>
+      <div class="kv"><span>Max lot per order</span><span id="risk-lot">—</span></div>
+      <div class="kv"><span>Max orders / min</span><span id="risk-rate">—</span></div>
+      <div class="kv"><span>Orders last 60s</span><span id="risk-used">—</span></div>
+      <div class="kv"><span>Rate status</span><span id="risk-status">—</span></div>
+      <div class="kv"><span>Symbol cache TTL</span><span id="risk-ttl">—</span></div>
+      <div class="kv"><span>Cached servers</span><span id="risk-servers">—</span></div>
+      <div class="kv"><span>Total cached symbols</span><span id="risk-symcount">—</span></div>
+    </div>
+
+    <div class="card" id="card-latency">
+      <h2><span class="dot"></span>Latency</h2>
+      <div class="kv"><span>/health round-trip</span><span id="lat-health">—</span></div>
+      <div class="kv"><span>/processes round-trip</span><span id="lat-proc">—</span></div>
+      <div class="kv"><span>/logs round-trip</span><span id="lat-logs">—</span></div>
+      <div class="kv"><span>Last sample at</span><span id="lat-when">—</span></div>
+    </div>
+
     <div class="card span-2" id="card-logs">
-      <h2><span class="dot"></span>Recent Activity (last 20 log lines)</h2>
+      <h2><span class="dot"></span>Recent Activity (last 50 log lines)</h2>
       <div class="log-box" id="log-box">Awaiting connection…</div>
     </div>
 
   </div>
 </main>
 
-<div class="auth-overlay" id="auth" style="display:none;">
+<div class="auth-overlay is-hidden" id="auth">
   <div class="box">
     <h3>Bridge API key required</h3>
     <p>Paste the value of <code>BRIDGE_API_KEY</code> from your bridge's <code>.env</code>. Stored only in this browser tab.</p>
     <input id="auth-input" type="password" placeholder="hS3HjIUQcDSm…" autocomplete="off">
     <div class="row">
-      <button onclick="saveKey()">Authenticate</button>
+      <button type="button" onclick="saveKey()">Authenticate</button>
     </div>
   </div>
 </div>
@@ -196,14 +220,14 @@
     const v = document.getElementById('auth-input').value.trim();
     if (!v) return;
     sessionStorage.setItem(KEY, v);
-    document.getElementById('auth').style.display = 'none';
+    document.getElementById('auth').classList.add('is-hidden');
     refresh();
   }
   function logout() {
     sessionStorage.removeItem(KEY);
     location.reload();
   }
-  function promptAuth() { document.getElementById('auth').style.display = 'flex'; }
+  function promptAuth() { document.getElementById('auth').classList.remove('is-hidden'); }
 
   // ─── Fetch helpers ────────────────────────────────────────────────
   async function api(path) {
@@ -274,13 +298,52 @@
     document.getElementById('acct-creds').textContent = data.creds_configured ? 'yes (single-account mode)' : 'no (multi-tenant)';
     setCardTone('card-account', data.creds_configured ? 'ok' : 'warn');
 
+    // Risk card — sourced entirely from the /health "risk" object
+    const risk = data.risk || {};
+    document.getElementById('risk-lot').textContent  = risk.max_lot_limit != null ? `${risk.max_lot_limit} lots` : '—';
+    document.getElementById('risk-rate').textContent = risk.max_orders_per_min != null ? `${risk.max_orders_per_min}` : '—';
+    document.getElementById('risk-used').textContent = risk.orders_last_60s != null ? `${risk.orders_last_60s}` : '—';
+    const rstatus = risk.rate_status || 'unknown';
+    document.getElementById('risk-status').innerHTML =
+      rstatus === 'safe'   ? `<span class="pill ok">safe</span>` :
+      rstatus === 'warn'   ? `<span class="pill warn">warning</span>` :
+      rstatus === 'breach' ? `<span class="pill bad">breached</span>` :
+      `<span class="pill warn">${rstatus}</span>`;
+    document.getElementById('risk-ttl').textContent = risk.symbol_cache_ttl_s != null ? `${risk.symbol_cache_ttl_s}s` : '—';
+    const servers = risk.symbol_servers || [];
+    document.getElementById('risk-servers').textContent = servers.length ? servers.join(', ') : '(none cached)';
+    document.getElementById('risk-symcount').textContent = risk.symbol_total ?? 0;
+    setCardTone('card-risk',
+      rstatus === 'breach' ? 'bad' :
+      rstatus === 'warn'   ? 'warn' : 'ok');
+
+    // Latency panel — store the just-measured /health round-trip;
+    // /processes and /logs panels fill in their own latencies below.
+    _latency.health = ms;
+    paintLatency();
+
     return data;
+  }
+
+  // ─── Latency state (filled by each fetch) ────────────────────────
+  const _latency = { health: null, processes: null, logs: null, when: null };
+  function paintLatency() {
+    const fmt = v => v == null ? '—' : `${v} ms`;
+    document.getElementById('lat-health').textContent = fmt(_latency.health);
+    document.getElementById('lat-proc').textContent   = fmt(_latency.processes);
+    document.getElementById('lat-logs').textContent   = fmt(_latency.logs);
+    document.getElementById('lat-when').textContent   = _latency.when ? new Date(_latency.when).toLocaleTimeString() : '—';
+    // Worst case among the three samples drives the card tone.
+    const worst = Math.max(_latency.health ?? 0, _latency.processes ?? 0, _latency.logs ?? 0);
+    setCardTone('card-latency', worst < 400 ? 'ok' : worst < 1000 ? 'warn' : 'bad');
   }
 
   async function loadProcesses() {
     let data;
+    const t0 = performance.now();
     try {
       const res = await api('/processes');
+      _latency.processes = Math.round(performance.now() - t0);
       if (!res.ok) {
         document.getElementById('proc-list').innerHTML = `<div class="kv"><span>error</span><span>HTTP ${res.status}</span></div>`;
         return;
@@ -312,8 +375,10 @@
 
   async function loadLogs() {
     let data;
+    const t0 = performance.now();
     try {
-      const res = await api('/logs?lines=20');
+      const res = await api('/logs?lines=50');
+      _latency.logs = Math.round(performance.now() - t0);
       if (!res.ok) {
         document.getElementById('log-box').textContent = `HTTP ${res.status} fetching logs`;
         return;
@@ -337,13 +402,15 @@
   }
 
   // ─── Refresh loop ─────────────────────────────────────────────────
-  const REFRESH_MS = 4000;
+  const REFRESH_MS = 3000;
   document.getElementById('meta-refresh').textContent = `${REFRESH_MS/1000}s`;
 
   async function refresh() {
     if (!getKey()) { promptAuth(); return; }
     try {
       await Promise.all([loadHealth(), loadProcesses(), loadLogs()]);
+      _latency.when = Date.now();
+      paintLatency();
       document.getElementById('meta-last').textContent = new Date().toLocaleTimeString();
     } catch {}
   }
