@@ -23,6 +23,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             { href: '/admin/dashboard',    label: 'Platform Intelligence' },
             { href: '/admin/signals',      label: 'Signal Management' },
             { href: '/admin/brokers',      label: 'Broker Health' },
+            { href: '/admin/bridge',       label: 'Bridge Command Center' },
             { href: '/admin/payments',     label: 'Payments' },
             { href: '/admin/verification', label: 'Verifications' },
             { href: '/admin/compliance',   label: 'Compliance & Audit' },
