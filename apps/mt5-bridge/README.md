@@ -114,7 +114,13 @@ You should see `{"status":"ok","mt5_loaded":true,...}`. If
 `mt5_loaded` is `false`, the `MetaTrader5` package failed to import —
 re-run `pip install MetaTrader5` and check the error.
 
-### 7. Expose with Cloudflare Tunnel (free, no firewall config)
+### 7. Expose with Cloudflare Tunnel (named tunnel — REQUIRED for production)
+
+The production bridge URL is **`https://mt5.algospherequant.com`**.
+Always use a **named tunnel** bound to this domain — never a quick
+`trycloudflare.com` tunnel. Quick tunnels generate a new random URL on
+every restart, which forces you to update Railway every time. Named
+tunnels keep the URL stable forever.
 
 Stop the bridge first (Ctrl+C). Then:
 
@@ -122,35 +128,53 @@ Stop the bridge first (Ctrl+C). Then:
    ```powershell
    winget install --id Cloudflare.cloudflared
    ```
-2. Quick tunnel (no Cloudflare account required, ephemeral URL):
+2. Authenticate (one-time):
    ```powershell
-   cloudflared tunnel --url http://localhost:8000
+   cloudflared tunnel login
    ```
-   This prints a permanent `https://<random>.trycloudflare.com` URL.
-   That URL is your `MT5_BRIDGE_URL`.
-
-   **For production**, set up a named tunnel with your own domain —
-   see <https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/>
-   . The named-tunnel URL is stable across `cloudflared` restarts.
-
-3. Open a second PowerShell and start the bridge:
+   Browser opens — choose the Cloudflare account that owns
+   `algospherequant.com`.
+3. Create the named tunnel (one-time):
+   ```powershell
+   cloudflared tunnel create algosphere-mt5
+   ```
+4. Route the subdomain through it (one-time):
+   ```powershell
+   cloudflared tunnel route dns algosphere-mt5 mt5.algospherequant.com
+   ```
+5. Run it:
+   ```powershell
+   cloudflared tunnel run algosphere-mt5
+   ```
+6. Open a second PowerShell and start the bridge:
    ```powershell
    cd Algosphere\apps\mt5-bridge
-   uvicorn bridge:app --host 0.0.0.0 --port 8000
+   uvicorn bridge:app --host 127.0.0.1 --port 8000
    ```
+
+The bridge is now reachable at **`https://mt5.algospherequant.com`** —
+permanent URL, no rotation.
+
+> **Quick tunnels (`cloudflared tunnel --url http://localhost:8000`)**
+> are only for testing on a fresh VPS where you haven't yet set up
+> a Cloudflare account. Never use them in production: the URL changes
+> every restart, breaking the Railway → bridge handshake until you
+> manually update `MT5_BRIDGE_URL`.
 
 ### 8. Configure the Railway engine
 
-In the Railway dashboard for the `Algosphere` project's `algosphere`
-service → Variables, add:
+In the Railway dashboard for the `Algosphere` project's service →
+Variables, set:
 
 ```
-MT5_BRIDGE_URL=https://<your-trycloudflare-or-named-tunnel-url>
+MT5_BRIDGE_URL=https://mt5.algospherequant.com
 MT5_BRIDGE_API_KEY=<the same secret from step 4>
 ```
 
-Click **Redeploy** so the new env vars take effect. The engine will
-pick up the new vars within ~30 seconds of deploy completion.
+Save. Railway auto-redeploys within ~30 seconds. **You should never
+need to change `MT5_BRIDGE_URL` again** — the named tunnel keeps the
+URL stable across VPS reboots, bridge restarts, and `cloudflared`
+restarts.
 
 ### 9. Verify end-to-end on /brokers
 
