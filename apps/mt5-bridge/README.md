@@ -5,6 +5,17 @@ route MetaTrader 5 orders to an MT5 terminal running on a Windows
 VPS. Without this service, MT5 connections on `/brokers` stay
 `DISABLED` because the `MetaTrader5` Python package is Windows-only.
 
+The bridge runs in **two modes simultaneously** — they share the
+same MT5 plumbing:
+
+- **Multi-tenant** (default): every endpoint accepts login/password/server
+  in the request body. The Railway engine's `MT5BridgeAdapter` uses
+  this path and re-logs the terminal per call.
+- **Single-account** (opt-in via `MT5_LOGIN/PASSWORD/SERVER` in `.env`):
+  unlocks `GET /account`, `GET /positions`, `POST /trade/place`,
+  `POST /trade/close`. Also starts the watchdog (pings MT5 every 30s)
+  and surfaces account state on `GET /health`.
+
 ## Topology
 
 ```
@@ -190,6 +201,63 @@ Or use [NSSM](https://nssm.cc/) for a friendlier wrapper.
 - **Withdraw permissions** in the MT5 broker account should be
   disabled — the bridge can place trades but should never be able to
   initiate withdrawals.
+
+## Endpoint reference
+
+All endpoints (except `GET /health`) require the `X-Bridge-Key` header.
+
+### Multi-tenant (creds in body) — used by the Railway engine
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/connect` | Verify login + return account snapshot |
+| POST | `/account` | Refresh equity/balance/open count |
+| POST | `/order` | Place market or limit order |
+| POST | `/cancel` | Cancel a pending order by id |
+| POST | `/positions` | List open positions |
+| POST | `/close_all` | Emergency flatten (kill-switch path) |
+| POST | `/symbol_spec` | Broker-side symbol spec |
+| POST | `/quote` | Current bid/ask tick |
+
+### Single-account (read creds from .env)
+
+Require `MT5_LOGIN`, `MT5_PASSWORD`, `MT5_SERVER` in `.env`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/account` | Equity / balance / open count + watchdog state |
+| GET | `/positions` | All open positions for the configured account |
+| POST | `/trade/place` | Place order using `{symbol, lot, direction, sl, tp}` shape |
+| POST | `/trade/close` | Close ONE open position by ticket |
+
+### Health
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/health` | Public (no auth). Returns mt5_loaded + watchdog state + account + execution_ready |
+
+A "healthy" `/health` in single-account mode reports
+`mt5_connected: true`, `execution_ready: true`, a non-null `account`,
+and `consec_failures: 0`. If `execution_ready: false`, the watchdog has
+seen ≥ `WATCHDOG_MAX_FAILURES` consecutive ping failures — MT5 terminal
+likely hung silently.
+
+## Safety guardrails
+
+The signal-engine on Railway has its own 12-gate risk stack (drawdown
+limits, kill switch, position sizing). These bridge-side checks are an
+*additional* last-line-of-defense in case the engine misbehaves:
+
+- **`MAX_LOT_LIMIT`** (default 100.0): hard ceiling on lot size,
+  regardless of broker's `volume_max`.
+- **`SYMBOL_WHITELIST`** (default unset): comma-separated list. When
+  set, any order on a symbol not in the list is rejected with HTTP 403.
+- **`MAX_ORDERS_PER_MIN`** (default 30): rolling 60-second cap on
+  order submissions per bridge. Exceeding it returns HTTP 429.
+
+Every order submission and rejection is structured-logged to
+`logs/mt5bridge.log` (rotating, 10 MB × 10 files) so you can audit
+post-hoc.
 
 ## What this bridge does NOT do
 

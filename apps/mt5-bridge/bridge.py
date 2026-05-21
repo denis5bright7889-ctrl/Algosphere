@@ -43,13 +43,35 @@ Security
 from __future__ import annotations
 import asyncio
 import os
+import pathlib
 import time
+from collections import deque
 from typing import Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Header, HTTPException, Depends
+from fastapi import FastAPI, Header, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
 from loguru import logger
+
+# ─── File logging (rotating) ───────────────────────────────────────────
+# Loguru writes to stdout by default (NSSM captures that into its own
+# log files). Add a dedicated rotating file too so operators have one
+# stable path to tail: tail -f logs/mt5bridge.log.
+LOG_DIR = pathlib.Path(os.environ.get('LOG_DIR', 'logs'))
+try:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    logger.add(
+        LOG_DIR / 'mt5bridge.log',
+        rotation = '10 MB',
+        retention= 10,
+        compression= None,
+        enqueue  = True,    # safe to call from threads & async tasks
+        backtrace= True,
+        diagnose = False,   # avoid leaking variable values into logs
+        level    = 'INFO',
+    )
+except Exception as _e:    # never let logging setup crash the bridge
+    pass
 
 # MetaTrader5 is Windows-only. Import lazily so the module can be
 # loaded for `--reload` / introspection on dev machines without it.
@@ -71,6 +93,97 @@ _MT5_LOCK = asyncio.Lock()
 _current_login: Optional[int] = None
 
 PIN_LOGIN = os.environ.get('MT5_PIN_LOGIN', 'false').lower() == 'true'
+
+
+# ─── Single-account env mode ───────────────────────────────────────────
+# Optional: if MT5_LOGIN/MT5_PASSWORD/MT5_SERVER are present in .env,
+# the bridge exposes GET endpoints (/account, /positions, /health-full)
+# that use those creds — no body required. The existing POST endpoints
+# (creds in body) keep working for multi-tenant Railway use.
+
+def _default_creds() -> Optional[tuple[int, str, str]]:
+    login = os.environ.get('MT5_LOGIN', '').strip()
+    pwd   = os.environ.get('MT5_PASSWORD', '').strip()
+    srv   = os.environ.get('MT5_SERVER', '').strip()
+    if not (login and pwd and srv):
+        return None
+    try:
+        return (int(login), pwd, srv)
+    except ValueError:
+        logger.warning(f"MT5_LOGIN must be numeric, got: {login!r}")
+        return None
+
+
+def _safe_int_env(name: str, default: int) -> int:
+    try:    return int(os.environ.get(name, default))
+    except: return default
+
+
+def _safe_float_env(name: str, default: float) -> float:
+    try:    return float(os.environ.get(name, default))
+    except: return default
+
+
+# Last-line safety caps (env-overridable). The signal-engine on Railway
+# has its own 12-gate risk stack — these are *additional* guardrails at
+# the execution boundary in case the engine has a bug or is mis-configured.
+MAX_LOT_LIMIT       = _safe_float_env('MAX_LOT_LIMIT',     100.0)  # hard ceiling regardless of broker max
+MAX_ORDERS_PER_MIN  = _safe_int_env  ('MAX_ORDERS_PER_MIN', 30)    # per-bridge rate limit
+SYMBOL_WHITELIST    = {
+    s.strip().upper()
+    for s in os.environ.get('SYMBOL_WHITELIST', '').split(',')
+    if s.strip()
+}   # empty set ⇒ all symbols allowed
+
+
+# ─── Watchdog state (background MT5 liveness ping) ─────────────────────
+# Periodic task pings account_info() — if it fails N times in a row, we
+# flag the bridge as not-execution-ready and surface in /health. NSSM
+# auto-restarts on process death, but doesn't notice silent MT5 hangs.
+
+_watchdog_state: dict = {
+    'last_ping_ms':    0,
+    'last_ok_ms':      0,
+    'consec_failures': 0,
+    'execution_ready': False,
+    'account':         None,
+    'equity':          None,
+}
+
+# Sliding window of recent /order timestamps for the rate limit.
+_order_times: deque[float] = deque(maxlen=200)
+
+
+def _rate_limit_check() -> None:
+    """Raise HTTPException if the bridge has fired more than
+    MAX_ORDERS_PER_MIN orders in the last 60 seconds."""
+    now = time.time()
+    # Drop old entries
+    while _order_times and (now - _order_times[0]) > 60:
+        _order_times.popleft()
+    if len(_order_times) >= MAX_ORDERS_PER_MIN:
+        raise HTTPException(
+            status_code=429,
+            detail=f'Rate limit: {MAX_ORDERS_PER_MIN} orders/min exceeded',
+        )
+
+
+def _validate_order_safety(symbol: str, qty: float) -> None:
+    """Last-line guardrails applied before any MT5 call. Raises
+    HTTPException on violation; caller propagates as 4xx response."""
+    s = symbol.upper().strip()
+    if SYMBOL_WHITELIST and s not in SYMBOL_WHITELIST:
+        raise HTTPException(
+            status_code=403,
+            detail=f'symbol {s!r} not in SYMBOL_WHITELIST',
+        )
+    if qty <= 0:
+        raise HTTPException(status_code=422, detail=f'qty must be > 0 (got {qty})')
+    if qty > MAX_LOT_LIMIT:
+        raise HTTPException(
+            status_code=422,
+            detail=f'qty {qty:g} exceeds MAX_LOT_LIMIT {MAX_LOT_LIMIT:g}',
+        )
 
 
 # ─── Auth ──────────────────────────────────────────────────────────────
@@ -138,14 +251,101 @@ async def lifespan(app: FastAPI):
         logger.error(f'MT5 bridge: MetaTrader5 import failed — {e}')
         # Don't crash — let /health surface the failure so the operator
         # can see it without restarting.
+
+    # Start the watchdog only if default creds are present — otherwise
+    # there's nothing to ping (we'd just be re-logging random accounts).
+    wd_task: Optional[asyncio.Task] = None
+    if _default_creds() is not None:
+        wd_task = asyncio.create_task(_watchdog_loop())
+        logger.info('MT5 bridge: watchdog task started')
+    else:
+        logger.info('MT5 bridge: no MT5_LOGIN/PASSWORD/SERVER in env — watchdog disabled')
+
     yield
+
+    if wd_task is not None:
+        wd_task.cancel()
+        try:    await wd_task
+        except: pass
     mt5 = _mt5
     if mt5 is not None:
         try: mt5.shutdown()
         except Exception: pass
 
 
-app = FastAPI(title='AlgoSphere MT5 Bridge', version='1.0.0', lifespan=lifespan)
+WATCHDOG_INTERVAL_S    = _safe_int_env('WATCHDOG_INTERVAL_S',    30)
+WATCHDOG_MAX_FAILURES  = _safe_int_env('WATCHDOG_MAX_FAILURES',  3)
+
+
+async def _watchdog_loop() -> None:
+    """Background task: every WATCHDOG_INTERVAL_S, call account_info on
+    the configured default account and update _watchdog_state. After
+    WATCHDOG_MAX_FAILURES consecutive failures, execution_ready flips
+    to False and stays there until a ping succeeds again.
+
+    This catches the case where MT5 terminal hangs silently while the
+    Python process is still alive (NSSM doesn't notice that)."""
+    while True:
+        try:
+            await asyncio.sleep(WATCHDOG_INTERVAL_S)
+            creds = _default_creds()
+            if creds is None:
+                continue  # creds were removed at runtime — stay quiet
+            login, password, server = creds
+
+            async with _MT5_LOCK:
+                ok, err = await _ensure_login(login, password, server)
+                _watchdog_state['last_ping_ms'] = int(time.time() * 1000)
+                if not ok:
+                    _watchdog_state['consec_failures'] += 1
+                    if _watchdog_state['consec_failures'] >= WATCHDOG_MAX_FAILURES:
+                        _watchdog_state['execution_ready'] = False
+                    logger.warning(f'watchdog: login failed ({err}) — consec={_watchdog_state["consec_failures"]}')
+                    continue
+
+                mt5 = _load_mt5()
+                info = await asyncio.to_thread(mt5.account_info)
+                if info is None:
+                    _watchdog_state['consec_failures'] += 1
+                    if _watchdog_state['consec_failures'] >= WATCHDOG_MAX_FAILURES:
+                        _watchdog_state['execution_ready'] = False
+                    logger.warning('watchdog: account_info returned None')
+                    continue
+
+                _watchdog_state['consec_failures'] = 0
+                _watchdog_state['execution_ready'] = True
+                _watchdog_state['last_ok_ms']      = _watchdog_state['last_ping_ms']
+                _watchdog_state['account']         = int(info.login)
+                _watchdog_state['equity']          = float(info.equity)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            # Watchdog must never crash itself.
+            logger.warning(f'watchdog loop error (continuing): {e}')
+
+
+app = FastAPI(title='AlgoSphere MT5 Bridge', version='1.1.0', lifespan=lifespan)
+
+
+# ─── Request-logging middleware ────────────────────────────────────────
+
+@app.middleware('http')
+async def _log_requests(request: Request, call_next):
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception as e:
+        ms = int((time.perf_counter() - started) * 1000)
+        logger.error(f'{request.method} {request.url.path} → EXC ({ms}ms): {e}')
+        raise
+    ms = int((time.perf_counter() - started) * 1000)
+    if response.status_code >= 500:
+        logger.error(f'{request.method} {request.url.path} → {response.status_code} ({ms}ms)')
+    elif response.status_code >= 400:
+        logger.warning(f'{request.method} {request.url.path} → {response.status_code} ({ms}ms)')
+    else:
+        logger.info(f'{request.method} {request.url.path} → {response.status_code} ({ms}ms)')
+    return response
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────
@@ -179,15 +379,38 @@ async def _ensure_login(login: int, password: str, server: str) -> tuple[bool, O
 @app.get('/health')
 async def health():
     """Public — no auth. Lets Railway probe whether the bridge is
-    reachable before sending real traffic."""
+    reachable before sending real traffic.
+
+    Surfaces the watchdog's view of MT5 health so a single GET tells
+    you whether the bridge is *executable* (mt5_connected = up to date
+    ping, execution_ready = ≥1 successful ping in the last cycle and
+    no streak of consecutive failures)."""
     mt5 = _mt5
+    wd  = _watchdog_state
+    creds_configured = _default_creds() is not None
+    last_ok_age_s = (
+        (time.time() * 1000 - wd['last_ok_ms']) / 1000.0
+        if wd['last_ok_ms'] else None
+    )
+    mt5_connected = (
+        creds_configured
+        and last_ok_age_s is not None
+        and last_ok_age_s < (WATCHDOG_INTERVAL_S * 3)
+    )
     return {
-        'status':       'ok',
-        'service':      'algosphere-mt5-bridge',
-        'mt5_loaded':   mt5 is not None,
-        'pin_login':    PIN_LOGIN,
-        'current_login': _current_login,
-        'time':         time.time(),
+        'status':           'ok' if mt5_connected or not creds_configured else 'degraded',
+        'service':          'algosphere-mt5-bridge',
+        'mt5_loaded':       mt5 is not None,
+        'mt5_connected':    mt5_connected,
+        'execution_ready':  bool(wd['execution_ready']) if creds_configured else False,
+        'account':          wd['account'],
+        'equity':           wd['equity'],
+        'consec_failures':  wd['consec_failures'],
+        'last_ok_age_s':    last_ok_age_s,
+        'pin_login':        PIN_LOGIN,
+        'current_login':    _current_login,
+        'creds_configured': creds_configured,
+        'time':             time.time(),
     }
 
 
@@ -240,7 +463,15 @@ async def account(req: AccountRequest):
 @app.post('/order', dependencies=[Depends(_verify_bridge_key)])
 async def submit_order(req: OrderRequest):
     """Submit a market or limit order. Returns the broker's full retcode
-    + fill details so the engine can compute slippage + reconcile."""
+    + fill details so the engine can compute slippage + reconcile.
+
+    Last-line safety: rejects orders that violate MAX_LOT_LIMIT,
+    SYMBOL_WHITELIST, or the per-minute rate limit BEFORE any MT5
+    call is made. These are guardrails — the signal-engine has its
+    own 12-gate risk stack upstream."""
+    _rate_limit_check()
+    _validate_order_safety(req.symbol, req.quantity)
+
     async with _MT5_LOCK:
         ok, err = await _ensure_login(req.login, req.password, req.server)
         if not ok:
@@ -295,6 +526,12 @@ async def submit_order(req: OrderRequest):
 
         avg_price = float(result.price or fill_price)
         slippage = (avg_price - req.price) / req.price if (otype == 'market' and req.price) else 0.0
+
+        _order_times.append(time.time())
+        logger.info(
+            f'order accepted: {side.upper()} {req.symbol} qty={req.quantity:g} '
+            f'fill={avg_price:.5f} slip={slippage:.4%} ticket={result.order}'
+        )
 
         return {
             'order_id':       str(result.order),
@@ -422,3 +659,190 @@ async def quote(req: SymbolRequest):
             'last':   float(tick.last) if tick.last else None,
             'time':   int(tick.time),
         }}
+
+
+# ───────────────────────────────────────────────────────────────────────
+# Higher-level convenience endpoints
+# ───────────────────────────────────────────────────────────────────────
+#
+# The endpoints below sit on top of the primitives above. They give
+# external clients (e.g. curl, dashboards, simple webhooks) a more
+# intuitive shape: /trade/place / /trade/close / GET /account /
+# GET /positions. The single-account GET variants read creds from env
+# (MT5_LOGIN/PASSWORD/SERVER) so you don't have to POST passwords in
+# every body.
+#
+# The existing POST endpoints with creds-in-body keep working — those
+# are what the Railway engine's MT5BridgeAdapter calls (multi-tenant
+# path). Nothing above this line changed semantics.
+
+
+def _require_default_creds() -> tuple[int, str, str]:
+    """Return env-configured (login, password, server) or 503."""
+    creds = _default_creds()
+    if creds is None:
+        raise HTTPException(
+            status_code=503,
+            detail='Single-account mode disabled — set MT5_LOGIN, '
+                   'MT5_PASSWORD, MT5_SERVER in .env to enable GET endpoints',
+        )
+    return creds
+
+
+class TradePlaceRequest(BaseModel):
+    """Simpler shape than OrderRequest — single-account, uses .env creds.
+    Direction is 'BUY' / 'SELL' (per the spec) instead of side enum."""
+    symbol:      str
+    lot:         float
+    direction:   str                          # 'BUY' | 'SELL'
+    order_type:  str = 'market'               # 'market' | 'limit'
+    price:       Optional[float] = None       # required for LIMIT
+    stop_loss:   Optional[float] = None
+    take_profit: Optional[float] = None
+    client_order_id: Optional[str] = None
+    max_slippage_pct: float = 0.001
+
+
+class TradeCloseRequest(BaseModel):
+    ticket: int = Field(..., gt=0)
+
+
+@app.post('/trade/place', dependencies=[Depends(_verify_bridge_key)])
+async def trade_place(req: TradePlaceRequest):
+    """Single-account place-order using .env credentials. Maps the
+    spec's {symbol, lot, direction, sl, tp} shape onto the existing
+    /order internals so we don't duplicate the MT5 plumbing."""
+    login, password, server = _require_default_creds()
+    side = req.direction.lower()
+    if side not in ('buy', 'sell'):
+        raise HTTPException(status_code=422, detail=f'direction must be BUY or SELL (got {req.direction!r})')
+
+    return await submit_order(OrderRequest(
+        login            = login,
+        password         = password,
+        server           = server,
+        symbol           = req.symbol,
+        side             = side,
+        order_type       = req.order_type,
+        quantity         = req.lot,
+        price            = req.price,
+        stop_loss        = req.stop_loss,
+        take_profit      = req.take_profit,
+        client_order_id  = req.client_order_id,
+        max_slippage_pct = req.max_slippage_pct,
+    ))
+
+
+@app.post('/trade/close', dependencies=[Depends(_verify_bridge_key)])
+async def trade_close(req: TradeCloseRequest):
+    """Close a specific OPEN position by its broker ticket. Different
+    from /cancel (which removes pending orders) and /close_all (which
+    flattens everything)."""
+    login, password, server = _require_default_creds()
+    async with _MT5_LOCK:
+        ok, err = await _ensure_login(login, password, server)
+        if not ok:
+            raise HTTPException(status_code=400, detail=err)
+        mt5 = _load_mt5()
+        positions = await asyncio.to_thread(mt5.positions_get, ticket=req.ticket)
+        if not positions:
+            raise HTTPException(status_code=404, detail=f'no open position with ticket {req.ticket}')
+        pos = positions[0]
+        tick = await asyncio.to_thread(mt5.symbol_info_tick, pos.symbol)
+        if tick is None:
+            raise HTTPException(status_code=400, detail=f'no tick for {pos.symbol}')
+
+        # Reverse the side to flatten. Buys close at the bid, sells at the ask.
+        close_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.POSITION_TYPE_BUY else mt5.ORDER_TYPE_BUY
+        price = tick.bid if pos.type == mt5.POSITION_TYPE_BUY else tick.ask
+        request = {
+            'action':       mt5.TRADE_ACTION_DEAL,
+            'position':     int(pos.ticket),
+            'symbol':       pos.symbol,
+            'volume':       float(pos.volume),
+            'type':         close_type,
+            'price':        float(price),
+            'deviation':    1000,
+            'magic':        20240501,
+            'comment':      'trade_close',
+            'type_filling': mt5.ORDER_FILLING_IOC,
+        }
+        result = await asyncio.to_thread(mt5.order_send, request)
+        if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
+            detail = (
+                f'close failed (retcode={result.retcode}): {result.comment}'
+                if result is not None else f'order_send None: {mt5.last_error()}'
+            )
+            raise HTTPException(status_code=422, detail=detail)
+
+        logger.info(f'position closed: ticket={req.ticket} symbol={pos.symbol} exit={result.price}')
+        return {
+            'closed':         True,
+            'ticket':         req.ticket,
+            'symbol':         pos.symbol,
+            'exit_price':     float(result.price or price),
+            'realized_volume': float(result.volume or pos.volume),
+            'timestamp_ms':   int(time.time() * 1000),
+        }
+
+
+@app.get('/account', dependencies=[Depends(_verify_bridge_key)])
+async def get_account():
+    """Stateless GET — uses .env creds. Returns the current account's
+    equity / balance / open-position count + the watchdog's freshness
+    indicator so a single curl tells you whether the bridge is healthy."""
+    login, password, server = _require_default_creds()
+    async with _MT5_LOCK:
+        ok, err = await _ensure_login(login, password, server)
+        if not ok:
+            raise HTTPException(status_code=400, detail=err)
+        mt5 = _load_mt5()
+        info = await asyncio.to_thread(mt5.account_info)
+        positions = await asyncio.to_thread(mt5.positions_get) or []
+        if info is None:
+            raise HTTPException(status_code=500, detail='account_info returned None')
+        return {
+            'login':               int(info.login),
+            'name':                info.name,
+            'server':              info.server,
+            'currency':            info.currency,
+            'leverage':            int(info.leverage),
+            'balance':             float(info.balance),
+            'equity':              float(info.equity),
+            'margin':              float(info.margin),
+            'free_margin':         float(info.margin_free),
+            'open_position_count': len(positions),
+            'is_trade_allowed':    bool(info.trade_allowed),
+            'watchdog': {
+                'execution_ready': _watchdog_state['execution_ready'],
+                'consec_failures': _watchdog_state['consec_failures'],
+                'last_ok_ms':      _watchdog_state['last_ok_ms'],
+            },
+        }
+
+
+@app.get('/positions', dependencies=[Depends(_verify_bridge_key)])
+async def get_positions():
+    """Stateless GET — uses .env creds. Returns all open positions."""
+    login, password, server = _require_default_creds()
+    async with _MT5_LOCK:
+        ok, err = await _ensure_login(login, password, server)
+        if not ok:
+            raise HTTPException(status_code=400, detail=err)
+        mt5 = _load_mt5()
+        rows = await asyncio.to_thread(mt5.positions_get) or []
+        out = []
+        for p in rows:
+            out.append({
+                'ticket':         int(p.ticket),
+                'symbol':         p.symbol,
+                'side':           'long' if p.type == mt5.POSITION_TYPE_BUY else 'short',
+                'qty':            float(p.volume),
+                'avg_entry':      float(p.price_open),
+                'current_price':  float(p.price_current),
+                'unrealized_pnl': float(p.profit),
+                'sl':             float(p.sl) if p.sl else None,
+                'tp':             float(p.tp) if p.tp else None,
+                'opened_at':      int(p.time),
+            })
+        return {'positions': out, 'count': len(out)}
