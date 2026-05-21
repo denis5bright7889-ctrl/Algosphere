@@ -50,16 +50,26 @@ from dataclasses import dataclass, field
 from typing import Optional
 from contextlib import asynccontextmanager
 
-# Load .env BEFORE any module-level os.environ reads. python-dotenv is
-# a no-op if .env is missing (Windows system env vars still work), and
-# never overrides existing env (system vars win over .env values — that
-# matches operator expectations).
-from dotenv import load_dotenv
-load_dotenv()
-
 from fastapi import FastAPI, Header, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
 from loguru import logger
+
+# Load .env BEFORE any module-level os.environ reads. python-dotenv
+# defaults to searching CWD, but NSSM services often run from
+# C:\Windows\System32 (or wherever the service was registered) — so
+# we point it explicitly at the .env file next to bridge.py instead.
+# Existing system env vars still take precedence (load_dotenv default
+# behavior); .env only fills gaps.
+from dotenv import load_dotenv
+_ENV_PATH = pathlib.Path(__file__).resolve().parent / '.env'
+if _ENV_PATH.exists():
+    load_dotenv(_ENV_PATH)
+    _dotenv_status = f'loaded from {_ENV_PATH}'
+else:
+    _dotenv_status = f'.env NOT FOUND at {_ENV_PATH} — relying on process env only'
+# Logged at startup (logger configured below) so operators see
+# whether the .env was picked up.
+logger.info(f'mt5-bridge env init: {_dotenv_status}')
 
 # ─── File logging (rotating) ───────────────────────────────────────────
 # Loguru writes to stdout by default (NSSM captures that into its own
