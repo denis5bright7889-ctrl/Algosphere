@@ -121,6 +121,72 @@ async def latest_regimes(
     return {'regimes': rows}
 
 
+# ─── OHLCV bars (for the execution mirror chart) ──────────────────────────────
+
+@router.get('/ohlcv')
+async def ohlcv(
+    symbol:     str = Query(..., min_length=2, max_length=20),
+    interval:   str = Query(default='15min'),
+    outputsize: int = Query(default=200, ge=10, le=500),
+):
+    """OHLCV candles via the engine's market-data provider chain
+    (TwelveData → AlphaVantage fallback). Powers the web execution
+    mirror chart. Returns [] if no provider is configured (engine
+    keyless) so the UI degrades to markers-only instead of erroring."""
+    from config import get_settings
+    from data.market_data import build_provider
+    provider = build_provider(get_settings())
+    if provider is None:
+        return {'symbol': symbol.upper(), 'interval': interval, 'bars': [], 'provider': 'none'}
+    try:
+        bars = await provider.fetch_ohlcv(symbol.upper(), interval, outputsize)
+    except Exception as e:
+        logger.warning(f"/ohlcv fetch failed for {symbol}: {e}")
+        return {'symbol': symbol.upper(), 'interval': interval, 'bars': [], 'error': str(e)[:120]}
+
+    from datetime import datetime as _dt
+
+    def _epoch(ts) -> int:
+        # OHLCVBar.timestamp is a provider date/time string. Parse to a
+        # Unix epoch (seconds) — lightweight-charts' preferred time format.
+        if isinstance(ts, (int, float)):
+            return int(ts)
+        s = str(ts).strip()
+        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d'):
+            try:
+                return int(_dt.strptime(s, fmt).timestamp())
+            except ValueError:
+                continue
+        # Last resort: ISO parse (handles offsets / fractional seconds)
+        try:
+            return int(_dt.fromisoformat(s.replace('Z', '+00:00')).timestamp())
+        except Exception:
+            return 0
+
+    out = [
+        {
+            'time':   _epoch(b.timestamp),
+            'open':   float(b.open),
+            'high':   float(b.high),
+            'low':    float(b.low),
+            'close':  float(b.close),
+            'volume': float(getattr(b, 'volume', 0) or 0),
+        }
+        for b in bars
+    ]
+    # Chart libraries require strictly-ascending, de-duplicated time.
+    out = [r for r in out if r['time'] > 0]
+    out.sort(key=lambda r: r['time'])
+    deduped = []
+    seen = set()
+    for r in out:
+        if r['time'] in seen:
+            continue
+        seen.add(r['time'])
+        deduped.append(r)
+    return {'symbol': symbol.upper(), 'interval': interval, 'bars': deduped}
+
+
 # ─── Signal history (engine-sourced) ─────────────────────────────────────────
 
 @router.get('/signals/recent')

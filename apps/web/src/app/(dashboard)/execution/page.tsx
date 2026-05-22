@@ -3,6 +3,7 @@ import { Cpu, FlaskConical } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 import ExecutionClient from './ExecutionClient'
+import MirrorChart from './MirrorChart'
 
 export const metadata = { title: 'Execution Dashboard — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'
@@ -46,14 +47,14 @@ export default async function ExecutionPage() {
   const [{ data: openCopies }, { data: closedCopies }, { data: brokers }] = await Promise.all([
     supabase
       .from('copy_trades')
-      .select('id, symbol, direction, follower_lot, follower_entry, status, created_at, opened_at')
+      .select('id, symbol, direction, follower_lot, follower_entry, status, created_at, opened_at, signals(regime, confidence_score)')
       .eq('follower_id', user.id)
       .in('status', ['pending', 'mirrored', 'partial'])
       .order('created_at', { ascending: false })
       .limit(50),
     supabase
       .from('copy_trades')
-      .select('id, symbol, direction, follower_lot, follower_pnl, follower_pnl_pct, status, closed_at')
+      .select('id, symbol, direction, follower_lot, follower_pnl, follower_pnl_pct, status, closed_at, signals(regime, confidence_score)')
       .eq('follower_id', user.id)
       .eq('status', 'closed')
       .order('closed_at', { ascending: false })
@@ -144,6 +145,11 @@ export default async function ExecutionPage() {
           value={closed.length > 0 ? `${Math.round((wins / closed.length) * 100)}%` : '—'}
         />
         <Card label="Closed Trades" value={String(closed.length)} />
+      </div>
+
+      {/* Live execution mirror chart — fills overlaid on price */}
+      <div className="mb-6">
+        <MirrorChart />
       </div>
 
       <ExecutionClient open={open as never[]} closed={closed as never[]} />
