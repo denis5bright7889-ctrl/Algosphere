@@ -38,7 +38,7 @@ from risk.broker_state import BrokerState, MAX_PENDING_CYCLES, disabled_reason_f
 # Brokers the factory can actually build today (regardless of
 # environment availability — DISABLED detection happens inside the
 # factory). cTrader is in the DB constraint but has no adapter yet.
-PROBEABLE = {'binance', 'bybit', 'okx', 'mt5', 'paper'}
+PROBEABLE = {'binance', 'bybit', 'okx', 'mt5', 'paper', 'oanda', 'tradovate'}
 
 # Don't re-notify the user every probe cycle for the same state.
 # Track the last-notified (conn_id, state) tuple in-process.

@@ -32,6 +32,8 @@ from risk.adapters.bybit_adapter   import BybitAdapter
 from risk.adapters.okx_adapter     import OKXAdapter
 from risk.adapters.mt5_adapter     import MT5Adapter
 from risk.adapters.mt5_bridge_adapter import MT5BridgeAdapter
+from risk.adapters.oanda_adapter   import OANDAAdapter
+from risk.adapters.tradovate_adapter import TradovateAdapter
 from risk.adapters.paper_adapter   import PaperBroker
 from risk.broker_state import disabled_reason_for
 from risk.vault import decrypt as vault_decrypt, VaultError
@@ -96,8 +98,11 @@ def _load_connection(db, user_id: str, broker: str) -> Optional[_ConnRow]:
     row = rows[0]
 
     try:
-        api_key    = vault_decrypt(row['api_key_enc'])
-        api_secret = vault_decrypt(row['api_secret_enc'])
+        # Some brokers leave a credential column empty (OANDA has no
+        # secret; Tradovate has no api_key). Decrypt only non-empty
+        # ciphertext — empty → empty string, never a VaultError.
+        api_key    = vault_decrypt(row['api_key_enc'])    if row.get('api_key_enc')    else ''
+        api_secret = vault_decrypt(row['api_secret_enc']) if row.get('api_secret_enc') else ''
         passphrase = (
             vault_decrypt(row['passphrase_enc']) if row.get('passphrase_enc') else None
         )
@@ -166,6 +171,21 @@ def _build_adapter(conn: _ConnRow, user_id: str) -> ExecutionAdapter:
             )
         return MT5Adapter(
             login_id, conn.api_secret, conn.passphrase, testnet=conn.is_testnet,
+        )
+    if conn.broker == 'oanda':
+        # api_key_enc → OANDA token; account_id column → OANDA account id.
+        if not conn.account_id:
+            raise BrokerNotConnected("OANDA requires account_id (the OANDA account number)")
+        return OANDAAdapter(
+            conn.api_key, conn.account_id, testnet=conn.is_testnet, login=login,
+        )
+    if conn.broker == 'tradovate':
+        # account_id column → Tradovate username; api_secret_enc → password.
+        # Platform app creds (appId/cid/sec) come from engine env.
+        if not conn.account_id:
+            raise BrokerNotConnected("Tradovate requires account_id (the Tradovate username)")
+        return TradovateAdapter(
+            conn.account_id, conn.api_secret, testnet=conn.is_testnet, login=login,
         )
     raise BrokerNotConnected(f"No adapter implemented for broker={conn.broker}")
 

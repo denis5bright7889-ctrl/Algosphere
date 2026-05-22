@@ -32,11 +32,14 @@ export async function GET() {
 //   api_secret → MT5 password
 //   passphrase → broker server label, e.g. "Pepperstone-Demo"
 const createSchema = z.object({
-  broker:        z.enum(['binance','bybit','okx','mt5','ctrader']),
+  broker:        z.enum(['binance','bybit','okx','mt5','ctrader','oanda','tradovate']),
   label:         z.string().max(80).optional(),
   account_id:    z.string().max(60).optional(),
-  api_key:       z.string().min(1).max(200),
-  api_secret:    z.string().min(1).max(200),
+  // api_key / api_secret are optional at the schema level because not
+  // every broker needs both (OANDA = token + account; Tradovate =
+  // username + password). Per-broker required-field checks run below.
+  api_key:       z.string().max(200).optional().default(''),
+  api_secret:    z.string().max(200).optional().default(''),
   passphrase:    z.string().max(200).optional(),
   is_testnet:    z.boolean().default(true),
   is_default:    z.boolean().default(false),
@@ -61,23 +64,37 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid input', issues: parsed.error.flatten() }, { status: 422 })
   }
 
-  // OKX needs a passphrase; reject if missing
-  if (parsed.data.broker === 'okx' && !parsed.data.passphrase) {
+  // Per-broker required-field validation.
+  const pd = parsed.data
+  if ((pd.broker === 'binance' || pd.broker === 'bybit' || pd.broker === 'okx' || pd.broker === 'ctrader')
+      && (!pd.api_key || !pd.api_secret)) {
+    return NextResponse.json({ error: `${pd.broker} requires API key + secret` }, { status: 422 })
+  }
+  if (pd.broker === 'okx' && !pd.passphrase) {
     return NextResponse.json({ error: 'OKX requires a passphrase' }, { status: 422 })
   }
-  // MT5: api_key must be the numeric login, passphrase must be the server
-  if (parsed.data.broker === 'mt5') {
-    if (!/^\d+$/.test(parsed.data.api_key)) {
+  if (pd.broker === 'mt5') {
+    if (!/^\d+$/.test(pd.api_key)) {
       return NextResponse.json(
         { error: 'MT5 login must be the numeric account number' }, { status: 422 },
       )
     }
-    if (!parsed.data.passphrase) {
+    if (!pd.passphrase) {
       return NextResponse.json(
         { error: 'MT5 requires the broker server (e.g. "Pepperstone-Demo")' },
         { status: 422 },
       )
     }
+  }
+  if (pd.broker === 'oanda' && (!pd.api_key || !pd.account_id)) {
+    return NextResponse.json(
+      { error: 'OANDA requires an API token + account ID' }, { status: 422 },
+    )
+  }
+  if (pd.broker === 'tradovate' && (!pd.account_id || !pd.api_secret)) {
+    return NextResponse.json(
+      { error: 'Tradovate requires a username (account ID) + password' }, { status: 422 },
+    )
   }
 
   const d = parsed.data
@@ -89,8 +106,9 @@ export async function POST(req: Request) {
       broker:            d.broker,
       label:             d.label ?? null,
       account_id:        d.account_id ?? null,
-      api_key_enc:       encrypt(d.api_key),
-      api_secret_enc:    encrypt(d.api_secret),
+      // Columns are nullable post-migration; only encrypt non-empty creds.
+      api_key_enc:       d.api_key    ? encrypt(d.api_key)    : '',
+      api_secret_enc:    d.api_secret ? encrypt(d.api_secret) : '',
       passphrase_enc:    d.passphrase ? encrypt(d.passphrase) : null,
       is_testnet:        d.is_testnet,
       is_live:           !d.is_testnet,

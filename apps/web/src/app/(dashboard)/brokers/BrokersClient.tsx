@@ -23,25 +23,30 @@ interface Conn {
 // captions per broker. MT5 reuses the three generic columns as
 // login / password / server (engine drives the direct MetaTrader5 lib —
 // no paid MetaApi bridge).
+// `needs` lists exactly which credential inputs a broker requires,
+// drawn from {api_key, api_secret, passphrase, account_id}. The form
+// renders + validates only those. `labels` overrides the caption per
+// field. account_id is the dedicated account column (OANDA account #,
+// Tradovate username); for crypto it stays an optional disambiguator.
 const BROKERS = [
   {
     key: 'binance', label: 'Binance Futures',
-    fields: ['api_key', 'api_secret'],
+    needs: ['api_key', 'api_secret'],
     labels: { api_key: 'API Key', api_secret: 'API Secret' },
   },
   {
     key: 'bybit', label: 'Bybit Unified',
-    fields: ['api_key', 'api_secret'],
+    needs: ['api_key', 'api_secret'],
     labels: { api_key: 'API Key', api_secret: 'API Secret' },
   },
   {
     key: 'okx', label: 'OKX',
-    fields: ['api_key', 'api_secret', 'passphrase'],
+    needs: ['api_key', 'api_secret', 'passphrase'],
     labels: { api_key: 'API Key', api_secret: 'API Secret', passphrase: 'Passphrase' },
   },
   {
     key: 'mt5', label: 'MetaTrader 5',
-    fields: ['api_key', 'api_secret', 'passphrase'],
+    needs: ['api_key', 'api_secret', 'passphrase'],
     labels: {
       api_key:    'MT5 Login (numeric account #)',
       api_secret: 'MT5 Password',
@@ -49,8 +54,24 @@ const BROKERS = [
     },
   },
   {
+    key: 'oanda', label: 'OANDA',
+    needs: ['api_key', 'account_id'],
+    labels: {
+      api_key:    'OANDA API Token',
+      account_id: 'Account ID (e.g. 001-001-1234567-001)',
+    },
+  },
+  {
+    key: 'tradovate', label: 'Tradovate (Futures)',
+    needs: ['account_id', 'api_secret'],
+    labels: {
+      account_id: 'Tradovate Username',
+      api_secret: 'Tradovate Password',
+    },
+  },
+  {
     key: 'ctrader', label: 'cTrader',
-    fields: ['api_key', 'api_secret'],
+    needs: ['api_key', 'api_secret'],
     labels: { api_key: 'API Key', api_secret: 'API Secret' },
   },
 ] as const
@@ -484,13 +505,22 @@ function AddConnectionForm({
 
   const spec = BROKERS.find(b => b.key === broker)!
   const labels = spec.labels as Record<string, string>
-  const showPassphrase = spec.fields.includes('passphrase' as never)
+  const needs = spec.needs as readonly string[]
+  const needApiKey    = needs.includes('api_key')
+  const needApiSecret = needs.includes('api_secret')
+  const needPassphrase= needs.includes('passphrase')
+  const needAccount   = needs.includes('account_id')
   const isMt5 = broker === 'mt5'
 
-  // MT5: numeric login + non-empty password + server. Others: 8+ char key/secret.
+  // Per-broker validation against the fields the broker actually needs.
   const canSubmit = isMt5
     ? /^\d+$/.test(apiKey) && apiSecret.length >= 1 && passphrase.trim().length > 0
-    : apiKey.length >= 8 && apiSecret.length >= 8 && (!showPassphrase || passphrase.length >= 1)
+    : (
+        (!needApiKey    || apiKey.length    >= (broker === 'oanda' ? 20 : 8)) &&
+        (!needApiSecret || apiSecret.length >= 1) &&
+        (!needPassphrase|| passphrase.length >= 1) &&
+        (!needAccount   || accountId.trim().length >= 1)
+      )
 
   function submit() {
     setError(null)
@@ -546,32 +576,38 @@ function AddConnectionForm({
         />
       </Field>
 
-      <Field label="Account number (optional)">
+      <Field label={needAccount ? (labels.account_id ?? 'Account ID') : 'Account number (optional)'}>
         <input
           type="text" value={accountId} onChange={e => setAccountId(e.target.value)}
-          maxLength={60} placeholder="distinguishes multiple keys on the same broker"
-          className={inputCls}
+          maxLength={60}
+          placeholder={needAccount ? '' : 'distinguishes multiple keys on the same broker'}
+          aria-label={needAccount ? (labels.account_id ?? 'Account ID') : 'Account number'}
+          className={`${inputCls} font-sans`}
         />
       </Field>
 
-      <Field label={labels.api_key ?? 'API Key'}>
-        <input
-          type={isMt5 ? 'text' : 'password'} inputMode={isMt5 ? 'numeric' : undefined}
-          value={apiKey} onChange={e => setApiKey(e.target.value)}
-          aria-label={labels.api_key ?? 'API Key'}
-          autoComplete="off" className={inputCls}
-        />
-      </Field>
+      {needApiKey && (
+        <Field label={labels.api_key ?? 'API Key'}>
+          <input
+            type={isMt5 ? 'text' : 'password'} inputMode={isMt5 ? 'numeric' : undefined}
+            value={apiKey} onChange={e => setApiKey(e.target.value)}
+            aria-label={labels.api_key ?? 'API Key'}
+            autoComplete="off" className={inputCls}
+          />
+        </Field>
+      )}
 
-      <Field label={labels.api_secret ?? 'API Secret'}>
-        <input
-          type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)}
-          aria-label={labels.api_secret ?? 'API Secret'}
-          autoComplete="off" className={inputCls}
-        />
-      </Field>
+      {needApiSecret && (
+        <Field label={labels.api_secret ?? 'API Secret'}>
+          <input
+            type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)}
+            aria-label={labels.api_secret ?? 'API Secret'}
+            autoComplete="off" className={inputCls}
+          />
+        </Field>
+      )}
 
-      {showPassphrase && (
+      {needPassphrase && (
         <Field label={labels.passphrase ?? 'Passphrase'}>
           <input
             type={isMt5 ? 'text' : 'password'}
