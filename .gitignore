@@ -33,6 +33,10 @@ env/
 *.egg-info/
 dist/
 
+# MT5 bridge runtime (single-instance lock, logs)
+apps/mt5-bridge/runtime/
+apps/mt5-bridge/logs/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -68,3 +72,5 @@ apps/signal-engine/logs/
 **/*.corrupt.*
 .pytest_cache/
 .env.vercel
+
+.env*.local

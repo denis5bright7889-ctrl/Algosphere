@@ -444,8 +444,25 @@ class AccountRequest(BaseModel):
 
 # ─── Lifecycle ─────────────────────────────────────────────────────────
 
+_dep_report: dict = {}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Dependency gate — lenient (major-version only; optional deps
+    # degrade, never crash). Surfaced on /health so false "degraded"
+    # noise (dotenv missing / patch-version mismatch) is visible and
+    # explainable rather than alarming.
+    global _dep_report
+    try:
+        from dependency_guard import check_dependencies, log_report
+        rep = check_dependencies()
+        log_report(rep, logger)
+        _dep_report = rep.as_dict()
+    except Exception as e:
+        logger.warning(f'dependency_guard unavailable ({e}) — continuing')
+        _dep_report = {}
+
     # Probe that MetaTrader5 imports cleanly. If not, fail loud at
     # startup instead of returning surprise 500s per request.
     try:
@@ -654,6 +671,7 @@ async def health():
         'pin_login':        PIN_LOGIN,
         'current_login':    _current_login,
         'creds_configured': creds_configured,
+        'dependencies':     _dep_report,
         # ── Risk panel ──────────────────────────────
         'risk': {
             'max_lot_limit':       MAX_LOT_LIMIT,

@@ -101,9 +101,26 @@ passes them per-request from the user's encrypted
 
 ### 6. Test the bridge locally
 
+**Always launch via `start.py`, never `uvicorn` directly.** `start.py`
+is the single-instance guard — it refuses to spawn a second bridge,
+pins `workers=1` (mandatory: MT5 is a singleton terminal and all state
+is in-process), and runs the dependency gate. Launching uvicorn
+directly bypasses all of that and is what causes port-8000 conflict
+loops + duplicate processes.
+
 ```powershell
-uvicorn bridge:app --host 0.0.0.0 --port 8000
+py start.py
 ```
+
+> Do NOT run separate `watchdog.py` / `guardian.py` processes. The
+> watchdog (MT5 liveness) and guardian (pre-trade safety gate) run as
+> in-process asyncio tasks / per-request checks INSIDE the single
+> bridge process. Separate processes are the cause of the
+> "multiple python.exe + auto-respawn" instability — retire them.
+
+If you must run uvicorn directly for a one-off debug, it's
+`uvicorn bridge:app --host 127.0.0.1 --port 8000 --workers 1`
+(workers=1 always).
 
 In another shell:
 ```powershell
