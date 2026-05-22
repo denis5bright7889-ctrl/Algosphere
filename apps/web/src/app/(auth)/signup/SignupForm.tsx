@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
+import { readRefCookie } from '@/lib/referrals'
 
 interface Props {
   referralCode?: string
@@ -19,6 +20,15 @@ export default function SignupForm({ referralCode }: Props) {
   const [loading, setLoading] = useState(false)
   const [oauthLoading, setOauthLoading] = useState(false)
 
+  // URL ?ref= wins; if absent, fall back to the cookie set by
+  // RefCookieCapture when the user first hit the landing page.
+  const [effectiveRef, setEffectiveRef] = useState<string | undefined>(referralCode)
+  useEffect(() => {
+    if (referralCode) return
+    const fromCookie = readRefCookie()
+    if (fromCookie) setEffectiveRef(fromCookie)
+  }, [referralCode])
+
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
@@ -30,7 +40,7 @@ export default function SignupForm({ referralCode }: Props) {
       options: {
         data: {
           full_name: fullName,
-          referral_code: referralCode,
+          referral_code: effectiveRef,
         },
         emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
@@ -50,7 +60,7 @@ export default function SignupForm({ referralCode }: Props) {
       provider: 'google',
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
-        queryParams: referralCode ? { ref: referralCode } : undefined,
+        queryParams: effectiveRef ? { ref: effectiveRef } : undefined,
       },
     })
   }

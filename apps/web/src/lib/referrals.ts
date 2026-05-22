@@ -31,6 +31,38 @@ export function referralLink(origin: string, code: string): string {
   return `${origin.replace(/\/$/, '')}/signup?ref=${encodeURIComponent(code)}`
 }
 
+// ─── Cookie attribution ─────────────────────────────────────────────
+// Persists ?ref= across navigation so a user who arrives on the
+// landing page with a code still gets attributed when they click
+// through to /signup minutes later.
+
+export const REF_COOKIE = 'algosphere_ref'
+export const REF_COOKIE_MAX_AGE_S = 60 * 60 * 24 * 30   // 30 days
+
+/** Best-effort cookie read on the client. Returns null off-browser. */
+export function readRefCookie(): string | null {
+  if (typeof document === 'undefined') return null
+  const m = document.cookie.match(new RegExp('(?:^|; )' + REF_COOKIE + '=([^;]+)'))
+  return m && m[1] ? decodeURIComponent(m[1]) : null
+}
+
+/**
+ * Write the ref cookie. SameSite=Lax so it survives cross-site link
+ * arrivals (Telegram/Twitter) without being sent on cross-site POST.
+ * Not HttpOnly because the signup form needs to read it client-side
+ * to forward into supabase.auth.signUp metadata.
+ */
+export function writeRefCookie(code: string): void {
+  if (typeof document === 'undefined') return
+  const clean = code.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 32)
+  if (!clean) return
+  document.cookie =
+    `${REF_COOKIE}=${encodeURIComponent(clean)}` +
+    `; Max-Age=${REF_COOKIE_MAX_AGE_S}` +
+    `; Path=/` +
+    `; SameSite=Lax`
+}
+
 /** Commission earned when a referred user pays for `plan`. */
 export function commissionFor(plan: string, pct: number = DEFAULT_COMMISSION_PCT): number {
   const price = PLAN_PRICES_USD[plan] ?? 0

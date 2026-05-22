@@ -14,6 +14,7 @@ import MarketingNav from './_components/MarketingNav'
 import StatsBand from './_components/StatsBand'
 import HowItWorks from './_components/HowItWorks'
 import MobileCtaBar from './_components/MobileCtaBar'
+import RefCookieCapture from '@/components/marketing/RefCookieCapture'
 
 export const metadata = {
   title: 'AlgoSphere Quant — Professional Trading Signals & Analytics',
@@ -276,6 +277,9 @@ export default function HomePage() {
 
       {/* Sticky mobile conversion bar */}
       <MobileCtaBar />
+
+      {/* Captures ?ref= into a cookie so attribution survives navigation. */}
+      <RefCookieCapture />
     </div>
   )
 }
