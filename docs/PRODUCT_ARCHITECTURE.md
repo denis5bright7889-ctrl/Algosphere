@@ -15,7 +15,7 @@ document:
 | Capability | Status | Where |
 |---|---|---|
 | 3-tier plans: Starter $29 / Pro $99 / VIP $299 | ✅ Live | `lib/stripe/plans.ts`, `lib/types.ts`, migration `…_vip_tier.sql` |
-| AI signal engine (features→regime→confidence→ensemble→gate) | ✅ Live on Render | `apps/signal-engine/engine/*` |
+| AI signal engine (features→regime→confidence→ensemble→gate) | ✅ Live on Railway | `apps/signal-engine/engine/*` |
 | 12-gate institutional risk engine + kill switch + persistence | ✅ Live | `apps/signal-engine/risk/*` |
 | Signal lifecycle auto-monitor (TP/SL close) | ✅ Live | `risk/lifecycle_monitor.py` |
 | Confidence-calibration analytics | ✅ Live | `analytics/engine.py` |
@@ -28,11 +28,20 @@ document:
 | Demo / sandbox mode + closed-beta free access | ✅ Live | `lib/demo.ts`, `lib/beta-access.ts` |
 | RBAC (admin email bypass, tier gating) | ✅ Live | `lib/admin.ts` |
 | Premium gold-on-black UI, glassmorphism, mobile-first | ✅ Live | `globals.css`, `tailwind.config.ts` |
-| Supabase schema + RLS (8 migrations) | ✅ Live | `supabase/migrations` |
+| Supabase schema + RLS (27 migrations) | ✅ Live | `supabase/migrations` |
 | `referrals` table (schema only, no UI/logic) | ⚠️ Partial | migration `…_initial_schema.sql` |
+| **Multi-broker live execution adapters** (Binance / Bybit / OKX testnet) | ✅ Live | `risk/adapters/{binance,bybit,okx}_adapter.py` |
+| **MT5 multi-tenant bridge** (Windows VPS + Cloudflare Tunnel) | ✅ Live, verified $592 equity 2026-05-21 | `apps/mt5-bridge/`, `risk/adapters/mt5_bridge_adapter.py` |
+| **Paper broker** (zero-credential virtual trading) | ✅ Live | `risk/adapters/paper_adapter.py`, `paper_state` table |
+| **Broker state machine** (PENDING/CONNECTED/FAILED/DISABLED, 2-cycle cap) | ✅ Live | `risk/broker_state.py`, migration `…_broker_state_machine.sql` |
+| **Sync handshake endpoint** for instant /brokers verdict | ✅ Live | `api/v1/brokers/test`, `api/brokers/[id]/test/route.ts` |
+| **Bridge Command Centers** (standalone + inside SaaS admin) | ✅ Live | `apps/mt5-bridge/dashboard.html`, `(admin)/bridge/` |
+| **Dynamic per-server symbol cache** (no static SYMBOL_WHITELIST) | ✅ Live | `bridge.py` `_ensure_symbol_cache()` |
+| **Immutable execution event log** | ✅ Live | `execution_events` table |
+| **Cloudflare named tunnel** (`mt5.algospherequant.com` stable URL) | ✅ Live | see [[mt5-bridge-architecture]] memory |
 
-**~45% of the requested surface already ships.** The roadmap below sequences
-the remaining ~55% without rebuilding what works.
+**~70% of the requested surface already ships** (up from ~45% when this doc
+was first written). The roadmap below sequences the remaining ~30%.
 
 ---
 
@@ -42,14 +51,26 @@ the remaining ~55% without rebuilding what works.
 algosphere/
 ├── apps/
 │   ├── web/              Next.js 16 — UI, API routes, RBAC, payments      [Vercel]
-│   ├── signal-engine/    Python FastAPI — intelligence + risk + lifecycle [Render]
+│   ├── signal-engine/    Python FastAPI — intelligence + risk + lifecycle [Railway]
+│   │   └── risk/adapters/  Binance / Bybit / OKX / MT5(bridge) / Paper    (in-process)
 │   ├── telegram-bot/     Python — multi-tenant alerts                     [Railway]
-│   ├── execution-engine/ Python — live broker execution (NEW, isolated)   [Railway/Fly]
+│   ├── mt5-bridge/       FastAPI on Windows VPS — MT5 terminal driver     [VPS + Cloudflare Tunnel]
 │   ├── chain-indexer/    Python/Node — on-chain + whale analytics (NEW)   [worker]
 │   └── copy-router/      Python — copy-trade fan-out engine (NEW)         [worker]
 ├── packages/             shared TS types, config
-└── supabase/migrations/  one source of truth for schema + RLS
+└── supabase/migrations/  one source of truth for schema + RLS (27 files)
 ```
+
+**Note on execution architecture:** the broker adapters live **inside
+`signal-engine/risk/adapters/`**, not as a separate `execution-engine` app.
+Each adapter is a class implementing `ExecutionAdapter` — Binance / Bybit / OKX
+talk REST directly to the exchange; the MT5 adapter HTTP-proxies to the
+Windows bridge service at `apps/mt5-bridge/`. The factory at
+`risk/adapters/factory.py` picks the right adapter per-user via
+`broker_connections.broker`. A separate `apps/execution-engine` was the
+original plan but proved unnecessary — keeping execution in-process with the
+signal engine eliminates an RPC hop and avoids needing a second always-on
+service for a low-QPS workload.
 
 **Design rule that makes this scale:** every new product line is a **separate
 service that reads/writes Supabase** and is **gated by `subscription_tier` via
@@ -57,10 +78,12 @@ RLS + `canAccess()`**. No new module is allowed to touch another module's
 tables directly — they integrate through Supabase rows and the WS/REST contract.
 This is why adding copy-trading or whale analytics never destabilises signals.
 
-**The critical seam already built:** `risk/broker_adapter.py` defines an
-abstract `BrokerAdapter` (`MockBroker`, `SupabaseBroker`, `MT5Broker` stub).
-Live execution, copy-trading, and prop-firm tooling all plug into this one
-interface — they do not fork the engine.
+**The critical seam already proven:** `risk/adapters/base.py` defines the
+abstract `ExecutionAdapter` (`submit_order` / `cancel_order` / `get_positions`
+/ `refresh_state` / `connect`). Five concrete implementations live today:
+`BinanceAdapter`, `BybitAdapter`, `OKXAdapter`, `MT5BridgeAdapter`,
+`PaperBroker`. Adding cTrader / OANDA / IB / NinjaTrader is one new file each,
+conforming to the same interface — no engine changes required.
 
 ---
 
@@ -115,18 +138,35 @@ Legend: ✅ built · 🟡 partial/needs UI · 🔵 net-new module · ⚠️ regu
 
 ## 3. Net-New Modules — Architecture Specs
 
-### 3.1 `apps/execution-engine` (VIP auto-trading) ⚠️
+### 3.1 Multi-broker live execution (in `signal-engine/risk/adapters/`) — partially shipped ⚠️
 
-- Implements concrete `BrokerAdapter`s: `BinanceBroker`, `BybitBroker`,
-  `OKXBroker`, `MT5Broker`, `CTraderBroker`.
-- Consumes published signals from Supabase → routes through the **existing
-  12-gate `risk_gate`** (non-bypassable) → places orders.
-- Per-user encrypted API-key vault (Supabase Vault / KMS — never plaintext).
-- Reuses `risk_engine` persistence, kill switch, emergency-flatten verbatim.
-- **Regulatory flag:** trading user capital programmatically can constitute
-  regulated investment management / money transmission depending on
-  jurisdiction. This module ships **behind a legal-review gate** and a
-  signed user risk disclosure. Architect now, enable per-jurisdiction.
+| Broker | Status | File |
+|---|---|---|
+| **Binance Futures** (testnet + live) | ✅ Live | `binance_adapter.py` |
+| **Bybit Unified** (testnet + live) | ✅ Live | `bybit_adapter.py` |
+| **OKX** (demo + live) | ✅ Live | `okx_adapter.py` |
+| **MT5** (any MetaTrader 5 broker via Windows bridge) | ✅ Live, multi-tenant verified | `mt5_bridge_adapter.py` + `apps/mt5-bridge/` |
+| **Paper broker** (zero-credential virtual trading) | ✅ Live | `paper_adapter.py` + `paper_state` table |
+| **cTrader** | ❌ Not implemented | Spec'd via Open API / FIX |
+| **Interactive Brokers** | ❌ Not implemented | `ib_insync` or IB Gateway |
+| **OANDA** | ❌ Not implemented | REST v20 |
+| **NinjaTrader / Tradovate / Rithmic / Sierra / JForex** | ❌ Not implemented | Each is a distinct integration project |
+
+Architecture in place + verified — every adapter conforms to `ExecutionAdapter`
+(see `risk/adapters/base.py`), routes through the **existing 12-gate `risk_gate`**
+(non-bypassable), uses per-user AES-256-GCM encrypted creds in
+`broker_connections`. Reuses `risk_engine` persistence, kill switch, emergency
+flatten verbatim.
+
+Adding a new broker = ~150-line Python file conforming to the interface +
+optional UI tweak in `BrokersClient.tsx` to label the fields per broker. No
+engine changes.
+
+**Regulatory flag (unchanged):** trading user capital programmatically may
+require licensing in various jurisdictions. Each broker ships behind a
+per-jurisdiction enablement flag + signed user risk disclosure. The
+architecture is jurisdictionally-neutral; the **enablement** decision is
+business/legal, not engineering.
 
 ### 3.2 `apps/copy-router` (copy trading + social) ⚠️
 
@@ -159,6 +199,57 @@ Legend: ✅ built · 🟡 partial/needs UI · 🔵 net-new module · ⚠️ regu
   SMS/WhatsApp→Twilio/Meta, Web Push→VAPID). Tier decides channels. Single
   `notification_log` table, append-only, RLS.
 
+### 3.6 Trader Type Classification (NEW — onboarding personalization)
+
+- 8 archetypes: Scalper, Day Trader, Swing Trader, Position Trader, Algorithmic
+  Trader, Copy Trader, Prop Firm Trader, Arbitrage Trader.
+- Captured at signup via a 4-question onboarding wizard (timeframe, hold
+  duration, automation preference, capital source).
+- Persisted as `profiles.trader_type ENUM` + `profiles.classification_meta JSONB`
+  for the raw answers.
+- **Drives three downstream behaviors:**
+  1. **Risk profile defaults**: scalper → tighter SL %, day → moderate, swing
+     → wider SL, position → multi-day TP. Pre-fills the position-size
+     calculator + the engine's per-user `risk_config` overrides.
+  2. **Strategy recommendations**: the engine's strategy registry (already in
+     `signal_engine.py`) tags each strategy with applicable trader types;
+     `/strategies` filters to ones matching the user's type by default.
+  3. **Dashboard customization**: `/overview` reorders panels — scalpers see
+     fills/latency on top; swing/position see equity curve + macro calendar;
+     algorithmic traders see `/algo` performance + bridge health.
+- One migration: `…_trader_type.sql` adds the enum + the JSONB column + an
+  `idx_profiles_trader_type` index.
+- One web flow: `/onboarding/trader-type` page + a `lib/trader-type.ts` helper
+  that returns the recommended dashboard layout + strategy filters.
+- Skippable; defaults to `'day_trader'` if unset.
+
+### 3.7 Live Execution Mirror Chart (NEW — chart overlay)
+
+- TradingView-style chart on `/execution` with **live overlay of the user's
+  actual fills, position lines, SL/TP markers, and PnL ribbon**. The data
+  path already exists — every adapter writes fills to `shadow_executions`
+  + emits `ORDER_FILLED` / `POSITION_CLOSED` events to the new
+  `execution_events` table.
+- **Data flow:** broker fill → `submit_order()` returns `OrderResult` →
+  appended to `execution_events` (immutable, append-only, RLS) → Supabase
+  Realtime channel `execution_events:user_id=<uid>` pushes to the user's
+  open chart → chart redraws overlay without page reload.
+- **Chart library:** `lightweight-charts` (TradingView's open-source
+  library) — same look as TradingView, free, no React-heavyweight wrapper
+  needed. Price feed from the engine's existing market-data provider chain
+  (TwelveData / Finnhub), already in `data/market_data.py`.
+- **Overlay markers:**
+  - 🟢 entry marker at fill price / time
+  - 🔴 exit marker at close price / time
+  - horizontal SL (red dashed) + TP1/TP2/TP3 (green dashed) lines while
+    position is open
+  - PnL ribbon (top-right of chart) updates per tick via mark-to-market
+- **One new endpoint:** `GET /api/execution/chart?symbol=&from=&to=` that
+  returns OHLCV bars + the overlay-marker rows (fills + position-lifecycle
+  events) in one payload, so first paint doesn't need two round-trips.
+- **No engine changes required.** The data is already being recorded; this
+  is purely a visualization layer.
+
 ---
 
 ## 4. Monetization Architecture
@@ -185,7 +276,8 @@ must remain the invariant for all new modules.
 ## 5. Build Roadmap (sequenced by leverage / effort)
 
 > Effort = focused engineering days for an MVP of that slice. Ordered so each
-> phase ships revenue or retention value independently.
+> phase ships revenue or retention value independently. Phases marked ✅ have
+> shipped since this doc was first written.
 
 **Phase A — Monetization completeness (~6–9 d)**
 1. Affiliate/referral system (table exists) — link gen, attribution on signup,
@@ -203,15 +295,31 @@ must remain the invariant for all new modules.
 7. `apps/copy-router` + social trading network (shared infra).
 8. Prop-firm suite (reuses risk engine; mostly UI + rule config).
 
-**Phase D — Live execution (~20–25 d, gated)**
-9. `apps/execution-engine` — Binance/Bybit first, then MT5/cTrader.
-   **Blocked on legal review + per-jurisdiction enablement.**
+**Phase D — Live execution (originally ~20–25 d, gated) — ✅ partially shipped**
+9. ✅ Binance / Bybit / OKX adapters live in `signal-engine/risk/adapters/`.
+10. ✅ **MT5 multi-tenant bridge live** at `apps/mt5-bridge/`, end-to-end
+    verified 2026-05-21 (real broker equity flowing). See
+    [mt5-bridge-architecture memory] for topology.
+11. ✅ Paper broker live — zero-credential onboarding for new users.
+12. ✅ Broker state machine + sync handshake + admin Command Centers.
+13. ⏳ Remaining: cTrader, IB, OANDA, NinjaTrader, Tradovate, Rithmic. Each
+    is ~2 days against the same `ExecutionAdapter` interface.
 
 **Phase E — Crypto intelligence (~15 d + data budget)**
-10. `apps/chain-indexer` + Crypto Analytics Terminal UI.
+14. `apps/chain-indexer` + Crypto Analytics Terminal UI.
 
-**Phase F — Platform polish (continuous)**
-11. Backtesting engine, no-code strategy builder, gamification, mobile app,
+**Phase F — Personalization + visualization (NEW — ~5 d total)**
+15. Trader Type Classification (§3.6) — onboarding wizard + risk-profile +
+    dashboard customization. ~1 day.
+16. Live Execution Mirror Chart (§3.7) — TradingView-style overlay on
+    `/execution`. ~3 days (chart library integration + Realtime channel +
+    overlay markers).
+17. AI Trade Journal Insights — extend `(dashboard)/journal` with LLM-generated
+    summaries / mistake detection / behavioral analysis. Anthropic API,
+    prompt-cached. ~1 day.
+
+**Phase G — Platform polish (continuous)**
+18. Backtesting engine, no-code strategy builder, gamification, mobile app,
     desktop terminal, AI market narration.
 
 Token launchpad = **separate product track**, not on this roadmap.
@@ -250,13 +358,27 @@ Token launchpad = **separate product track**, not on this roadmap.
 
 ---
 
-## 8. Immediate Next Slice (recommended)
+## 8. Immediate Next Slice (recommended — updated 2026-05-21)
 
-**Affiliate / Referral system.** The `referrals` table already exists in the
-schema with `referrer_id`, `referred_id`, `commission_pct`, `commission_paid`.
-It needs only: referral-link generation (`?ref=<uid>`), attribution on signup,
-commission accrual on first payment (hook into the existing
-`api/admin/payments/[id]/approve` flow), and a `/referrals` dashboard. ~2–3
-days, pure additive, immediate revenue lever, zero regulatory exposure.
+Three short slices are now all roughly equal-effort and additive. Pick by
+which problem hurts most:
 
-Say the word and I'll build that slice end-to-end.
+**Option A — Trader Type Classification (~1 day).** Easiest, immediate
+onboarding UX win. Forces users to commit to a style → drives risk-profile
+defaults + dashboard layout. No regulatory exposure.
+
+**Option B — Live Execution Mirror Chart (~3 days).** Highest "wow" factor
+for the now-functional MT5 + Binance flow. Users see their actual fills
+overlaid on a TradingView-style chart, real-time. The data path
+(`shadow_executions` + `execution_events`) already records everything;
+this is purely visualization.
+
+**Option C — Affiliate / Referral system (~2–3 days).** Original
+recommendation from §8. Still valid: pure revenue lever, schema already
+exists (`referrals` table), zero regulatory exposure.
+
+If you can't decide: do **A first** (1 day) for onboarding wins, then **B**
+(3 days) so the platform feels alive when users connect their first broker.
+**C** can run in parallel since it's purely backend + a dashboard page.
+
+Say which slice and I'll build it end-to-end.
