@@ -38,6 +38,7 @@ from shared.obs_logging import configure_logging
 from shared.queue_bus import QueueBus
 from shared import metrics
 from shared import tracing
+from shared import risk_limits
 
 BASELINE_EQUITY = 10_000.0          # fallback when live equity is unavailable
 OPEN_STATES = ('pending', 'mirrored', 'partial')
@@ -261,6 +262,20 @@ async def _run_pipeline(db, engine: EngineClient, worker: str, job: CopyJob) -> 
         await asyncio.to_thread(_dead_letter, db, job.id, 'engine_error',
                                 'event missing direction')
         return 'failed'
+
+    # ── 3b. Portfolio risk gate (centralized, cross-account) ─────────
+    # Notional proxy = lot × entry, matching recompute_portfolio_exposure's
+    # follower_lot × leader_entry aggregation. A breach is a terminal risk
+    # DECISION (kill switch, exposure/concentration/loss/drawdown cap) —
+    # rejected, not retried. Fails open on RPC error (engine 12-gate stands).
+    notional = float(lot) * float(ev.entry or 0.0)
+    allow, why = await asyncio.to_thread(
+        risk_limits.evaluate_portfolio_risk, db, job.follower_id, ev.symbol, notional)
+    if not allow:
+        await asyncio.to_thread(_set_job, db, job.id, status='rejected',
+                                risk_reason=f'portfolio:{why}')
+        logger.warning(f'job {job.id[:8]} portfolio-rejected: {why}')
+        return 'rejected'
 
     # ── 4. Route ─────────────────────────────────────────────────────
     # client_order_id is derived from the STABLE job id, so a retry reuses

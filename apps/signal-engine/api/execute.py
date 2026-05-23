@@ -41,6 +41,43 @@ router = APIRouter()
 
 SUPPORTED_BROKERS = {'binance', 'bybit', 'okx', 'mt5'}
 
+
+# ─── Global kill switch (cached) ──────────────────────────────────────
+# The centralized risk engine's kill switch halts ALL execution. We read
+# global_risk_state.kill_switch but cache it briefly so we don't add a DB
+# round-trip to every order on the hot path. Cache TTL is short so a
+# kill flips through within seconds. Fail-OPEN on read error (the per-
+# account 12-gate + broker_guard remain) — a transient DB blip must not
+# wedge execution, and an operator killing the switch will also see it
+# propagate once the read recovers.
+_kill_cache: dict = {'active': False, 'reason': None, 'checked_at': 0.0}
+_KILL_TTL_S = 5.0
+
+
+async def _kill_switch_active() -> tuple[bool, Optional[str]]:
+    import time as _t
+    now = _t.monotonic()
+    if (now - _kill_cache['checked_at']) < _KILL_TTL_S:
+        return _kill_cache['active'], _kill_cache['reason']
+    try:
+        from config import get_settings
+        from supabase import create_client
+        s = get_settings()
+        if not s.has_supabase:
+            return False, None
+        db = create_client(s.supabase_url, s.supabase_service_role_key)
+        res = await asyncio.to_thread(
+            lambda: db.table('global_risk_state')
+            .select('kill_switch,reason').eq('id', True).limit(1).execute())
+        rows = res.data or []
+        active = bool(rows and rows[0].get('kill_switch'))
+        reason = rows[0].get('reason') if rows else None
+        _kill_cache.update(active=active, reason=reason, checked_at=now)
+        return active, reason
+    except Exception as e:
+        logger.warning(f"kill-switch read failed (fail-open): {e}")
+        return False, None
+
 # ─── Auth ────────────────────────────────────────────────────────────
 
 def _verify_engine_key(x_engine_key: Optional[str] = Header(default=None)):
@@ -146,6 +183,18 @@ async def execute(payload: ExecuteIn) -> ExecuteOut:
         raise HTTPException(
             status_code=400,
             detail=f"Broker '{payload.broker}' not supported. Choose: {sorted(SUPPORTED_BROKERS)}",
+        )
+
+    # ── Global kill switch: halts ALL execution ──────────────────────
+    # The centralized risk engine's master cutoff. Checked first so nothing
+    # routes when the desk has pulled the plug. Returns a terminal-style
+    # error; the copy-executor will retry (the switch is operator-cleared).
+    killed, kill_reason = await _kill_switch_active()
+    if killed:
+        logger.error(f"execution blocked — global kill switch active: {kill_reason}")
+        return ExecuteOut(
+            ok=False, broker=payload.broker, testnet=True,
+            error=f'kill_switch_active: {kill_reason or "halted"}',
         )
 
     # ── Broker guard: per-broker rate limit + circuit breaker ────────

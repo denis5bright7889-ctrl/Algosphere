@@ -77,6 +77,11 @@ COPY_HEALTH_SUBS = Gauge(
     'algosphere_copy_health_subscriptions', 'Scored subscriptions by health label', ['label'])
 COPY_LAG_P95_AVG = Gauge(
     'algosphere_copy_follower_lag_p95_ms_avg', 'Mean of per-subscription p95 signal→fill lag (ms)')
+# Centralized risk engine (Phase 3).
+KILL_SWITCH = Gauge(
+    'algosphere_global_kill_switch', 'Global execution kill switch (1=active, halts all execution)')
+QUARANTINED_STRATEGIES = Gauge(
+    'algosphere_quarantined_strategies', 'Strategies quarantined or disabled by the risk engine')
 
 
 def start_metrics_server(service: str, worker: str,

@@ -35,6 +35,7 @@ from shared.models import SignalEvent
 from shared.obs_logging import configure_logging
 from shared.queue_bus import QueueBus
 from shared import metrics
+from shared import risk_limits
 
 
 def _claim_event(db, worker: str) -> SignalEvent | None:
@@ -145,6 +146,18 @@ async def _process_one(db, worker: str, chunk: int):
         await asyncio.to_thread(_mark_done, db, ev.id, 0)
         logger.info(f'orchestrator: {ev.event_type} event {ev.id[:8]} → reconciler path')
         return 0
+
+    # Strategy risk gate: a quarantined/disabled strategy does not fan out.
+    # (Auto-set by the reconciler when a strategy's realized loss breaches
+    # policy, or manually via quarantine_strategy.) Fail-open if unknown.
+    if ev.strategy_id:
+        inactive = await asyncio.to_thread(
+            risk_limits.inactive_strategy_ids, db, [ev.strategy_id])
+        if ev.strategy_id in inactive:
+            await asyncio.to_thread(_mark_done, db, ev.id, 0)
+            logger.warning(f'orchestrator: strategy {ev.strategy_id[:8]} not active — '
+                           f'event {ev.id[:8]} skipped (no fan-out)')
+            return 0
 
     try:
         n = await asyncio.to_thread(_fan_out, db, ev, chunk)

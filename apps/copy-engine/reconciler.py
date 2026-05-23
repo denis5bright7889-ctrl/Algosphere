@@ -36,6 +36,7 @@ from shared.db import get_db
 from shared.engine_client import EngineClient
 from shared.obs_logging import configure_logging
 from shared import metrics
+from shared import risk_limits
 
 RECON_INTERVAL_S    = 30
 PLANNING_LEASE_S    = 120    # signal_events stuck in 'planning' beyond this → re-queue
@@ -190,6 +191,14 @@ def _publish_health_gauges(db) -> None:
         metrics.COPY_HEALTH_SUBS.labels(label=lbl).set(by_label.get(lbl, 0))
 
 
+def _publish_risk_gauges(db) -> None:
+    """Expose kill-switch + quarantine state for Grafana/alerting."""
+    metrics.KILL_SWITCH.set(1 if risk_limits.is_kill_switch_active(db) else 0)
+    res = (db.table('strategy_risk_state').select('strategy_id', count='exact')
+           .neq('status', 'active').limit(1).execute())
+    metrics.QUARANTINED_STRATEGIES.set(res.count or 0)
+
+
 # ─── Loop ─────────────────────────────────────────────────────────────────
 
 async def run_once(db, engine: EngineClient, lease_s: int, do_health: bool) -> dict:
@@ -202,14 +211,26 @@ async def run_once(db, engine: EngineClient, lease_s: int, do_health: bool) -> d
     except Exception:
         pass
     scored = 0
+    exposure_n = 0
+    quarantined = 0
     if do_health:
         try:
             scored = await asyncio.to_thread(_recompute_health, db, HEALTH_WINDOW_HOURS)
             await asyncio.to_thread(_publish_health_gauges, db)
         except Exception as e:
             logger.warning(f'copy-health recompute skipped: {e}')
+        # Centralized risk: refresh exposure snapshots, auto-quarantine
+        # breaching strategies, and publish risk gauges.
+        try:
+            exposure_n = await asyncio.to_thread(risk_limits.recompute_portfolio_exposure, db, None)
+            quarantined = await asyncio.to_thread(
+                risk_limits.auto_quarantine_breaching_strategies, db)
+            await asyncio.to_thread(_publish_risk_gauges, db)
+        except Exception as e:
+            logger.warning(f'risk recompute skipped: {e}')
     summary = {'reclaimed_jobs': reclaimed, 'rescued_events': rescued,
-               'health_scored': scored, **diff}
+               'health_scored': scored, 'exposure_users': exposure_n,
+               'auto_quarantined': quarantined, **diff}
     if reclaimed or rescued or diff['flagged'] or scored:
         logger.info(f'reconcile: {summary}')
     return summary
