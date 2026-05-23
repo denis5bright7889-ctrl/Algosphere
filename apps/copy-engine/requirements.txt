@@ -1,0 +1,13 @@
+# copy-engine workers — deliberately dependency-light. No broker SDKs:
+# all execution routes through the signal-engine over HTTP.
+supabase==2.10.0
+httpx==0.27.0
+loguru==0.7.2
+python-dotenv==1.0.1
+# Observability foundation. prometheus_client is optional at runtime —
+# shared/metrics.py degrades to no-ops if it's absent — but pinned here so
+# production scrapes work out of the box.
+prometheus-client==0.21.0
+# Redis Streams dispatch hot path. Optional at runtime — shared/queue_bus.py
+# falls back to interval polling when REDIS_URL is unset or redis is absent.
+redis==5.2.0
