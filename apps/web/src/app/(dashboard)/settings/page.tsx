@@ -182,8 +182,8 @@ export default async function SettingsPage() {
             </div>
 
             {payments && payments.length > 0 ? (
-              <div className="mt-4 overflow-hidden rounded-lg border border-border/60">
-                <table className="w-full text-xs">
+              <div className="mt-4 overflow-x-auto rounded-lg border border-border/60">
+                <table className="w-full min-w-[520px] text-xs">
                   <thead className="bg-muted/30 text-muted-foreground">
                     <tr>
                       <th className="px-3 py-2 text-left font-medium">Date</th>

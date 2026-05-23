@@ -250,6 +250,214 @@ business/legal, not engineering.
 - **No engine changes required.** The data is already being recorded; this
   is purely a visualization layer.
 
+### 3.8 Auto-Detection Trade Journal (NEW — Phase 2 foundation laid 2026-05-23)
+
+**Goal:** turn every executed trade into a journal row **automatically**, with
+zero manual entry, zero latency added to order execution, and graceful
+degradation if any non-trading subsystem fails.
+
+**The load-bearing decision:** the trigger lives in the **database**, not in
+application code. Every broker adapter already writes `ORDER_FILLED` and
+`POSITION_CLOSED` rows to `execution_events` (paper / binance / bybit / okx /
+mt5-bridge / oanda / tradovate — wired during Phase D). A
+DB trigger on `execution_events INSERT` is therefore a single integration
+point that picks up every current and future adapter for free, with no code
+changes required in the engine.
+
+**Event flow (single source of truth for auto-journal):**
+
+```
+broker fill / close
+        │
+        ▼
+ExecutionAdapter.submit_order() / .close_position()
+        │
+        ▼
+INSERT INTO execution_events (user_id, broker, event_type, payload, …)
+        │                                       ▲
+        │                                       │ (trigger runs in the same TX
+        │                                       │  but is EXCEPTION-guarded so
+        │                                       │  any failure swallows silently
+        │                                       │  and the event INSERT still
+        │                                       │  succeeds — trading must
+        │                                       │  never block on auto-journal)
+        ▼
+TRIGGER trg_auto_journal_from_event (AFTER INSERT, FOR EACH ROW)
+        │
+        ├─ event_type = 'ORDER_FILLED'     → INSERT journal_entries (source='auto')
+        │                                     keyed by auto_position_id
+        │
+        └─ event_type = 'POSITION_CLOSED'  → UPDATE matching open auto row
+                                              (exit_price, pnl, duration_ms)
+```
+
+**Schema additions** (migration `…_journal_auto_detection.sql`, shipped):
+
+| Column on `journal_entries` | Type | Purpose |
+|---|---|---|
+| `source` | TEXT NOT NULL DEFAULT `'manual'` CHECK in (manual, auto) | UI filter; manual `/journal` entries keep `'manual'` |
+| `execution_event_id` | UUID FK → `execution_events(id)` ON DELETE SET NULL | Provenance — links the journal row to the fill that birthed it |
+| `auto_position_id` | TEXT | Stable key joining entry-fill to exit-close (paper uses same UUID for order/position; real adapters reuse broker_pos_id) |
+| `duration_ms` | BIGINT | Computed in the close trigger — `close_ts - entry_ts` |
+| `slippage_pct` | NUMERIC(10,6) | Lifted from fill payload when present |
+| `regime_at_entry` | TEXT | Set by background enricher (reads regime engine snapshot) |
+| `broker` | TEXT | Copied from `execution_events.broker` |
+| `ai_tags` | TEXT[] | Populated by the async tagger — starts NULL, never blocking |
+
+Plus two indexes: `(user_id, source, created_at DESC)` for the dashboard
+filter and a partial index on `auto_position_id WHERE NOT NULL` for the
+close-lookup hot path.
+
+**Strict invariants** (encoded in the trigger function):
+1. `SECURITY DEFINER` + explicit `SET search_path = public` — same controlled
+   RLS bypass pattern as `handle_new_user`. Service-role inserts to
+   `execution_events` already flow through the same definer context.
+2. **Whole body wrapped in `EXCEPTION WHEN OTHERS THEN NULL`** — a broken
+   auto-journal (malformed payload, missing field, journal-table change)
+   **must never** prevent the `execution_events` insert from committing.
+   Trading is the load-bearing path; the journal is metadata.
+3. Touches **only** `journal_entries`. Does not read or write
+   `execution_events`, `broker_connections`, `risk_state`, or any
+   trading-critical table.
+4. `source = 'auto'` for trigger-created rows; manual entries keep
+   `'manual'`. The journal UI's "Auto vs Manual" filter pivots on this.
+
+**What still ships in Phase 2** (deferred to focused follow-ups, NOT yet built):
+- **UI badge on auto entries** — `(dashboard)/journal/page.tsx` badge +
+  source filter pill. Cosmetic; the data is already labeled.
+- **AI tagger** — async background worker reads
+  `journal_entries WHERE ai_tags IS NULL`, calls Anthropic with the trade
+  context + a constrained classification prompt (breakout / reversal / trend
+  / scalp / news / revenge / overtrade), writes back `ai_tags`. Prompt-cached
+  to keep cost <$0.001 per trade. **Never** blocks order execution because
+  it runs against journal rows, not the live event path.
+- **Metadata enricher** — same worker pattern, fills `regime_at_entry` from
+  the engine's regime snapshot at fill time, optional fundamental-context
+  notes for swing/position trades.
+- **Daily / weekly / monthly summary jobs** — cron-driven, send via the
+  existing notifications fabric (Telegram ✅, email/push 🔵). Aggregate
+  win-rate, profit-factor, expectancy, best/worst session, time-of-day
+  heatmap from the same `journal_entries` rows.
+
+**Why the trigger is in SQL, not Python:**
+- One write path covers every present and future adapter — adding cTrader /
+  IB later requires zero auto-journal code, only the adapter conforming to
+  `ExecutionAdapter`.
+- No extra service to deploy, monitor, or scale; auto-journal can't fall
+  behind a queue.
+- The EXCEPTION guard at the SQL level is structurally impossible to defeat
+  by an application bug — Python code that wraps `INSERT execution_events`
+  inside a `try/except journal_failure` is one missed handler away from
+  silently blocking trades. SQL trigger semantics make the failure mode
+  enforced.
+
+### 3.9 AI Trading Coach (NEW — Phase 3 design, not yet implemented)
+
+**Goal:** behavioral-PM-style oversight that scores trade discipline, flags
+psychological patterns (revenge / overtrade / consistency drift), and
+delivers an end-of-day PM-style review. **All non-blocking** — the coach
+reads off the populated `journal_entries` rows, never on the live execution
+critical path.
+
+**Architecture (event-driven, async, degrades to silent if AI is down):**
+
+```
+journal_entries INSERT/UPDATE
+        │
+        ▼
+NOTIFY journal_changed channel (pg_notify)         ← passive; nothing blocks
+        │
+        ▼
+apps/ai-coach worker (Python, on Railway)
+   │
+   ├─ Per-trade supervision   →  trade_scores (discipline, R:R adherence,
+   │                              entry-quality, exit-quality)
+   │
+   ├─ Pattern detector        →  coach_alerts (REVENGE / OVERTRADE /
+   │                              DRAWDOWN_ACCEL / STRATEGY_DEVIATION /
+   │                              LOSS_STREAK)
+   │
+   ├─ Daily roll-up (cron)    →  coach_reports (PM-style markdown summary,
+   │                              delivered via notifications fabric)
+   │
+   └─ Discipline rolling EMA  →  profiles.discipline_score (0-100)
+```
+
+**New tables** (one migration, RLS-gated per `user_id`):
+
+```sql
+trade_scores (
+  id uuid pk, user_id uuid fk, journal_entry_id uuid fk,
+  discipline_score numeric(5,2),     -- 0-100 per trade
+  rr_adherence numeric(5,2),         -- planned vs actual R:R
+  entry_quality numeric(5,2),        -- regime-aware entry score
+  exit_quality numeric(5,2),         -- vs hindsight optimal exit
+  notes text,                        -- LLM rationale (cached)
+  created_at timestamptz default now()
+)
+
+coach_alerts (
+  id uuid pk, user_id uuid fk,
+  kind text check in (
+    'revenge','overtrade','drawdown_accel',
+    'strategy_deviation','loss_streak','consistency_drift'
+  ),
+  severity text check in ('info','warn','critical'),
+  payload jsonb,                     -- supporting metrics
+  acknowledged boolean default false,
+  created_at timestamptz default now()
+)
+
+coach_reports (
+  id uuid pk, user_id uuid fk,
+  scope text check in ('daily','weekly','monthly'),
+  period_start date, period_end date,
+  body_markdown text,                -- the PM-style report
+  metrics jsonb,                     -- win_rate, pf, expectancy, dd, …
+  created_at timestamptz default now()
+)
+```
+
+**Rolling discipline score** lives directly on `profiles.discipline_score`
+(numeric default 100) so the dashboard header can render it without joining.
+Recomputed by the worker on each `trade_scores` insert as an EMA — a single
+field update, no expensive re-scan.
+
+**Failure mode:** if `apps/ai-coach` is offline, journal rows still accrue
+normally, alerts just stop. When the worker comes back it processes the
+backlog of `journal_entries WHERE id NOT IN (SELECT journal_entry_id FROM
+trade_scores)`. No data loss, no execution impact.
+
+### 3.10 Mobile UI stability guards (NEW — Phase 1 shipped 2026-05-23)
+
+Three problems explicitly defeated in `apps/web/src/app/globals.css`:
+
+| Problem | Symptom | Fix |
+|---|---|---|
+| Horizontal scroll on mobile | wide tables / monospace strings pushed the whole page wide | `html, body { overflow-x: hidden; overscroll-behavior-x: none }` + `body { touch-action: pan-y }` |
+| iOS Safari auto-zoom on input focus | viewport jump + layout shift when tapping a form field with `font-size < 16px` | `@media (max-width: 768px) { input, select, textarea { font-size: 16px !important } }` |
+| Notch / home-indicator clipping | content rendered under the safe-area | `.pb-safe` / `.pt-safe` utilities + `env(safe-area-inset-bottom)` on the dashboard `<main>` and bottom bar (already in place) |
+
+Wide content that genuinely needs horizontal scroll (the payments-history
+table on `/settings`) is wrapped in a per-block `overflow-x-auto` container
+with `min-w-[Npx]`, so it scrolls **inside** its bounded card instead of
+escaping the viewport.
+
+### 3.11 New API endpoints (Phase 2/3 surface)
+
+| Endpoint | Purpose | Status |
+|---|---|---|
+| `GET  /api/journal/auto` | List auto-detected entries with source filter + pagination | 🔵 (data ready via trigger) |
+| `POST /api/journal/[id]/retag` | Force re-tag of one entry through the AI tagger | 🔵 |
+| `GET  /api/journal/summary?range=7d|30d|mtd|ytd` | Aggregate analytics block (winrate, pf, expectancy, by-session, by-symbol) | 🔵 |
+| `GET  /api/coach/score` | Current rolling discipline score + last 30-day trend | 🔵 |
+| `GET  /api/coach/alerts?unack=1` | Active behavioral alerts for the user | 🔵 |
+| `POST /api/coach/alerts/[id]/ack` | Acknowledge / dismiss alert | 🔵 |
+| `GET  /api/coach/report?scope=daily|weekly|monthly&date=` | Latest PM-style report | 🔵 |
+
+All endpoints check `supabase.auth.getUser()` server-side and rely on RLS for
+row visibility — same pattern as every existing API route.
+
 ---
 
 ## 4. Monetization Architecture
@@ -309,14 +517,22 @@ must remain the invariant for all new modules.
 14. `apps/chain-indexer` + Crypto Analytics Terminal UI.
 
 **Phase F — Personalization + visualization (NEW — ~5 d total)**
-15. Trader Type Classification (§3.6) — onboarding wizard + risk-profile +
-    dashboard customization. ~1 day.
-16. Live Execution Mirror Chart (§3.7) — TradingView-style overlay on
-    `/execution`. ~3 days (chart library integration + Realtime channel +
-    overlay markers).
-17. AI Trade Journal Insights — extend `(dashboard)/journal` with LLM-generated
-    summaries / mistake detection / behavioral analysis. Anthropic API,
-    prompt-cached. ~1 day.
+15. ✅ Trader Type Classification (§3.6) — shipped (8 archetypes + 4-question wizard).
+16. ✅ Live Execution Mirror Chart (§3.7) — shipped (`/execution` overlays fills on price).
+17. AI Trade Journal Insights — see §3.8/3.9 below — foundation laid.
+
+**Phase F.5 — Auto-journal + AI coach (NEW — ~5 d remaining)**
+18. ✅ Auto-detection trigger (§3.8) — `execution_events → journal_entries`
+    shipped 2026-05-23 (migration 029). Every adapter's fills now auto-populate
+    the journal with zero application changes.
+19. 🔵 Journal UI auto-badge + source filter (`(dashboard)/journal/page.tsx`).
+    ~0.5 d.
+20. 🔵 `apps/ai-tagger` — async worker, Anthropic prompt-cached classifier
+    fills `journal_entries.ai_tags`. ~1 d.
+21. 🔵 Summary jobs — daily/weekly/monthly Telegram + email digests off the
+    populated journal. ~1 d.
+22. 🔵 `apps/ai-coach` (§3.9) — trade scoring, behavioral pattern detector,
+    rolling discipline EMA, PM-style end-of-day report. ~2 d.
 
 **Phase G — Platform polish (continuous)**
 18. Backtesting engine, no-code strategy builder, gamification, mobile app,

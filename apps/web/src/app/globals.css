@@ -29,6 +29,14 @@
     --input: 220 13% 91%;
     --ring: 224 71.4% 4.1%;
     --radius: 0.75rem;
+
+    /* Standardized motion system — one set of easings/durations so
+       every transition in the app feels like the same product. */
+    --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-standard:   cubic-bezier(0.4, 0, 0.2, 1);
+    --dur-fast:   140ms;
+    --dur-base:   220ms;
+    --dur-slow:   360ms;
   }
 
   /* AlgoSphere Quant — gold-on-black luxury institutional palette
@@ -62,8 +70,46 @@
     @apply border-border;
   }
 
+  /* ── Mobile stability guards (Phase 1 fix) ─────────────────────────
+     Three problems we explicitly defeat here:
+       1. Horizontal scroll on mobile — any wide child (tables, long
+          monospace strings, oversized images) used to push the whole
+          page wide. We hard-clip `overflow-x` on the document root
+          and body so the page is vertically scrollable only.
+       2. iOS Safari auto-zoom into inputs with font-size < 16px,
+          which causes a viewport jump + layout shift the user reads
+          as "the page jumped." 16px on every form control on mobile
+          kills the auto-zoom.
+       3. Notch / home-indicator clipping — pages now have safe-area
+          padding utilities available (.pb-safe / .pt-safe). The
+          dashboard main element already adds env(safe-area-inset-bottom)
+          for the mobile bottom bar; this just makes the helpers
+          available everywhere. */
+  html, body {
+    overflow-x: hidden;
+    overscroll-behavior-x: none;   /* defeats horizontal rubber-band */
+  }
+  body {
+    touch-action: pan-y;            /* explicit: vertical pan only */
+  }
   html {
     -webkit-tap-highlight-color: transparent;
+  }
+
+  /* iOS auto-zoom defeat — only on viewports that would trigger it
+     (≤ 768px). Desktop keeps the smaller font sizes. */
+  @media (max-width: 768px) {
+    input, select, textarea {
+      font-size: 16px !important;
+    }
+  }
+
+  /* Accessibility-first: a single, consistent keyboard focus ring.
+     Pointer interactions stay clean (`:focus-visible` only). */
+  :focus-visible {
+    outline: 2px solid hsl(var(--primary) / 0.75);
+    outline-offset: 2px;
+    border-radius: calc(var(--radius) - 4px);
   }
 
   body {
@@ -215,6 +261,28 @@
       0 1px 2px rgb(0 0 0 / 0.04),
       0 16px 40px rgb(0 0 0 / 0.30),
       0 0 0 1px hsl(42 96% 55% / 0.18);
+  }
+
+  /* Institutional surface — the canonical panel: calm, low-border,
+     subtle depth. Prefer over ad-hoc border+bg combos for consistency. */
+  .surface {
+    @apply rounded-xl bg-card;
+    border: 1px solid hsl(var(--border) / 0.55);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.18);
+  }
+
+  /* Standardized micro-interaction — quiet lift on hover/focus.
+     Comprehension aid, not decoration. */
+  .hover-lift {
+    transition:
+      transform var(--dur-base) var(--ease-emphasized),
+      border-color var(--dur-base) var(--ease-standard),
+      box-shadow var(--dur-base) var(--ease-standard);
+  }
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    border-color: hsl(var(--primary) / 0.35);
+    box-shadow: 0 12px 32px rgb(0 0 0 / 0.28);
   }
 
   /* No-motion fallback */
