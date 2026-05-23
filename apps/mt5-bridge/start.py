@@ -162,15 +162,20 @@ def main() -> int:
     if not _acquire_single_instance():
         return 0   # another healthy instance owns it — idempotent no-op
 
-    logger.info(f'start.py: launching uvicorn (workers=1, reload=False) on {HOST}:{PORT}')
+    logger.info(f'start.py: launching uvicorn (in-process, reload=False) on {HOST}:{PORT}')
     import uvicorn
-    # workers=1 + reload=False is NON-NEGOTIABLE: the MT5 terminal is a
-    # singleton and all state (locks, current_login, caches) is in-process.
+    import bridge as _bridge_module
+    # NON-NEGOTIABLE: pass the app object, never the string 'bridge:app', and
+    # never set workers. On Windows, workers=1 with a string app path triggers
+    # multiprocessing subprocess spawn — the child uses a different Python
+    # executable (sys.executable resolves to the base install, not the venv),
+    # bypasses venv packages, and cannot reach the MT5 terminal across the
+    # Windows session boundary. Running without workers keeps everything in one
+    # process: correct packages, correct session, MT5 singleton guaranteed.
     uvicorn.run(
-        'bridge:app',
+        _bridge_module.app,
         host=HOST,
         port=PORT,
-        workers=1,
         reload=False,
         log_level=os.environ.get('UVICORN_LOG_LEVEL', 'info'),
     )

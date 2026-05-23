@@ -42,15 +42,20 @@ Security
 """
 from __future__ import annotations
 import asyncio
+import json as _json
 import os
 import pathlib
+import sys
 import time
+import traceback
+import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Header, HTTPException, Depends, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from loguru import logger
 
@@ -90,6 +95,42 @@ try:
     )
 except Exception as _e:    # never let logging setup crash the bridge
     pass
+
+# JSON structured log sink — machine-readable alongside the human log.
+try:
+    logger.add(
+        LOG_DIR / 'mt5bridge_json.log',
+        rotation='10 MB',
+        retention=10,
+        enqueue=True,
+        backtrace=False,
+        diagnose=False,
+        level='INFO',
+        serialize=True,
+    )
+except Exception:
+    pass
+
+# Crash dump — capture unhandled exceptions to a timestamped JSON file.
+def _crash_dump(exc_type, exc_value, exc_tb):
+    if issubclass(exc_type, (KeyboardInterrupt, SystemExit)):
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+        return
+    crash_file = LOG_DIR / f'crash_{int(time.time())}.json'
+    dump = {
+        'timestamp': time.time(),
+        'exception': exc_type.__name__,
+        'message': str(exc_value),
+        'traceback': traceback.format_exception(exc_type, exc_value, exc_tb),
+    }
+    try:
+        crash_file.write_text(_json.dumps(dump, indent=2))
+    except Exception:
+        pass
+    logger.error(f'UNHANDLED EXCEPTION — crash dump written: {crash_file}')
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+sys.excepthook = _crash_dump
 
 # MetaTrader5 is Windows-only. Import lazily so the module can be
 # loaded for `--reload` / introspection on dev machines without it.
@@ -137,54 +178,57 @@ except ValueError:
 SERVICE_STARTED_AT: float = time.time()
 
 
-async def wait_for_mt5_ready(timeout_s: Optional[int] = None) -> bool:
+async def _probe_mt5(timeout_s: Optional[int] = None) -> bool:
     """Initialize the MT5 terminal and verify it responds via
     terminal_info(). No account login is performed — multi-tenant
-    bridges log in per request. Sets global `mt5_ready`. Re-callable;
-    idempotent once successful.
+    bridges log in per request. Returns True iff the terminal is
+    reachable. Never raises, and never touches the global `mt5_ready`
+    flag — the caller owns that. Logs at debug so the periodic readiness
+    watchdog doesn't flood the log; meaningful state transitions are
+    logged by the callers (lifespan / _readiness_watchdog_loop)."""
+    timeout = timeout_s if timeout_s is not None else _MT5_READY_TIMEOUT_S
+    try:
+        mt5 = _load_mt5()
+    except Exception as e:
+        logger.debug(f'_probe_mt5: MetaTrader5 import failed — {e}')
+        return False
+
+    async with _MT5_LOCK:
+        try:
+            init_ok = await asyncio.to_thread(mt5.initialize, timeout=timeout * 1000)
+        except Exception as e:
+            logger.debug(f'_probe_mt5: initialize() raised — {e}')
+            return False
+        if not init_ok:
+            logger.debug(f'_probe_mt5: initialize() returned False — {mt5.last_error()}')
+            return False
+        try:
+            info = await asyncio.to_thread(mt5.terminal_info)
+        except Exception as e:
+            logger.debug(f'_probe_mt5: terminal_info() raised — {e}')
+            return False
+        if info is None:
+            logger.debug('_probe_mt5: terminal_info() returned None')
+            return False
+        logger.debug(
+            f'_probe_mt5: terminal OK — {info.name!r} build {info.build}, '
+            f'connected={bool(info.connected)}'
+        )
+    return True
+
+
+async def wait_for_mt5_ready(timeout_s: Optional[int] = None) -> bool:
+    """Eager startup initialization. Probes the terminal once and sets
+    the global `mt5_ready`. Re-callable; idempotent once successful (the
+    readiness watchdog keeps the flag fresh thereafter).
 
     Returns True on success, False otherwise. Never raises."""
     global mt5_ready
-    timeout = timeout_s if timeout_s is not None else _MT5_READY_TIMEOUT_S
-
     async with _ready_lock:
         if mt5_ready:
             return True
-        try:
-            mt5 = _load_mt5()
-        except Exception as e:
-            logger.error(f'wait_for_mt5_ready: MetaTrader5 import failed — {e}')
-            mt5_ready = False
-            return False
-
-        async with _MT5_LOCK:
-            try:
-                init_ok = await asyncio.to_thread(mt5.initialize, timeout=timeout * 1000)
-            except Exception as e:
-                logger.error(f'wait_for_mt5_ready: initialize() raised — {e}')
-                mt5_ready = False
-                return False
-            if not init_ok:
-                logger.error(f'wait_for_mt5_ready: initialize() returned False — {mt5.last_error()}')
-                mt5_ready = False
-                return False
-            try:
-                info = await asyncio.to_thread(mt5.terminal_info)
-            except Exception as e:
-                logger.error(f'wait_for_mt5_ready: terminal_info() raised — {e}')
-                mt5_ready = False
-                return False
-            if info is None:
-                logger.error('wait_for_mt5_ready: terminal_info() returned None')
-                mt5_ready = False
-                return False
-            logger.info(
-                f'wait_for_mt5_ready: terminal OK — {info.name!r} build {info.build}, '
-                f'connected={bool(info.connected)}'
-            )
-
-        mt5_ready = True
-        return True
+        mt5_ready = await _probe_mt5(timeout_s)
+        return mt5_ready
 
 
 def require_mt5_ready() -> None:
@@ -337,6 +381,29 @@ _watchdog_state: dict = {
     'equity':          None,
 }
 
+# Tracks whether the MT5 terminal reports an active broker connection.
+# Updated by _readiness_watchdog_loop alongside mt5_ready.
+_terminal_connected: bool = False
+
+# ─── In-memory trade queue (Phase 1/3: queue rather than reject) ───────
+# When mt5_ready is False, /trade/place enqueues the request here.
+# A single worker loop drains the queue once MT5 is available, keeping
+# the single-MT5-instance guarantee — no parallel execution threads.
+
+@dataclass
+class _QueuedTrade:
+    queue_id:     str
+    req:          Any          # OrderRequest
+    enqueued_at:  float        = field(default_factory=time.time)
+    status:       str          = 'pending'   # pending|executing|done|failed
+    result:       Optional[dict] = None
+    error:        str          = ''
+    completed_at: Optional[float] = None
+
+_trade_queue_store: dict[str, _QueuedTrade] = {}
+_trade_queue_lock   = asyncio.Lock()
+_trade_queue_signal = asyncio.Event()          # set by producers, cleared by worker
+
 # Sliding window of recent /order timestamps for the rate limit.
 _order_times: deque[float] = deque(maxlen=200)
 
@@ -486,8 +553,16 @@ async def lifespan(app: FastAPI):
             'until the terminal becomes reachable. Check MT5 terminal process.'
         )
 
-    # Start the watchdog only if default creds are present — otherwise
-    # there's nothing to ping (we'd just be re-logging random accounts).
+    # Always-on readiness watchdog: re-probes terminal liveness every
+    # MT5_READY_PROBE_INTERVAL_S and refreshes mt5_ready (up AND down),
+    # so a boot-ordering race or a terminal bounce self-heals without a
+    # service restart. Independent of default creds.
+    ready_task = asyncio.create_task(_readiness_watchdog_loop())
+    logger.info('MT5 bridge: readiness watchdog started')
+
+    # Start the account watchdog only if default creds are present —
+    # otherwise there's nothing to ping (we'd just be re-logging random
+    # accounts).
     wd_task: Optional[asyncio.Task] = None
     if _default_creds() is not None:
         wd_task = asyncio.create_task(_watchdog_loop())
@@ -495,12 +570,29 @@ async def lifespan(app: FastAPI):
     else:
         logger.info('MT5 bridge: no MT5_LOGIN/PASSWORD/SERVER in env — watchdog disabled')
 
+    # Trade-queue worker — single execution engine for queued /trade requests.
+    queue_task = asyncio.create_task(_trade_queue_worker())
+    logger.info('MT5 bridge: trade queue worker started')
+
+    # Queue cleanup — evicts expired done/failed items every 5 minutes.
+    cleanup_task = asyncio.create_task(_queue_cleanup_loop())
+    logger.info('MT5 bridge: queue cleanup task started')
+
     yield
 
+    ready_task.cancel()
+    try:    await ready_task
+    except: pass
     if wd_task is not None:
         wd_task.cancel()
         try:    await wd_task
         except: pass
+    queue_task.cancel()
+    try:    await queue_task
+    except: pass
+    cleanup_task.cancel()
+    try:    await cleanup_task
+    except: pass
     mt5 = _mt5
     if mt5 is not None:
         try: mt5.shutdown()
@@ -509,6 +601,20 @@ async def lifespan(app: FastAPI):
 
 WATCHDOG_INTERVAL_S    = _safe_int_env('WATCHDOG_INTERVAL_S',    30)
 WATCHDOG_MAX_FAILURES  = _safe_int_env('WATCHDOG_MAX_FAILURES',  3)
+# How often the always-on readiness watchdog re-probes terminal liveness.
+# Legacy override kept for backward compat — prefer MT5_RECONNECT_MIN_S.
+MT5_READY_PROBE_INTERVAL_S = _safe_int_env('MT5_READY_PROBE_INTERVAL_S', 15)
+# Exponential-backoff reconnect bounds for the readiness watchdog.
+# Min = healthy-state probe interval. Max = worst-case retry on failure.
+MT5_RECONNECT_MIN_S = _safe_int_env('MT5_RECONNECT_MIN_S', 5)
+MT5_RECONNECT_MAX_S = _safe_int_env('MT5_RECONNECT_MAX_S', 30)
+# Max seconds the trade queue worker waits for MT5 before failing the item.
+TRADE_QUEUE_TIMEOUT_S = _safe_int_env('TRADE_QUEUE_TIMEOUT_S', 120)
+# How long to retain done/failed queue items before eviction (seconds).
+QUEUE_TTL_S = _safe_int_env('QUEUE_TTL_S', 3600)
+# Grace window after process start where liveness probe never returns degraded.
+# Prevents the orchestrator from killing us while MT5 terminal is warming up.
+STARTUP_GRACE_S = _safe_int_env('STARTUP_GRACE_S', 30)
 
 
 async def _watchdog_loop() -> None:
@@ -558,7 +664,143 @@ async def _watchdog_loop() -> None:
             logger.warning(f'watchdog loop error (continuing): {e}')
 
 
-app = FastAPI(title='AlgoSphere MT5 Bridge', version='1.1.0', lifespan=lifespan)
+async def _readiness_watchdog_loop() -> None:
+    """Always-on terminal-liveness watchdog with exponential backoff.
+
+    When the terminal is healthy the probe runs every
+    MT5_RECONNECT_MIN_S (default 5 s). On failure the interval backs
+    off: 5 -> 10 -> 20 -> 30 s (MT5_RECONNECT_MAX_S cap). Resets to the
+    minimum on the first successful probe. Updates both `mt5_ready` and
+    `_terminal_connected`. Never crashes itself."""
+    global mt5_ready, _terminal_connected
+    backoff_s: float = MT5_RECONNECT_MIN_S
+    while True:
+        try:
+            await asyncio.sleep(backoff_s)
+            ok = await _probe_mt5(timeout_s=min(10, int(backoff_s)))
+            if ok != mt5_ready:
+                level = logger.info if ok else logger.warning
+                level(
+                    f'readiness watchdog: mt5_ready {mt5_ready} -> {ok} '
+                    f'(backoff={backoff_s:.0f}s)'
+                )
+                mt5_ready = ok
+                # Notify the trade-queue worker that MT5 came back.
+                if ok:
+                    _trade_queue_signal.set()
+            # Track broker connection from terminal_info when available.
+            if ok and _mt5 is not None:
+                try:
+                    info = _mt5.terminal_info()
+                    _terminal_connected = bool(info and info.connected)
+                except Exception:
+                    _terminal_connected = False
+            else:
+                _terminal_connected = False
+            # Backoff: reset on success, double on failure (capped).
+            if ok:
+                backoff_s = MT5_RECONNECT_MIN_S
+            else:
+                backoff_s = min(backoff_s * 2, MT5_RECONNECT_MAX_S)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning(f'readiness watchdog error (continuing): {e}')
+
+
+async def _trade_queue_worker() -> None:
+    """Single execution worker that drains _trade_queue_store in FIFO
+    order. Enforces the single-MT5-instance rule — no parallel sends.
+    Waits up to TRADE_QUEUE_TIMEOUT_S for MT5 to become ready before
+    failing an item. Never crashes itself."""
+    while True:
+        try:
+            await _trade_queue_signal.wait()
+            while True:
+                # Find oldest pending item (FIFO).
+                async with _trade_queue_lock:
+                    pending = sorted(
+                        [t for t in _trade_queue_store.values() if t.status == 'pending'],
+                        key=lambda t: t.enqueued_at,
+                    )
+                    if not pending:
+                        _trade_queue_signal.clear()
+                        break
+                    item = pending[0]
+                    item.status = 'executing'
+
+                # Wait for MT5 readiness up to the timeout.
+                wait_start = time.time()
+                while not mt5_ready:
+                    if (time.time() - wait_start) >= TRADE_QUEUE_TIMEOUT_S:
+                        break
+                    await asyncio.sleep(2.0)
+
+                if not mt5_ready:
+                    async with _trade_queue_lock:
+                        item.status = 'failed'
+                        item.error  = f'MT5 not ready after {TRADE_QUEUE_TIMEOUT_S}s timeout'
+                        item.completed_at = time.time()
+                    logger.warning(
+                        f'trade queue: {item.queue_id} failed — MT5 timeout '
+                        f'({TRADE_QUEUE_TIMEOUT_S}s)'
+                    )
+                    continue
+
+                # Execute the queued trade through the standard handler.
+                try:
+                    result = await submit_order(item.req)
+                    async with _trade_queue_lock:
+                        item.status       = 'done'
+                        item.result       = result
+                        item.completed_at = time.time()
+                    logger.info(
+                        f'trade queue: {item.queue_id} executed — '
+                        f'{item.req.side} {item.req.symbol}'
+                    )
+                except HTTPException as exc:
+                    async with _trade_queue_lock:
+                        item.status       = 'failed'
+                        item.error        = str(exc.detail)
+                        item.completed_at = time.time()
+                except Exception as exc:
+                    async with _trade_queue_lock:
+                        item.status       = 'failed'
+                        item.error        = str(exc)
+                        item.completed_at = time.time()
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            logger.warning(f'trade queue worker unexpected error: {exc}')
+            await asyncio.sleep(1.0)
+
+
+async def _queue_cleanup_loop() -> None:
+    """Background eviction: remove done/failed queue items older than
+    QUEUE_TTL_S so the in-memory store doesn't grow without bound.
+    Runs every 5 minutes. Never crashes itself."""
+    while True:
+        try:
+            await asyncio.sleep(300)
+            cutoff = time.time() - QUEUE_TTL_S
+            async with _trade_queue_lock:
+                expired = [
+                    qid for qid, item in _trade_queue_store.items()
+                    if item.status in ('done', 'failed')
+                    and item.completed_at is not None
+                    and item.completed_at < cutoff
+                ]
+                for qid in expired:
+                    del _trade_queue_store[qid]
+            if expired:
+                logger.info(f'queue cleanup: evicted {len(expired)} expired items')
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            logger.warning(f'queue cleanup error (continuing): {exc}')
+
+
+app = FastAPI(title='AlgoSphere MT5 Bridge', version='1.3.0', lifespan=lifespan)
 
 
 # ─── Request-logging middleware ────────────────────────────────────────
@@ -570,15 +812,15 @@ async def _log_requests(request: Request, call_next):
         response = await call_next(request)
     except Exception as e:
         ms = int((time.perf_counter() - started) * 1000)
-        logger.error(f'{request.method} {request.url.path} → EXC ({ms}ms): {e}')
+        logger.error(f'{request.method} {request.url.path} -> EXC ({ms}ms): {e}')
         raise
     ms = int((time.perf_counter() - started) * 1000)
     if response.status_code >= 500:
-        logger.error(f'{request.method} {request.url.path} → {response.status_code} ({ms}ms)')
+        logger.error(f'{request.method} {request.url.path} -> {response.status_code} ({ms}ms)')
     elif response.status_code >= 400:
-        logger.warning(f'{request.method} {request.url.path} → {response.status_code} ({ms}ms)')
+        logger.warning(f'{request.method} {request.url.path} -> {response.status_code} ({ms}ms)')
     else:
-        logger.info(f'{request.method} {request.url.path} → {response.status_code} ({ms}ms)')
+        logger.info(f'{request.method} {request.url.path} -> {response.status_code} ({ms}ms)')
     return response
 
 
@@ -598,7 +840,7 @@ async def _ensure_login(login: int, password: str, server: str) -> tuple[bool, O
             return False, f'initialize failed: {mt5.last_error()}'
         if _current_login == login and PIN_LOGIN:
             return True, None
-        if not mt5.login(login, password=password, server=server):
+        if not mt5.login(login, password=password, server=server, timeout=10_000):
             err = mt5.last_error()
             _current_login = None
             return False, f'login failed: {err}'
@@ -662,6 +904,7 @@ async def health():
         'service_uptime_s': int(time.time() - SERVICE_STARTED_AT),
         'mt5_ready':        mt5_ready,
         'bridge_ready':     mt5_ready,   # alias — spec name for the same flag
+        'terminal_connected': _terminal_connected,
         'mt5_connected':    mt5_connected,
         'execution_ready':  bool(wd['execution_ready']) if creds_configured else False,
         'account':          wd['account'],
@@ -682,8 +925,76 @@ async def health():
             'symbol_servers':      sorted(_symbol_cache.keys()),
             'symbol_total':        sum(len(e.names) for e in _symbol_cache.values()),
         },
+        # ── Trade queue ─────────────────────────────
+        'trade_queue': {
+            'pending':  sum(1 for t in _trade_queue_store.values() if t.status == 'pending'),
+            'executing':sum(1 for t in _trade_queue_store.values() if t.status == 'executing'),
+            'done':     sum(1 for t in _trade_queue_store.values() if t.status == 'done'),
+            'failed':   sum(1 for t in _trade_queue_store.values() if t.status == 'failed'),
+            'total':    len(_trade_queue_store),
+        },
         # Legacy alias — older clients may still read `time`
         'time':             time.time(),
+    }
+
+
+@app.get('/health/live')
+async def health_live():
+    """Process liveness probe — always returns 200 while the process is
+    running. No auth required so orchestrators (k8s, Docker HEALTHCHECK,
+    load balancers) can call it without a key.
+
+    This is a LIVENESS probe: it answers "is the process alive?" and
+    should NEVER return 503 for dependency failures (MT5 down). Returning
+    503 here would cause the orchestrator to kill and restart the bridge,
+    losing the in-memory queue and the single-instance lock — exactly
+    what we don't want during an MT5 reconnect cycle.
+
+    Use /health/ready for the READINESS probe (returns 503 until MT5 is
+    connected and ready to accept trades).
+
+    /health returns the full diagnostic payload for dashboards."""
+    pending_count = sum(
+        1 for t in _trade_queue_store.values() if t.status == 'pending'
+    )
+    in_grace = (time.time() - SERVICE_STARTED_AT) < STARTUP_GRACE_S
+    return {
+        'live':               True,
+        'mt5_ready':          mt5_ready,
+        'terminal_connected': _terminal_connected,
+        'queued_trades':      pending_count,
+        'uptime_s':           int(time.time() - SERVICE_STARTED_AT),
+        'startup_grace':      in_grace,
+    }
+
+
+@app.get('/health/ready')
+async def health_ready():
+    """Readiness probe — returns 503 until the MT5 terminal is reachable
+    and the bridge is ready to execute trades. Use this endpoint for load
+    balancer health checks that should stop routing traffic when MT5 is
+    unavailable. No auth required."""
+    pending_count = sum(
+        1 for t in _trade_queue_store.values() if t.status == 'pending'
+    )
+    uptime = int(time.time() - SERVICE_STARTED_AT)
+    if not mt5_ready:
+        return JSONResponse(
+            status_code=503,
+            content={
+                'ready':              False,
+                'mt5_ready':          False,
+                'terminal_connected': _terminal_connected,
+                'queued_trades':      pending_count,
+                'uptime_s':           uptime,
+            },
+        )
+    return {
+        'ready':              True,
+        'mt5_ready':          True,
+        'terminal_connected': _terminal_connected,
+        'queued_trades':      pending_count,
+        'uptime_s':           uptime,
     }
 
 
@@ -733,7 +1044,7 @@ async def account(req: AccountRequest):
         }
 
 
-@app.post('/order', dependencies=[Depends(_verify_bridge_key), Depends(require_mt5_ready)])
+@app.post('/order', dependencies=[Depends(_verify_bridge_key)])
 async def submit_order(req: OrderRequest):
     """Submit a market or limit order. Returns the broker's full retcode
     + fill details so the engine can compute slippage + reconcile.
@@ -741,8 +1052,17 @@ async def submit_order(req: OrderRequest):
     Last-line safety: rejects orders that violate MAX_LOT_LIMIT, the
     per-minute rate limit, or aren't in the broker's live symbol list
     BEFORE any MT5 order call. These are guardrails — the signal-engine
-    has its own 12-gate risk stack upstream."""
+    has its own 12-gate risk stack upstream.
+
+    Validation order (important — keeps 422s surfacing even when MT5 is down):
+      1. Rate limit (no MT5 needed) → 429
+      2. Quantity cap (no MT5 needed) → 422
+      3. MT5 readiness gate → 503
+      4. Symbol validation via live cache → 422
+      5. MT5 order execution"""
     _rate_limit_check()
+    _validate_qty(req.quantity)     # fast: no MT5 needed, validates before 503 gate
+    require_mt5_ready()             # MT5 gate after cheap validation passes
     await _validate_order_safety_async(
         req.login, req.password, req.server, req.symbol, req.quantity,
     )
@@ -821,9 +1141,10 @@ async def submit_order(req: OrderRequest):
         }
 
 
-@app.post('/cancel', dependencies=[Depends(_verify_bridge_key), Depends(require_mt5_ready)])
+@app.post('/cancel', dependencies=[Depends(_verify_bridge_key)])
 async def cancel_order(req: CancelRequest):
     """Cancel a pending limit order. For market positions, use /close."""
+    require_mt5_ready()
     async with _MT5_LOCK:
         ok, err = await _ensure_login(req.login, req.password, req.server)
         if not ok:
@@ -857,9 +1178,10 @@ async def positions(req: AccountRequest):
         return {'positions': out}
 
 
-@app.post('/close_all', dependencies=[Depends(_verify_bridge_key), Depends(require_mt5_ready)])
+@app.post('/close_all', dependencies=[Depends(_verify_bridge_key)])
 async def close_all(req: AccountRequest):
     """Emergency flatten — kill-switch path."""
+    require_mt5_ready()
     async with _MT5_LOCK:
         ok, err = await _ensure_login(req.login, req.password, req.server)
         if not ok:
@@ -1035,17 +1357,26 @@ class TradeCloseRequest(BaseModel):
     ticket: int = Field(..., gt=0)
 
 
-@app.post('/trade/place', dependencies=[Depends(_verify_bridge_key), Depends(require_mt5_ready)])
+@app.post('/trade/place', dependencies=[Depends(_verify_bridge_key)])
 async def trade_place(req: TradePlaceRequest):
-    """Single-account place-order using .env credentials. Maps the
-    spec's {symbol, lot, direction, sl, tp} shape onto the existing
-    /order internals so we don't duplicate the MT5 plumbing."""
-    login, password, server = _require_default_creds()
+    """Single-account place-order using .env credentials.
+
+    If MT5 is ready: executes immediately and returns 200.
+    If MT5 is not ready: queues the trade and returns 202 with a
+    queue_id. Poll /trade/status/{queue_id} to track execution.
+    Never rejects — only queues or executes.
+
+    Direction validated BEFORE the creds check so callers always get 422
+    for invalid direction, even when no default creds are configured."""
     side = req.direction.lower()
     if side not in ('buy', 'sell'):
-        raise HTTPException(status_code=422, detail=f'direction must be BUY or SELL (got {req.direction!r})')
+        raise HTTPException(
+            status_code=422,
+            detail=f'direction must be BUY or SELL (got {req.direction!r})',
+        )
+    login, password, server = _require_default_creds()
 
-    return await submit_order(OrderRequest(
+    order_req = OrderRequest(
         login            = login,
         password         = password,
         server           = server,
@@ -1058,7 +1389,34 @@ async def trade_place(req: TradePlaceRequest):
         take_profit      = req.take_profit,
         client_order_id  = req.client_order_id,
         max_slippage_pct = req.max_slippage_pct,
-    ))
+    )
+
+    # Fast path — MT5 is up, execute now.
+    if mt5_ready and _terminal_connected:
+        return await submit_order(order_req)
+
+    # Slow path — MT5 not ready, queue the trade for deferred execution.
+    qid  = uuid.uuid4().hex[:12]
+    item = _QueuedTrade(queue_id=qid, req=order_req)
+    async with _trade_queue_lock:
+        _trade_queue_store[qid] = item
+    _trade_queue_signal.set()
+    logger.info(
+        f'trade queued (mt5_ready={mt5_ready} connected={_terminal_connected}): '
+        f'queue_id={qid} {side} {req.symbol} {req.lot} lots'
+    )
+    return JSONResponse(
+        status_code=202,
+        content={
+            'status':     'queued',
+            'queue_id':   qid,
+            'symbol':     req.symbol,
+            'side':       side,
+            'lot':        req.lot,
+            'message':    'MT5 not ready — trade queued. Poll /trade/status/{queue_id} for result.',
+            'poll_url':   f'/trade/status/{qid}',
+        },
+    )
 
 
 @app.post('/trade/close', dependencies=[Depends(_verify_bridge_key), Depends(require_mt5_ready)])
@@ -1112,6 +1470,32 @@ async def trade_close(req: TradeCloseRequest):
             'realized_volume': float(result.volume or pos.volume),
             'timestamp_ms':   int(time.time() * 1000),
         }
+
+
+@app.get('/trade/status/{queue_id}', dependencies=[Depends(_verify_bridge_key)])
+async def trade_status(queue_id: str):
+    """Poll the status of a queued trade submitted via /trade/place when
+    MT5 was unavailable. Returns the execution result once done, or the
+    current queue position if still pending."""
+    async with _trade_queue_lock:
+        item = _trade_queue_store.get(queue_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f'queue_id {queue_id!r} not found')
+
+    pending_before = sum(
+        1 for t in _trade_queue_store.values()
+        if t.status == 'pending' and t.enqueued_at < item.enqueued_at
+    )
+    return {
+        'queue_id':     item.queue_id,
+        'status':       item.status,
+        'enqueued_at':  item.enqueued_at,
+        'completed_at': item.completed_at,
+        'queue_position': pending_before if item.status == 'pending' else 0,
+        'result':       item.result,
+        'error':        item.error or None,
+        'mt5_ready':    mt5_ready,
+    }
 
 
 @app.get('/account', dependencies=[Depends(_verify_bridge_key)])
@@ -1189,19 +1573,17 @@ async def get_positions():
 # stores it in sessionStorage, and includes it on every fetch. To
 # expire the session, close the tab.
 
-# Processes the operator typically cares about. start.py / watchdog.py
-# / guardian.py are NSSM's job in our setup — they're listed so the
-# dashboard explicitly reports their absence as "not running" rather
-# than pretending they exist.
+# Processes the operator typically cares about. start_runtime.py is the
+# new session-aware entry point; start.py is the legacy NSSM launcher.
+# Both are listed so the dashboard shows which generation is active.
 EXPECTED_PROCESSES = [
-    'bridge.py',          # this service
+    'start_runtime.py',   # new user-session entry point (Phase 2)
+    'start.py',           # legacy NSSM entry point (deprecated)
+    'bridge.py',          # this service (loaded by the entry points above)
     'uvicorn',            # ASGI server hosting bridge.py
-    'cloudflared',        # tunnel exposing it
+    'cloudflared',        # Cloudflare tunnel (exposes bridge over HTTPS)
     'terminal64.exe',     # MT5 terminal (Windows x64)
-    'terminal.exe',       # MT5 terminal (legacy)
-    'start.py',           # operator-supplied (not in repo — will show as not running)
-    'watchdog.py',        # operator-supplied (NSSM covers auto-restart in our setup)
-    'guardian.py',        # operator-supplied (same)
+    'terminal.exe',       # MT5 terminal (legacy 32-bit)
 ]
 
 
@@ -1330,3 +1712,90 @@ async def system_processes():
 @app.get('/system/logs', dependencies=[Depends(_verify_bridge_key)])
 async def system_logs(lines: int = 50):
     return await get_recent_logs(lines)
+
+
+# ───────────────────────────────────────────────────────────────────────
+# Phase 6 — Final state validation
+# ───────────────────────────────────────────────────────────────────────
+
+@app.get('/system/validate', dependencies=[Depends(_verify_bridge_key)])
+async def system_validate():
+    """Phase 6 production-grade validation snapshot.
+
+    Checks all the conditions the spec requires before declaring the
+    system fully operational:
+      - status = ok
+      - single active runtime PID (lock file matches this process)
+      - no orphan ports (no unexpected listening sockets from this PID)
+      - MT5 stable OR execution engine active
+      - zero degraded state loops (watchdog consec_failures == 0)
+
+    Returns status='ok' only if ALL conditions pass."""
+    import psutil
+
+    pid = os.getpid()
+    bridge_port = int(os.environ.get('BRIDGE_PORT', '8000'))
+
+    # ── Single-instance check ───────────────────────────────────────────
+    lock_path = pathlib.Path(__file__).resolve().parent / 'runtime' / 'bridge.lock'
+    lock_pid:   Optional[int] = None
+    single_instance = False
+    try:
+        if lock_path.exists():
+            lock_pid = int(lock_path.read_text().strip() or '0')
+            single_instance = (lock_pid == pid)
+    except Exception:
+        pass
+
+    # ── Orphan port check ───────────────────────────────────────────────
+    # Any LISTENING socket owned by this PID that isn't the bridge port.
+    orphan_ports: list[int] = []
+    try:
+        def _get_conns():
+            return psutil.net_connections(kind='inet')
+        for conn in await asyncio.to_thread(_get_conns):
+            if (conn.pid == pid
+                    and conn.status == psutil.CONN_LISTEN
+                    and conn.laddr
+                    and conn.laddr.port != bridge_port):
+                orphan_ports.append(conn.laddr.port)
+    except Exception:
+        pass
+
+    # ── Trade queue depth ───────────────────────────────────────────────
+    queue_depth = sum(1 for t in _trade_queue_store.values() if t.status == 'pending')
+
+    # ── Degraded loop check ─────────────────────────────────────────────
+    consec_failures  = _watchdog_state.get('consec_failures', 0)
+    execution_ready  = bool(_watchdog_state.get('execution_ready', False))
+    creds_configured = _default_creds() is not None
+
+    all_ok = (
+        mt5_ready
+        and single_instance
+        and not orphan_ports
+        and consec_failures == 0
+        and queue_depth == 0
+    )
+    status = 'ok' if all_ok else 'degraded'
+
+    return {
+        'status':            status,
+        'pid':               pid,
+        'lock_pid':          lock_pid,
+        'single_instance':   single_instance,
+        'mt5_ready':         mt5_ready,
+        'terminal_connected': _terminal_connected,
+        'execution_ready':   execution_ready if creds_configured else None,
+        'consec_failures':   consec_failures,
+        'orphan_ports':      orphan_ports,
+        'trade_queue_depth': queue_depth,
+        'uptime_s':          int(time.time() - SERVICE_STARTED_AT),
+        'checks': {
+            'mt5_ready':       mt5_ready,
+            'single_instance': single_instance,
+            'no_orphan_ports': not orphan_ports,
+            'watchdog_clean':  consec_failures == 0,
+            'queue_empty':     queue_depth == 0,
+        },
+    }

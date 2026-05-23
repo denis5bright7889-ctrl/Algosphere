@@ -1,11 +1,9 @@
-fastapi==0.115.5
-uvicorn[standard]==0.32.1
-pydantic==2.10.2
-python-dotenv==1.0.1
-loguru==0.7.2
-psutil==6.1.0     # process introspection for the /processes endpoint
-httpx==0.27.0     # used by /tunnel/self-check round-trip latency probe
-
-# Windows-only — the whole reason this service exists. Bridge.py
-# imports it lazily so the module loads on Linux for inspection too.
-MetaTrader5==5.0.45 ; sys_platform == "win32"
+fastapi>=0.115
+uvicorn[standard]>=0.32
+pydantic>=2.10
+python-dotenv>=1.0
+loguru>=0.7
+psutil>=6.1
+httpx>=0.27
+requests>=2.32
+MetaTrader5>=5.0 ; sys_platform == "win32"
