@@ -1,6 +1,6 @@
 # Copy-Engine — Deploy & Validation Runbook
 
-How to apply migrations 030–034, bring up the workers, and **validate the
+How to apply migrations 030–037, bring up the workers, and **validate the
 whole pipeline end-to-end before trusting it with real copies**. Follow it in
 order; do not skip the validation step.
 
@@ -27,9 +27,12 @@ Order and what each adds:
 | 032 | `…_observability_foundation.sql` | `trace_id` cols, `copy_jobs_dlq`, `dead_letter_copy_job` / `replay_dlq_job` |
 | 033 | `…_copy_health.sql` | `copy_jobs.filled_at`, `copy_health`, `recompute_copy_health` |
 | 034 | `…_live_risk_engine.sql` | `global_risk_state`, `risk_limits`, `portfolio_exposure`, `strategy_risk_state` + risk RPCs |
+| 035 | `…_copy_close_jobs.sql` | `copy_jobs.kind` (open/close) + copy_trades open-lookup indexes |
+| 036 | `…_copy_earnings_accrual.sql` | `copy_trades.earnings_settled` + `accrue_copy_earnings` RPC |
+| 037 | `…_order_idempotency.sql` | `order_idempotency` + `begin_order` / `finish_order` (duplicate-fill guard) |
 
 > **Branch first.** Apply to a Supabase branch, validate (step 3), then promote.
-> All five are additive (`IF NOT EXISTS`); none drops or rewrites a trading
+> All eight are additive (`IF NOT EXISTS`); none drops or rewrites a trading
 > table, so a forward-only apply is safe. There is no destructive rollback —
 > to undo, drop the new objects manually (they are isolated from existing tables).
 
@@ -63,8 +66,10 @@ cd apps/copy-engine
 python tools/validate_schema.py
 ```
 
-Checks every table/column from 030–034 exists, calls the read-only/refresh
-RPCs, and runs the allocation self-test. **Expect `ALL GREEN`.** If a table or
+Checks every table/column from 030–037 exists, calls the read-only/refresh
+RPCs, runs a **live order-idempotency self-test** (037: claim → concurrent-dup
+→ cached-hit, with a throwaway coid that places no real order and is cleaned
+up), and runs the allocation self-test. **Expect `ALL GREEN`.** If a table or
 RPC is missing, the matching migration didn't apply — re-run step 1.
 
 ### 3b. End-to-end smoke test — workers must be running

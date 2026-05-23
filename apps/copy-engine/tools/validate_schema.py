@@ -22,7 +22,7 @@ from shared.db import get_db
 # so this also verifies the additive columns from 032/033.
 _TABLES = [
     ('signal_events',       'id,trace_id,status'),
-    ('copy_jobs',           'id,trace_id,filled_at,status,max_attempts'),
+    ('copy_jobs',           'id,trace_id,filled_at,status,max_attempts,kind'),  # 035: kind
     ('copy_reconciliation', 'id,kind,resolved_at'),
     ('copy_jobs_dlq',       'id,failure_category,replayed_at'),
     ('copy_health',         'subscription_id,health_score,health_label,p95_lag_ms'),
@@ -30,6 +30,8 @@ _TABLES = [
     ('risk_limits',         'user_id,max_total_exposure_usd'),
     ('portfolio_exposure',  'user_id,total_notional,drawdown_usd'),
     ('strategy_risk_state', 'strategy_id,status'),
+    ('copy_trades',         'id,earnings_settled'),                              # 036
+    ('order_idempotency',   'id,state,client_order_id'),                         # 037
 ]
 
 _PASS, _FAIL = '  ✓', '  ✗'
@@ -76,6 +78,55 @@ def _check_rpcs(db) -> int:
             print(f'{_PASS} rpc {fn}() → scored/updated {r.data}')
         except Exception as e:
             fails += 1; print(f'{_FAIL} rpc {fn}: {str(e)[:120]}')
+
+    # accrue_copy_earnings against a non-existent trade → 0, no side effect (036).
+    try:
+        r = db.rpc('accrue_copy_earnings', {'p_copy_trade_id': str(uuid.uuid4())}).execute()
+        ok = (r.data or 0) == 0
+        print(f'{_PASS if ok else _FAIL} rpc accrue_copy_earnings(missing) → {r.data}')
+        fails += 0 if ok else 1
+    except Exception as e:
+        fails += 1; print(f'{_FAIL} rpc accrue_copy_earnings: {str(e)[:120]}')
+    return fails
+
+
+def _check_idempotency(db) -> int:
+    """LIVE self-test of the order-idempotency flow (037) — the riskiest new
+    logic on the execution path. Exercises claim → concurrent-dup → cache →
+    cached-hit with a throwaway coid, then deletes the test row. No real
+    order is ever placed (begin_order/finish_order only touch the cache table)."""
+    coid = f'validate-{uuid.uuid4()}'
+    fails = 0
+    try:
+        r1 = (db.rpc('begin_order', {'p_user': 'validate', 'p_broker': 'paper',
+                                     'p_coid': coid}).execute().data) or {}
+        ok1 = bool(r1.get('owner'))
+        print(f'{_PASS if ok1 else _FAIL} begin_order(new) → owner={r1.get("owner")}')
+
+        r2 = (db.rpc('begin_order', {'p_user': 'validate', 'p_broker': 'paper',
+                                     'p_coid': coid}).execute().data) or {}
+        ok2 = bool(r2.get('in_flight'))
+        print(f'{_PASS if ok2 else _FAIL} begin_order(dup) → in_flight={r2.get("in_flight")}')
+
+        db.rpc('finish_order', {
+            'p_broker': 'paper', 'p_coid': coid, 'p_state': 'completed',
+            'p_order_id': 'validate-order', 'p_status': 'FILLED',
+            'p_filled': 0, 'p_price': 0, 'p_slip': 0, 'p_error': None,
+        }).execute()
+
+        r3 = (db.rpc('begin_order', {'p_user': 'validate', 'p_broker': 'paper',
+                                     'p_coid': coid}).execute().data) or {}
+        ok3 = bool(r3.get('duplicate')) and isinstance(r3.get('cached'), dict)
+        print(f'{_PASS if ok3 else _FAIL} begin_order(after complete) → duplicate={r3.get("duplicate")}')
+        fails += (0 if ok1 else 1) + (0 if ok2 else 1) + (0 if ok3 else 1)
+    except Exception as e:
+        fails += 1; print(f'{_FAIL} idempotency self-test: {str(e)[:120]}')
+    finally:
+        # Clean up the throwaway row regardless.
+        try:
+            db.table('order_idempotency').delete().eq('client_order_id', coid).execute()
+        except Exception:
+            pass
     return fails
 
 
@@ -108,12 +159,14 @@ def main() -> int:
     f1 = _check_tables(db)
     print('── RPCs ────────────────────────────────────────')
     f2 = _check_rpcs(db)
+    print('── order idempotency (live self-test, 037) ─────')
+    f3 = _check_idempotency(db)
     print('── allocation logic (pure) ─────────────────────')
-    f3 = _check_logic()
-    total = f1 + f2 + f3
+    f4 = _check_logic()
+    total = f1 + f2 + f3 + f4
     print('────────────────────────────────────────────────')
     if total == 0:
-        print('ALL GREEN — migrations 030–034 applied and logic sound.')
+        print('ALL GREEN — migrations 030–037 applied and logic sound.')
         return 0
     print(f'{total} CHECK(S) FAILED — see ✗ above. Re-apply missing migrations.')
     return 1
