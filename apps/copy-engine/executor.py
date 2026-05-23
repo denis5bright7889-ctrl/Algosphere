@@ -39,6 +39,7 @@ from shared.queue_bus import QueueBus
 from shared import metrics
 from shared import tracing
 from shared import risk_limits
+from shared import settlement
 
 BASELINE_EQUITY = 10_000.0          # fallback when live equity is unavailable
 OPEN_STATES = ('pending', 'mirrored', 'partial')
@@ -395,8 +396,12 @@ async def _run_close_pipeline(db, engine: EngineClient, worker: str, job: CopyJo
             pnl = _close_pnl(ev.symbol, direction, float(ct.get('follower_entry') or 0),
                              result.avg_fill_price, lot)
             await asyncio.to_thread(_close_copy_trade, db, ct['id'], pnl)
+            # Accrue creator earnings from the realized pnl (idempotent RPC;
+            # splits the already-computed figure — no money-math here).
+            accrued = await asyncio.to_thread(settlement.accrue_copy_earnings, db, ct['id'])
             logger.info(f'close job {job.id[:8]} flattened copy {ct["id"][:8]} '
-                        f'{ev.symbol} {opp} {lot} @ {result.avg_fill_price} pnl={pnl:.2f}')
+                        f'{ev.symbol} {opp} {lot} @ {result.avg_fill_price} '
+                        f'pnl={pnl:.2f} creator_accrued={accrued:.2f}')
         else:
             any_fail = True
             logger.warning(f'close job {job.id[:8]} copy {ct["id"][:8]} flatten failed: {result.error}')
