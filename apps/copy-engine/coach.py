@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import asyncio
 from datetime import datetime, timezone, timedelta
+from typing import Optional
 
 from loguru import logger
 
@@ -25,6 +26,8 @@ from shared.obs_logging import configure_logging
 from shared import metrics
 from shared import coaching
 from shared.coaching import Trade
+from shared import journal_analytics
+from shared.journal_analytics import JTrade
 
 COACH_INTERVAL_S = 300        # 5 min
 WINDOW_DAYS      = 30
@@ -54,22 +57,37 @@ def _recent_users(db, days: int, limit: int) -> list[str]:
     return seen
 
 
-def _load_trades(db, user_id: str, days: int) -> list[Trade]:
+def _load_rows(db, user_id: str, days: int) -> list[dict]:
+    """One query feeds both the behavioral (coaching) and performance
+    (journal_analytics) passes."""
     res = (db.table('journal_entries')
-           .select('pnl,lot_size,created_at')
+           .select('pnl,lot_size,pair,session,ai_tags,created_at')
            .eq('user_id', user_id)
            .gte('created_at', _cutoff_iso(days))
            .not_.is_('pnl', 'null')
            .order('created_at', desc=False).limit(1000).execute())
-    out: list[Trade] = []
-    for r in res.data or []:
-        try:
-            ts = datetime.fromisoformat(str(r['created_at']).replace('Z', '+00:00'))
-        except Exception:
+    return res.data or []
+
+
+def _parse_ts(raw) -> Optional[datetime]:
+    try:
+        return datetime.fromisoformat(str(raw).replace('Z', '+00:00'))
+    except Exception:
+        return None
+
+
+def _to_trades(rows: list[dict]) -> tuple[list[Trade], list[JTrade]]:
+    behav: list[Trade] = []
+    perf: list[JTrade] = []
+    for r in rows:
+        ts = _parse_ts(r.get('created_at'))
+        if ts is None:
             continue
-        out.append(Trade(pnl=float(r['pnl'] or 0),
-                         lot=float(r.get('lot_size') or 0), ts=ts))
-    return out
+        pnl = float(r.get('pnl') or 0)
+        behav.append(Trade(pnl=pnl, lot=float(r.get('lot_size') or 0), ts=ts))
+        perf.append(JTrade(pnl=pnl, pair=r.get('pair') or 'unknown', ts=ts,
+                           session=r.get('session'), tags=list(r.get('ai_tags') or [])))
+    return behav, perf
 
 
 def _upsert_state(db, user_id: str, r: coaching.CoachingResult) -> None:
@@ -121,14 +139,32 @@ def _write_daily_report(db, user_id: str, r: coaching.CoachingResult) -> None:
     }, on_conflict='user_id,scope,period_start').execute()
 
 
+def _upsert_analytics(db, user_id: str, a: journal_analytics.Analytics) -> None:
+    db.table('journal_analytics').upsert({
+        'user_id': user_id, 'window_days': WINDOW_DAYS, 'trades': a.trades,
+        'win_rate': a.win_rate, 'profit_factor': a.profit_factor,
+        'expectancy': a.expectancy, 'gross_profit': a.gross_profit,
+        'gross_loss': a.gross_loss, 'avg_win': a.avg_win, 'avg_loss': a.avg_loss,
+        'reward_risk': a.reward_risk, 'net_pnl': a.net_pnl,
+        'max_drawdown': a.max_drawdown, 'best_pair': a.best_pair,
+        'worst_pair': a.worst_pair, 'best_session': a.best_session,
+        'by_session': a.by_session, 'by_pair': a.by_pair,
+        'by_tag': a.by_tag, 'by_hour': a.by_hour, 'computed_at': 'now()',
+    }, on_conflict='user_id').execute()
+
+
 def _process_user(db, user_id: str) -> tuple[bool, int]:
-    trades = _load_trades(db, user_id, WINDOW_DAYS)
-    if not trades:
+    rows = _load_rows(db, user_id, WINDOW_DAYS)
+    if not rows:
         return False, 0
-    r = coaching.analyze(trades)
+    behav, perf = _to_trades(rows)
+    # Behavioral coaching.
+    r = coaching.analyze(behav)
     _upsert_state(db, user_id, r)
     raised = _insert_alerts(db, user_id, r.alerts)
     _write_daily_report(db, user_id, r)
+    # Performance analytics (same trade load).
+    _upsert_analytics(db, user_id, journal_analytics.compute(perf))
     return (r.discipline_score is not None), raised
 
 
