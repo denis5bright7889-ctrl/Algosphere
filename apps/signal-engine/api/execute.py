@@ -18,11 +18,14 @@ Routing rule for `user_id`:
     (paper-mode deployments).
 """
 from __future__ import annotations
+import asyncio
 import os
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel, Field
 from loguru import logger
+
+import notifier
 
 from risk.adapters.base import (
     ExecutionAdapter,
@@ -32,6 +35,7 @@ from risk.adapters.factory import (
     get_adapter_for_user, BrokerNotConnected, BrokerDecryptError, cache_size,
 )
 from risk.adapters import binance_adapter, bybit_adapter, okx_adapter, mt5_adapter
+from risk.broker_guard import get_guard
 
 router = APIRouter()
 
@@ -144,6 +148,21 @@ async def execute(payload: ExecuteIn) -> ExecuteOut:
             detail=f"Broker '{payload.broker}' not supported. Choose: {sorted(SUPPORTED_BROKERS)}",
         )
 
+    # ── Broker guard: per-broker rate limit + circuit breaker ────────
+    # Checked BEFORE resolving/refreshing the adapter so a tripped or
+    # throttled broker fast-fails cheaply. The copy-executor treats these
+    # errors as transient → retries with backoff (see _categorize_failure).
+    guard = get_guard()
+    decision = await guard.check(payload.broker)
+    if not decision.allowed:
+        logger.warning(
+            f"broker_guard veto [{payload.broker}]: {decision.reason} "
+            f"(retry_after={decision.retry_after_s:.1f}s)")
+        return ExecuteOut(
+            ok=False, broker=payload.broker, testnet=True,
+            error=f'{decision.reason}: retry_after={decision.retry_after_s:.1f}s',
+        )
+
     adapter = await _resolve_adapter(payload.broker, payload.user_id)
 
     # Refresh equity / positions snapshot for any downstream risk gates
@@ -165,17 +184,51 @@ async def execute(payload: ExecuteIn) -> ExecuteOut:
     try:
         result = await adapter.submit_order(req)
     except SlippageExceeded as e:
+        # Our own pre-trade veto — the broker is responsive, so this is a
+        # SUCCESS for the circuit breaker (does not count toward tripping).
+        await guard.record(payload.broker, infra_failure=False)
         logger.warning(f"Slippage veto [{payload.broker} {payload.symbol}]: {e}")
         return ExecuteOut(
             ok=False, broker=payload.broker, testnet=adapter.testnet,
             error=f'slippage_veto: {e}',
         )
     except OrderRejected as e:
+        # Broker said no but answered — responsive, not an infra failure.
+        await guard.record(payload.broker, infra_failure=False)
         logger.warning(f"Order rejected [{payload.broker}]: {e}")
         return ExecuteOut(
             ok=False, broker=payload.broker, testnet=adapter.testnet,
             error=f'rejected: {e}',
         )
+    except Exception as e:
+        # Connectivity / timeout / unexpected adapter error → INFRA failure.
+        # Feed the breaker and fail soft (no 500 leak); the executor retries.
+        await guard.record(payload.broker, infra_failure=True)
+        logger.error(f"Broker submit error [{payload.broker} {payload.symbol}]: {e}")
+        return ExecuteOut(
+            ok=False, broker=payload.broker, testnet=adapter.testnet,
+            error=f'broker_error: {e}',
+        )
+
+    # Successful submit — broker is healthy.
+    await guard.record(payload.broker, infra_failure=False)
+
+    # Fire-and-forget Telegram "trade opened" notification. Wrapping in
+    # create_task means the HTTP response returns immediately; the
+    # notifier itself never raises, so a Telegram outage can't taint
+    # this code path. Silent no-op if the user hasn't linked Telegram.
+    asyncio.create_task(notifier.dispatch_trade_opened(
+        user_id      = payload.user_id,
+        broker       = payload.broker,
+        symbol       = payload.symbol,
+        side         = payload.side,
+        qty          = result.filled_qty,
+        fill_price   = result.avg_fill_price,
+        sl           = payload.stop_loss,
+        tp           = payload.take_profit,
+        slippage_pct = result.slippage_pct,
+        testnet      = adapter.testnet,
+    ))
 
     return ExecuteOut(
         ok              = True,
@@ -214,7 +267,16 @@ async def execute_status(broker: str = 'binance') -> dict:
         'equity':         adapter.get_equity(),
         'open_positions': adapter.open_position_count(),
         'session_cache':  cache_size(),
+        'guard':          await get_guard().snapshot(),
     }
+
+
+@router.get('/execute/guard', dependencies=[Depends(_verify_engine_key)])
+async def guard_status() -> dict:
+    """Per-broker rate-limiter + circuit-breaker state. Surfaced for ops
+    dashboards / alerting — shows which brokers are OPEN (fast-failing) and
+    how much cooldown remains."""
+    return await get_guard().snapshot()
 
 
 @router.post('/execute/invalidate', dependencies=[Depends(_verify_engine_key)])
@@ -225,3 +287,40 @@ async def invalidate_cache(user_id: str, broker: str) -> dict:
     from risk.adapters.factory import drop_cache
     await drop_cache(user_id, broker)
     return {'ok': True}
+
+
+@router.get('/positions', dependencies=[Depends(_verify_engine_key)])
+async def positions(user_id: str, broker: str = 'binance') -> dict:
+    """Live open positions for one (user, broker) — the reconciler diffs
+    these against open copy_trades to detect missed/partial/desync/orphan
+    states. Read-only: refreshes state then reads get_positions(). Never
+    submits or mutates anything, so it can't disturb execution.
+
+    Returns equity alongside positions so the reconciler can also feed the
+    allocation engine's equity_ratio / risk_pct models with a live number."""
+    adapter = await _resolve_adapter(broker, user_id)
+    await adapter.refresh_state()
+    try:
+        pos = await adapter.get_positions()
+    except Exception as e:
+        logger.warning(f"get_positions failed [{broker} {user_id[:8] if user_id else '-'}]: {e}")
+        raise HTTPException(status_code=502, detail=f'broker positions read failed: {e}')
+
+    return {
+        'ok':        True,
+        'broker':    broker,
+        'testnet':   adapter.testnet,
+        'equity':    adapter.get_equity(),
+        'positions': [
+            {
+                'symbol':         p.symbol,
+                'side':           p.side,
+                'qty':            p.qty,
+                'avg_entry':      p.avg_entry,
+                'current_price':  p.current_price,
+                'unrealized_pnl': p.unrealized_pnl,
+                'broker_pos_id':  p.broker_pos_id,
+            }
+            for p in pos
+        ],
+    }
