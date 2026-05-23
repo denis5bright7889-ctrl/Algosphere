@@ -82,6 +82,11 @@ KILL_SWITCH = Gauge(
     'algosphere_global_kill_switch', 'Global execution kill switch (1=active, halts all execution)')
 QUARANTINED_STRATEGIES = Gauge(
     'algosphere_quarantined_strategies', 'Strategies quarantined or disabled by the risk engine')
+# AI coach (Phase 4).
+COACH_DISCIPLINE_AVG = Gauge(
+    'algosphere_coach_discipline_avg', 'Mean discipline score across scored users')
+COACH_ALERTS = Counter(
+    'algosphere_coach_alerts_total', 'Behavioral coach alerts raised', ['kind'])
 
 
 def start_metrics_server(service: str, worker: str,

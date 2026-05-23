@@ -3,3 +3,4 @@
 orchestrator: python orchestrator.py
 executor: python executor.py
 reconciler: python reconciler.py
+coach: python coach.py
