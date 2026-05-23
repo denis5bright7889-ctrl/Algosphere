@@ -113,6 +113,7 @@ class CopyJob:
     computed_lot:    Optional[float]
     copy_trade_id:   Optional[str]
     trace_id:        Optional[str]
+    kind:            str = 'open'      # 'open' | 'close'
 
     @classmethod
     def from_row(cls, r: dict) -> 'CopyJob':
@@ -124,4 +125,5 @@ class CopyJob:
             max_attempts=int(r.get('max_attempts', 3)),
             computed_lot=(_f(r['computed_lot']) if r.get('computed_lot') is not None else None),
             copy_trade_id=r.get('copy_trade_id'), trace_id=r.get('trace_id'),
+            kind=r.get('kind', 'open'),
         )

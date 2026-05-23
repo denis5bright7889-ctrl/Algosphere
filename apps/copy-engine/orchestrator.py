@@ -118,6 +118,51 @@ def _fan_out(db, ev: SignalEvent, chunk: int) -> int:
     return inserted
 
 
+def _fan_out_close(db, ev: SignalEvent, chunk: int) -> int:
+    """A leader CLOSE → one close job per subscription that currently holds an
+    open copy on this symbol. The executor flattens that follower's open
+    copies (reduce-only) within the job. Idempotent via the existing
+    UNIQUE(signal_event_id, subscription_id)."""
+    res = (
+        db.table('copy_trades')
+        .select('subscription_id, follower_id, broker')
+        .eq('leader_id', ev.leader_id).eq('symbol', ev.symbol)
+        .in_('status', ['mirrored', 'partial'])
+        .execute()
+    )
+    open_trades = res.data or []
+    if not open_trades:
+        return 0
+    # Distinct subscription → one close job each (executor flattens all of
+    # that follower's open copies on the symbol within the job).
+    seen: dict[str, dict] = {}
+    for t in open_trades:
+        seen.setdefault(t['subscription_id'], t)
+
+    rows = [
+        {
+            'signal_event_id': ev.id,
+            'subscription_id': sub_id,
+            'follower_id':     t['follower_id'],
+            'leader_id':       ev.leader_id,
+            'broker':          t.get('broker') or 'paper',
+            'trace_id':        ev.trace_id,
+            'kind':            'close',
+            'status':          'queued',
+        }
+        for sub_id, t in seen.items()
+    ]
+    inserted = 0
+    for i in range(0, len(rows), chunk):
+        batch = rows[i:i + chunk]
+        r = (db.table('copy_jobs')
+             .upsert(batch, on_conflict='signal_event_id,subscription_id',
+                     ignore_duplicates=True)
+             .execute())
+        inserted += len(r.data or [])
+    return inserted
+
+
 def _mark_done(db, event_id: str, jobs: int) -> None:
     db.table('signal_events').update({
         'status': 'fanned_out',
@@ -139,12 +184,18 @@ async def _process_one(db, worker: str, chunk: int):
     if ev is None:
         return None
 
-    # OPEN events fan out into orders. CLOSE/MODIFY/CANCEL are handled by
-    # the reconciler (which sizes reduce-only closes against actual open
-    # positions, not subscription settings).
+    # CLOSE → fan out reduce-only close jobs against the followers' open
+    # copies. MODIFY/CANCEL remain deferred (no-op fan-out for now).
+    if ev.event_type == 'CLOSE':
+        n = await asyncio.to_thread(_fan_out_close, db, ev, chunk)
+        await asyncio.to_thread(_mark_done, db, ev.id, n)
+        metrics.FANOUT_JOBS.labels(worker='orchestrator').inc(n)
+        logger.bind(trace_id=ev.trace_id, leader_id=ev.leader_id).info(
+            f'orchestrator: CLOSE {ev.id[:8]} {ev.symbol} → {n} close jobs')
+        return n
     if ev.event_type != 'OPEN':
         await asyncio.to_thread(_mark_done, db, ev.id, 0)
-        logger.info(f'orchestrator: {ev.event_type} event {ev.id[:8]} → reconciler path')
+        logger.info(f'orchestrator: {ev.event_type} event {ev.id[:8]} → deferred (no fan-out)')
         return 0
 
     # Strategy risk gate: a quarantined/disabled strategy does not fan out.

@@ -185,12 +185,13 @@ async def execute(payload: ExecuteIn) -> ExecuteOut:
             detail=f"Broker '{payload.broker}' not supported. Choose: {sorted(SUPPORTED_BROKERS)}",
         )
 
-    # ── Global kill switch: halts ALL execution ──────────────────────
-    # The centralized risk engine's master cutoff. Checked first so nothing
-    # routes when the desk has pulled the plug. Returns a terminal-style
-    # error; the copy-executor will retry (the switch is operator-cleared).
+    # ── Global kill switch: halts NEW exposure ───────────────────────
+    # The centralized risk engine's master cutoff. Blocks opening orders
+    # when the desk has pulled the plug, but PERMITS reduce_only orders so
+    # positions can still be flattened during a halt (risk-reducing). The
+    # copy-executor retries blocked opens (the switch is operator-cleared).
     killed, kill_reason = await _kill_switch_active()
-    if killed:
+    if killed and not payload.reduce_only:
         logger.error(f"execution blocked — global kill switch active: {kill_reason}")
         return ExecuteOut(
             ok=False, broker=payload.broker, testnet=True,

@@ -47,7 +47,8 @@ class EngineClient:
                       quantity: float, user_id: str, client_order_id: str,
                       stop_loss: Optional[float] = None,
                       take_profit: Optional[float] = None,
-                      max_slippage_pct: float = 0.002) -> ExecResult:
+                      max_slippage_pct: float = 0.002,
+                      reduce_only: bool = False) -> ExecResult:
         if not self._ready:
             return ExecResult(False, None, None, 0, 0, 0, broker, True,
                               'SIGNAL_ENGINE_URL / ENGINE_API_KEY not configured')
@@ -56,7 +57,7 @@ class EngineClient:
             'broker': broker, 'symbol': symbol, 'side': side,
             'order_type': 'market', 'quantity': quantity,
             'stop_loss': stop_loss, 'take_profit': take_profit,
-            'client_order_id': client_order_id,
+            'client_order_id': client_order_id, 'reduce_only': reduce_only,
             'max_slippage_pct': max_slippage_pct, 'user_id': user_id,
         }
         try:

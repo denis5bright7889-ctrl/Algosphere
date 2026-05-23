@@ -172,7 +172,10 @@ async def _process_job(db, engine: EngineClient, worker: str, job: CopyJob) -> N
     started = time.perf_counter()
     with tracing.trace_scope(ctx):
         try:
-            status = await _run_pipeline(db, engine, worker, job)
+            if job.kind == 'close':
+                status = await _run_close_pipeline(db, engine, worker, job)
+            else:
+                status = await _run_pipeline(db, engine, worker, job)
         except Exception as e:
             logger.error(f'job {job.id[:8]} pipeline crashed: {e}')
             status = await _handle_failure(db, worker, job, 'engine_error', str(e))
@@ -323,6 +326,88 @@ async def _run_pipeline(db, engine: EngineClient, worker: str, job: CopyJob) -> 
     # Broker/engine failure → retry-with-backoff or dead-letter.
     category = _categorize_failure(result.error or '')
     return await _handle_failure(db, worker, job, category, result.error or 'broker rejection')
+
+
+# ─── Close pipeline (leader CLOSE → flatten) ────────────────────────────
+
+def _open_copies_for_close(db, follower_id: str, symbol: str, sub_id: str) -> list[dict]:
+    res = (db.table('copy_trades')
+           .select('id,direction,follower_lot,follower_entry,broker')
+           .eq('follower_id', follower_id).eq('symbol', symbol)
+           .eq('subscription_id', sub_id)
+           .in_('status', ['mirrored', 'partial']).execute())
+    return res.data or []
+
+
+def _close_copy_trade(db, ct_id: str, follower_pnl: float) -> None:
+    db.table('copy_trades').update({
+        'status': 'closed', 'closed_at': 'now()',
+        'follower_pnl': round(follower_pnl, 2),
+    }).eq('id', ct_id).execute()
+
+
+def _close_pnl(symbol: str, direction: str, entry: float,
+               exit_price: float, lot: float) -> float:
+    """follower PnL in USD using the same pips × lot × $10/pip convention as
+    lib/copy-settlement.ts (single agreed formula; see migration 035 note on
+    the settlement seam). buy profits when price rises, sell when it falls."""
+    if not entry or not exit_price or not lot:
+        return 0.0
+    sign = 1.0 if direction == 'buy' else -1.0
+    pips = (exit_price - entry) * sign / alloc.pip_size(symbol)
+    return pips * lot * alloc.DEFAULT_PIP_VALUE_USD
+
+
+async def _run_close_pipeline(db, engine: EngineClient, worker: str, job: CopyJob) -> str:
+    """Flatten the follower's open copies on the event's symbol with
+    reduce-only orders, then mark each copy_trade closed with realized PnL.
+    reduce_only=True means the engine permits it even under a global kill
+    switch (flattening reduces risk)."""
+    ev = await asyncio.to_thread(_load_event, db, job.signal_event_id)
+    if ev is None:
+        await asyncio.to_thread(_dead_letter, db, job.id, 'engine_error',
+                                'close: missing signal_event')
+        return 'failed'
+    broker = job.broker or 'paper'
+    await asyncio.to_thread(_set_job, db, job.id, status='routing')
+
+    copies = await asyncio.to_thread(
+        _open_copies_for_close, db, job.follower_id, ev.symbol, job.subscription_id)
+    if not copies:
+        # Nothing open to flatten — treat as done (idempotent: a re-run after a
+        # successful close finds nothing).
+        await asyncio.to_thread(_set_job, db, job.id, status='filled', filled_at='now()')
+        logger.info(f'close job {job.id[:8]} {ev.symbol}: no open copies (noop)')
+        return 'filled'
+
+    any_fail = False
+    for ct in copies:
+        direction = ct['direction']
+        opp = 'sell' if direction == 'buy' else 'buy'
+        lot = float(ct.get('follower_lot') or 0)
+        if lot <= 0:
+            continue
+        coid = f'close_{ct["id"][:24]}'
+        result = await engine.execute(
+            broker=broker, symbol=ev.symbol, side=opp, quantity=lot,
+            user_id=job.follower_id, client_order_id=coid, reduce_only=True)
+        if result.ok:
+            pnl = _close_pnl(ev.symbol, direction, float(ct.get('follower_entry') or 0),
+                             result.avg_fill_price, lot)
+            await asyncio.to_thread(_close_copy_trade, db, ct['id'], pnl)
+            logger.info(f'close job {job.id[:8]} flattened copy {ct["id"][:8]} '
+                        f'{ev.symbol} {opp} {lot} @ {result.avg_fill_price} pnl={pnl:.2f}')
+        else:
+            any_fail = True
+            logger.warning(f'close job {job.id[:8]} copy {ct["id"][:8]} flatten failed: {result.error}')
+
+    if any_fail:
+        # Some legs didn't flatten → retry the whole job (idempotent: already
+        # closed copies are skipped next pass). Backoff/DLQ via _handle_failure.
+        return await _handle_failure(db, worker, job, 'broker_timeout',
+                                     'one or more close legs failed')
+    await asyncio.to_thread(_set_job, db, job.id, status='filled', filled_at='now()')
+    return 'filled'
 
 
 async def run() -> None:
