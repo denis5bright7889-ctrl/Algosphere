@@ -1,0 +1,83 @@
+# AlgoSphere — Prometheus scrape config (copy-trading observability stack).
+#
+# Two kinds of target:
+#   1. copy-engine workers — expose native Prometheus on METRICS_PORT
+#      (orchestrator 9101, executor 9102, reconciler 9103).
+#   2. JSON health endpoints (signal-engine /health, mt5-bridge /health) —
+#      scraped via prom/json-exporter, which converts the JSON to metrics
+#      WITHOUT touching those services (no code change to the running bridge).
+#
+# NOTE: Prometheus does not expand env vars in this file. The worker target
+# hosts below are placeholders that resolve to the docker-compose service
+# names when co-located. For remote workers (Railway), REPLACE them with the
+# real host:port (private-network address or a tunnel). The health URLs are
+# the production endpoints — change them per environment.
+
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+    platform: algosphere
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+scrape_configs:
+  # ── copy-engine workers (native Prometheus) ─────────────────────────
+  # REPLACE the target hosts with where the workers actually run.
+  - job_name: copy-orchestrator
+    static_configs:
+      - targets: ['copy-orchestrator:9101']
+        labels: { service: copy-orchestrator }
+
+  - job_name: copy-executor
+    # List every executor replica here, or use Railway/Kubernetes service
+    # discovery. Each self-labels via the `worker` metric label.
+    static_configs:
+      - targets: ['copy-executor:9102']
+        labels: { service: copy-executor }
+
+  - job_name: copy-reconciler
+    static_configs:
+      - targets: ['copy-reconciler:9103']
+        labels: { service: copy-reconciler }
+
+  # ── JSON health endpoints via json-exporter ─────────────────────────
+  # Prometheus hits json-exporter (?target=<health-url>); json-exporter
+  # fetches that URL and returns mapped metrics. `up{job=...}` = 1 means the
+  # endpoint was reachable and returned valid JSON.
+  - job_name: mt5-bridge-health
+    metrics_path: /probe
+    params:
+      module: [health]
+    static_configs:
+      - targets: ['https://mt5.algospherequant.com/health']
+        labels: { service: mt5-bridge }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: json-exporter:7979
+
+  - job_name: signal-engine-health
+    metrics_path: /probe
+    params:
+      module: [engine_health]
+    static_configs:
+      # REPLACE with your signal-engine public/internal /health URL.
+      - targets: ['https://signal-engine.up.railway.app/health']
+        labels: { service: signal-engine }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: json-exporter:7979

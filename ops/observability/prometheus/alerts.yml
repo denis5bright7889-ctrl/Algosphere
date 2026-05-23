@@ -1,0 +1,91 @@
+# AlgoSphere — alerting rules for the copy-trading pipeline + MT5 bridge.
+# Every expr references a metric that actually exists: copy-engine emits the
+# algosphere_copy_* series (shared/metrics.py); json_exporter emits the
+# mt5_bridge_* series and Prometheus emits up{} per scrape target.
+
+groups:
+  - name: copy-pipeline
+    rules:
+      - alert: CopyQueueBacklog
+        expr: algosphere_copy_queue_depth > 500
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Copy job queue backing up ({{ $value }} queued)"
+          description: "queue_depth > 500 for 5m — executors are not keeping up. Scale copy-executor replicas."
+
+      - alert: CopyQueueStalled
+        expr: algosphere_copy_queue_depth > 50 and rate(algosphere_copy_jobs_completed_total[5m]) == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Copy queue has work but no completions"
+          description: "Jobs are queued but nothing is completing — executors may be down or wedged."
+
+      - alert: CopyDLQRising
+        expr: sum(rate(algosphere_copy_dlq_total[10m])) > 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Jobs are being dead-lettered ({{ $value | printf \"%.3f\" }}/s)"
+          description: "Copy jobs are exhausting retries. Inspect: python dlq.py stats."
+
+      - alert: CopyExecLatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(algosphere_copy_exec_latency_seconds_bucket[5m])) by (le, broker)) > 5
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "p95 execution latency > 5s on {{ $labels.broker }}"
+          description: "Engine /execute round-trip is slow — broker or engine degradation."
+
+      - alert: CopyHighFailureRatio
+        expr: |
+          sum(rate(algosphere_copy_jobs_completed_total{status="failed"}[10m]))
+            / clamp_min(sum(rate(algosphere_copy_jobs_completed_total[10m])), 0.001) > 0.2
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: "Over 20% of copy jobs are failing"
+          description: "Failure ratio breached 20% over 10m — investigate broker/engine health."
+
+      - alert: CopyCriticalDesync
+        expr: increase(algosphere_copy_recon_flagged_total{kind="desync_missing"}[15m]) > 0
+        for: 0m
+        labels: { severity: critical }
+        annotations:
+          summary: "Follower position desync detected"
+          description: "Reconciler found copy_trades open here but missing at the broker. Check copy_reconciliation."
+
+  - name: workers-and-targets
+    rules:
+      - alert: CopyWorkerDown
+        expr: up{service=~"copy-.*"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Copy worker {{ $labels.service }} is down"
+          description: "Prometheus cannot scrape {{ $labels.instance }} for 2m."
+
+      - alert: MT5BridgeNotReady
+        expr: mt5_bridge_mt5_ready == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "MT5 bridge not ready"
+          description: "mt5_ready=0 for 2m — terminal down or bridge wedged. MT5 orders will 503."
+
+      - alert: MT5BridgeUnreachable
+        expr: up{service="mt5-bridge"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "MT5 bridge /health unreachable"
+          description: "json_exporter cannot fetch the bridge /health for 2m."
+
+      - alert: SignalEngineUnreachable
+        expr: up{service="signal-engine"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "signal-engine /health unreachable"
+          description: "Engine health probe failing — execution routing is at risk."

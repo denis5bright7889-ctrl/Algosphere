@@ -1,0 +1,12 @@
+# Auto-provision the Prometheus datasource so the bundled dashboard works
+# on first boot with no manual clicking.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    uid: prometheus
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 15s

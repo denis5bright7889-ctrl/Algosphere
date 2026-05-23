@@ -1,0 +1,70 @@
+# AlgoSphere — self-hosted observability stack.
+#   prometheus     scrape + alert-rule evaluation
+#   alertmanager   alert routing (null receiver until you wire a channel)
+#   grafana        dashboards (auto-provisioned datasource + copy-trading board)
+#   json-exporter  converts MT5 bridge + signal-engine /health JSON → metrics
+#
+# Targets are env-substituted (see .env). For workers on Railway, point the
+# COPY_*_TARGET vars at their private-network host:port (or a tunnel).
+#
+#   cp .env.example .env   # set target hosts + GRAFANA_ADMIN_PASSWORD
+#   docker compose up -d
+#   open http://localhost:3001   (admin / $GRAFANA_ADMIN_PASSWORD)
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    depends_on:
+      - json-exporter
+      - alertmanager
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+    ports:
+      - "9093:9093"
+
+  json-exporter:
+    image: quay.io/prometheuscommunity/json-exporter:v0.6.0
+    restart: unless-stopped
+    volumes:
+      - ./json-exporter/config.yml:/config.yml:ro
+    command:
+      - '--config.file=/config.yml'
+    ports:
+      - "7979:7979"
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus_data:
+  grafana_data:

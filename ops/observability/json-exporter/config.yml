@@ -1,0 +1,64 @@
+# prometheus-community/json_exporter — maps the existing JSON /health
+# endpoints to Prometheus metrics WITHOUT changing those services.
+#
+# The MT5 bridge /health (read from bridge.py) exposes a rich body; we map
+# the operationally meaningful fields. Booleans are converted to 1/0 by
+# json_exporter's value sanitizer; null fields (e.g. equity when no creds)
+# are simply omitted from that scrape — no fake zeros.
+#
+# Prometheus also records `up{job="...-health"}` = 1 whenever json_exporter
+# fetched + parsed the target successfully, which is the authoritative
+# reachability signal for both endpoints.
+
+modules:
+  # ── MT5 bridge /health ──────────────────────────────────────────────
+  health:
+    metrics:
+      - name: mt5_bridge_mt5_ready
+        help: "MT5 terminal initialized and reachable (1/0)"
+        path: '{.mt5_ready}'
+      - name: mt5_bridge_ready
+        help: "Bridge ready to execute (1/0)"
+        path: '{.bridge_ready}'
+      - name: mt5_bridge_mt5_connected
+        help: "Account contact fresh per watchdog (1/0)"
+        path: '{.mt5_connected}'
+      - name: mt5_bridge_execution_ready
+        help: "Watchdog execution-ready flag (1/0)"
+        path: '{.execution_ready}'
+      - name: mt5_bridge_mt5_loaded
+        help: "MetaTrader5 python package importable (1/0)"
+        path: '{.mt5_loaded}'
+      - name: mt5_bridge_equity
+        help: "Account equity (single-account mode)"
+        path: '{.equity}'
+      - name: mt5_bridge_uptime_seconds
+        help: "Bridge process uptime"
+        path: '{.service_uptime_s}'
+      - name: mt5_bridge_consec_failures
+        help: "Consecutive watchdog ping failures"
+        path: '{.consec_failures}'
+      - name: mt5_bridge_last_ok_age_seconds
+        help: "Seconds since last successful watchdog ping"
+        path: '{.last_ok_age_s}'
+      - name: mt5_bridge_orders_last_60s
+        help: "Orders submitted in the last 60s (rate-limit window)"
+        path: '{.risk.orders_last_60s}'
+      - name: mt5_bridge_max_orders_per_min
+        help: "Configured per-bridge order rate cap"
+        path: '{.risk.max_orders_per_min}'
+
+  # ── signal-engine /health (minimal body: status/service/time) ───────
+  # No numeric fields to map; liveness is carried by up{job=...-health}.
+  # We emit a single labelled info series so dashboards can show status text.
+  engine_health:
+    metrics:
+      - name: signal_engine_info
+        type: object
+        help: "signal-engine health info (value always 1 when reachable)"
+        path: '{ . }'
+        labels:
+          status: '{.status}'
+          service: '{.service}'
+        values:
+          info: '1'

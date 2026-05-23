@@ -1,0 +1,161 @@
+{
+  "uid": "algosphere-copy",
+  "title": "AlgoSphere — Copy Trading Pipeline",
+  "tags": ["algosphere", "copy-trading", "execution"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "label": "Prometheus",
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row", "title": "Pipeline Throughput", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "type": "stat", "title": "Queue Depth",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 4, "x": 0, "y": 1 },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [
+        { "color": "green", "value": null }, { "color": "yellow", "value": 100 }, { "color": "red", "value": 500 }
+      ] } } },
+      "targets": [ { "expr": "algosphere_copy_queue_depth", "legendFormat": "queued", "refId": "A" } ]
+    },
+    {
+      "type": "stat", "title": "Executors Up",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 4, "x": 4, "y": 1 },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [
+        { "color": "red", "value": null }, { "color": "green", "value": 1 }
+      ] } } },
+      "targets": [ { "expr": "count(up{service=\"copy-executor\"} == 1) or vector(0)", "legendFormat": "executors", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries", "title": "Job Completions by Status (rate)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 1 },
+      "targets": [ { "expr": "sum by (status) (rate(algosphere_copy_jobs_completed_total[5m]))", "legendFormat": "{{status}}", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries", "title": "Fan-out Rate (jobs created/s)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 1 },
+      "targets": [ { "expr": "sum(rate(algosphere_copy_fanout_jobs_total[5m]))", "legendFormat": "fan-out", "refId": "A" } ]
+    },
+    {
+      "type": "row", "title": "Latency & Reliability", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 }
+    },
+    {
+      "type": "timeseries", "title": "p95 Execution Latency by Broker (s)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [ { "expr": "histogram_quantile(0.95, sum(rate(algosphere_copy_exec_latency_seconds_bucket[5m])) by (le, broker))", "legendFormat": "{{broker}}", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries", "title": "p95 Job Duration (s)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [ { "expr": "histogram_quantile(0.95, sum(rate(algosphere_copy_job_duration_seconds_bucket[5m])) by (le, worker))", "legendFormat": "{{worker}}", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries", "title": "Retries by Category (rate)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 15 },
+      "targets": [ { "expr": "sum by (category) (rate(algosphere_copy_retries_total[5m]))", "legendFormat": "{{category}}", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries", "title": "Dead-Lettered by Category (rate)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 15 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars" } } },
+      "targets": [ { "expr": "sum by (category) (rate(algosphere_copy_dlq_total[10m]))", "legendFormat": "{{category}}", "refId": "A" } ]
+    },
+    {
+      "type": "row", "title": "Reconciliation & Sync Health", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 }
+    },
+    {
+      "type": "timeseries", "title": "Reconciliation Flags by Kind",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 23 },
+      "targets": [ { "expr": "sum by (kind) (increase(algosphere_copy_recon_flagged_total[15m]))", "legendFormat": "{{kind}}", "refId": "A" } ]
+    },
+    {
+      "type": "row", "title": "MT5 / Broker Health", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 30 }
+    },
+    {
+      "type": "stat", "title": "MT5 Ready",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 4, "x": 0, "y": 31 },
+      "fieldConfig": { "defaults": { "mappings": [
+        { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "READY", "color": "green" } } }
+      ] } },
+      "targets": [ { "expr": "mt5_bridge_mt5_ready", "legendFormat": "mt5_ready", "refId": "A" } ]
+    },
+    {
+      "type": "stat", "title": "MT5 Equity",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 4, "x": 4, "y": 31 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" } },
+      "targets": [ { "expr": "mt5_bridge_equity", "legendFormat": "equity", "refId": "A" } ]
+    },
+    {
+      "type": "stat", "title": "Targets Up",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 4, "x": 8, "y": 31 },
+      "targets": [ { "expr": "sum(up)", "legendFormat": "up", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries", "title": "MT5 Orders / 60s (rate-limit window)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 31 },
+      "targets": [
+        { "expr": "mt5_bridge_orders_last_60s", "legendFormat": "orders/60s", "refId": "A" },
+        { "expr": "mt5_bridge_max_orders_per_min", "legendFormat": "cap", "refId": "B" }
+      ]
+    },
+    {
+      "type": "row", "title": "Follower Copy Health", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 37 }
+    },
+    {
+      "type": "stat", "title": "Avg Copy-Health Score",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 4, "x": 0, "y": 38 },
+      "fieldConfig": { "defaults": { "min": 0, "max": 100, "thresholds": { "steps": [
+        { "color": "red", "value": null }, { "color": "orange", "value": 50 },
+        { "color": "yellow", "value": 70 }, { "color": "green", "value": 85 }
+      ] } } },
+      "targets": [ { "expr": "algosphere_copy_health_score_avg", "legendFormat": "avg score", "refId": "A" } ]
+    },
+    {
+      "type": "stat", "title": "Avg p95 Signal→Fill Lag",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 4, "x": 4, "y": 38 },
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "targets": [ { "expr": "algosphere_copy_follower_lag_p95_ms_avg", "legendFormat": "p95 lag", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries", "title": "Subscriptions by Health Label",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 16, "x": 8, "y": 38 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "stacking": { "mode": "normal" } } } },
+      "targets": [ { "expr": "algosphere_copy_health_subscriptions", "legendFormat": "{{label}}", "refId": "A" } ]
+    }
+  ]
+}
