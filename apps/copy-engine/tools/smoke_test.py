@@ -29,6 +29,16 @@ from __future__ import annotations
 import os
 import sys
 import time
+import pathlib
+
+# Allow running as `python tools/smoke_test.py` from the copy-engine root.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+
+# Windows consoles default to cp1252 and choke on ✓/✗ — force UTF-8.
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
 
 from shared.config import load_settings, require
 from shared.db import get_db

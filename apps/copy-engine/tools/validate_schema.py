@@ -13,6 +13,17 @@ Needs SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (the workers' env).
 from __future__ import annotations
 import sys
 import uuid
+import pathlib
+
+# Allow running as `python tools/validate_schema.py` from the copy-engine
+# root: put the app root (parent of tools/) on the path so `shared` imports.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+
+# Windows consoles default to cp1252 and choke on the ✓/✗ glyphs — force UTF-8.
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
 
 from shared.config import load_settings, require
 from shared.db import get_db
