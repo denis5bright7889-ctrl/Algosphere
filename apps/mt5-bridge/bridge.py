@@ -840,9 +840,13 @@ async def _ensure_login(login: int, password: str, server: str) -> tuple[bool, O
             return False, f'initialize failed: {mt5.last_error()}'
         if _current_login == login and PIN_LOGIN:
             return True, None
-        if not mt5.login(login, password=password, server=server, timeout=10_000):
+        if not mt5.login(login, password=password, server=server, timeout=5_000):
             err = mt5.last_error()
             _current_login = None
+            try:
+                mt5.shutdown()  # reset IPC state so next initialize() works cleanly
+            except Exception:
+                pass
             return False, f'login failed: {err}'
         _current_login = login
         return True, None
@@ -1057,11 +1061,14 @@ async def submit_order(req: OrderRequest):
     Validation order (important — keeps 422s surfacing even when MT5 is down):
       1. Rate limit (no MT5 needed) → 429
       2. Quantity cap (no MT5 needed) → 422
-      3. MT5 readiness gate → 503
-      4. Symbol validation via live cache → 422
-      5. MT5 order execution"""
+      3. Side validation buy|sell (no MT5 needed) → 422
+      4. MT5 readiness gate → 503
+      5. Symbol validation via live cache → 422
+      6. MT5 order execution"""
     _rate_limit_check()
     _validate_qty(req.quantity)     # fast: no MT5 needed, validates before 503 gate
+    if req.side.lower() not in ('buy', 'sell'):
+        raise HTTPException(status_code=422, detail=f'side must be buy or sell (got {req.side!r})')
     require_mt5_ready()             # MT5 gate after cheap validation passes
     await _validate_order_safety_async(
         req.login, req.password, req.server, req.symbol, req.quantity,

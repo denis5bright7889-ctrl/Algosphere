@@ -15,15 +15,16 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 _BASE_URL = "http://127.0.0.1:8000"
 
 
-@pytest.fixture(scope="session")
-def mt5_live():
-    """Returns True if the live bridge reports mt5_ready=True.
+@pytest.fixture(scope="function")
+def mt5_live(client):
+    """Returns True only when the bridge reports status='ok' at this moment.
 
-    Tests decorated with @pytest.mark.skipif(not mt5_live(), ...) are
-    skipped when the MT5 terminal is not running — they are integration
-    tests that require a live MT5 connection, not code bugs."""
+    Function-scoped so each test re-evaluates current bridge health.
+    status='ok' requires mt5_ready=True AND the watchdog has recently
+    confirmed the connection (last_ok_ms set), so transient startup
+    or post-bad-login states still cause a skip."""
     try:
-        r = httpx.get(f"{_BASE_URL}/health", timeout=3.0)
-        return r.status_code == 200 and r.json().get("mt5_ready", False)
+        r = client.get("/health")
+        return r.status_code == 200 and r.json().get("status") == "ok"
     except Exception:
         return False
