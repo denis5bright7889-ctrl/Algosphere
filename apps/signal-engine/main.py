@@ -7,6 +7,7 @@ import asyncio
 import os
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import FastAPI, WebSocket, Query
@@ -80,6 +81,11 @@ def _build_scheduler(worker: SignalWorker, monitor: LifecycleMonitor):
         health.probe_all,
         trigger='interval',
         minutes=10,
+        # Run once at boot too, so every deploy immediately re-evaluates
+        # broker state (incl. DISABLED rows whose environment may have
+        # changed, e.g. MT5_BRIDGE_URL just got configured) instead of
+        # waiting out the first 10-minute interval.
+        next_run_time=datetime.now(timezone.utc),
         id='broker_health',
         max_instances=1,
         coalesce=True,
