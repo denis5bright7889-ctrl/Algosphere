@@ -20,6 +20,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import LiveTicker from '@/components/dashboard/LiveTicker'
 import type { Database } from '@/lib/supabase/database.types'
 
 type Kill     = Database['public']['Tables']['global_risk_state']['Row']
@@ -165,6 +166,9 @@ export default async function CommandCenterPage() {
           <Link href="/copy/insights" className="text-blue-400 hover:underline">Insights →</Link>
         </div>
       </div>
+
+      {/* Realtime layer — polls /api/dashboard above the SSR panels below. */}
+      <LiveTicker />
 
       <header className="flex items-end justify-between">
         <div>
