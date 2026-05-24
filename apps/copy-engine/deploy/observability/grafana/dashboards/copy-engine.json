@@ -1,0 +1,89 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "title": "AlgoSphere — Copy Engine",
+  "uid": "algosphere-copy-engine",
+  "tags": ["algosphere", "copy-engine"],
+  "timezone": "",
+  "schemaVersion": 39,
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Global kill switch",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "mappings": [
+        { "type": "value", "options": { "0": { "text": "ARMED", "color": "green" }, "1": { "text": "KILLED", "color": "red" } } }
+      ], "thresholds": { "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } } },
+      "targets": [ { "expr": "max(algosphere_global_kill_switch)", "refId": "A" } ]
+    },
+    {
+      "id": 2,
+      "title": "Workers up",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [ { "expr": "count(algosphere_copy_worker_up == 1)", "refId": "A" } ]
+    },
+    {
+      "id": 3,
+      "title": "Queue depth",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [ { "expr": "algosphere_copy_queue_depth", "legendFormat": "queued", "refId": "A" } ]
+    },
+    {
+      "id": 4,
+      "title": "Job completions/s by status",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [ { "expr": "sum by (status) (rate(algosphere_copy_jobs_completed_total[5m]))", "legendFormat": "{{status}}", "refId": "A" } ]
+    },
+    {
+      "id": 5,
+      "title": "p95 /execute latency by broker",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [ { "expr": "histogram_quantile(0.95, sum(rate(algosphere_copy_exec_latency_seconds_bucket[5m])) by (le, broker))", "legendFormat": "{{broker}}", "refId": "A" } ]
+    },
+    {
+      "id": 6,
+      "title": "Retries & dead-letters /s",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        { "expr": "sum(rate(algosphere_copy_retries_total[5m]))", "legendFormat": "retries", "refId": "A" },
+        { "expr": "sum(rate(algosphere_copy_dlq_total[5m]))", "legendFormat": "dead-letters", "refId": "B" }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Copy health (avg score / p95 lag)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        { "expr": "algosphere_copy_health_score_avg", "legendFormat": "health score", "refId": "A" },
+        { "expr": "algosphere_copy_follower_lag_p95_ms_avg", "legendFormat": "p95 lag (ms)", "refId": "B" }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Worker logs",
+      "type": "logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "targets": [ { "expr": "{project=\"copy-engine\"}", "refId": "A" } ]
+    }
+  ]
+}

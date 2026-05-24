@@ -1,0 +1,30 @@
+# Alertmanager routing. Receivers are intentionally left as webhook stubs —
+# fill in your real sink (Slack/PagerDuty/email/Telegram webhook). The route
+# tree and grouping are production-shaped; only the URLs need to change.
+route:
+  receiver: default
+  group_by: ['alertname', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers: ['severity="critical"']
+      receiver: critical
+      repeat_interval: 1h
+
+receivers:
+  - name: default
+    webhook_configs:
+      - url: 'http://CHANGE_ME-webhook:9000/alerts'   # TODO: real sink
+        send_resolved: true
+
+  - name: critical
+    webhook_configs:
+      - url: 'http://CHANGE_ME-webhook:9000/critical'  # TODO: real sink / PagerDuty
+        send_resolved: true
+
+inhibit_rules:
+  # A firing critical for a service silences its warnings.
+  - source_matchers: ['severity="critical"']
+    target_matchers: ['severity="warning"']
+    equal: ['service']
