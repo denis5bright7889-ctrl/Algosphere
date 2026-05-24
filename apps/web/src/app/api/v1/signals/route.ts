@@ -10,6 +10,7 @@
 import { NextResponse } from 'next/server'
 import { createClient as serviceClient } from '@supabase/supabase-js'
 import { authenticateApiKey, isApiError } from '@/lib/api-auth'
+import { toPublicSignals } from '@/lib/signal-abstraction'
 
 export async function GET(request: Request) {
   const ctx = await authenticateApiKey(request, 'signals:read')
@@ -24,12 +25,16 @@ export async function GET(request: Request) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   )
 
+  // engine_version dropped — model versioning is an engine internal and
+  // must not leak. strategy_id / quality_score are read only to derive
+  // the alias and band inside toPublicSignal(); neither is serialized.
   let q = db
     .from('signals')
     .select(
       'id,pair,direction,entry_price,stop_loss,take_profit_1,take_profit_2,' +
-      'take_profit_3,risk_reward,confidence_score,regime,tier_required,' +
-      'lifecycle_state,status,result,pips_gained,engine_version,published_at',
+      'take_profit_3,risk_reward,confidence_score,quality_score,regime,session,' +
+      'strategy_id,tier_required,lifecycle_state,status,result,pips_gained,' +
+      'published_at,invalidated_at',
     )
     .order('published_at', { ascending: false })
     .limit(limit)
@@ -41,10 +46,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Query failed' }, { status: 500 })
   }
 
+  // Strategy-opacity boundary: sanitize before the response leaves the server.
+  const signals = toPublicSignals(data)
+
   return NextResponse.json(
     {
-      data: data ?? [],
-      count: data?.length ?? 0,
+      data: signals,
+      count: signals.length,
       meta: { tier: ctx.tier, limit, pair: pair ?? null },
     },
     {
