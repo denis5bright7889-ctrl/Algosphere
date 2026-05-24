@@ -60,6 +60,13 @@ export async function POST(
 
   const tier = (profile?.subscription_tier ?? 'free') as SubscriptionTier
   if (!canPromoteLive(tier)) {
+    // Audit the denied attempt to go live — best-effort, never blocks.
+    createServiceClient().from('audit_logs').insert({
+      actor_id: user.id, actor_email: user.email,
+      action: 'execution.promote_live.denied',
+      resource_type: 'broker_connection', resource_id: id,
+      after_state: { gate: 'product_entitlement', tier, broker: conn.broker },
+    }).then(() => {}, () => {})
     return NextResponse.json(
       {
         error:   'Live execution not included in your plan',
@@ -111,6 +118,17 @@ export async function POST(
   if (error || !updated) {
     return NextResponse.json({ error: 'Failed to promote' }, { status: 500 })
   }
+
+  // Audit the live flip — the single most consequential execution action.
+  // Best-effort; failure here must never undo or block the promotion.
+  svc.from('audit_logs').insert({
+    actor_id: user.id, actor_email: user.email,
+    action: 'execution.promote_live',
+    resource_type: 'broker_connection', resource_id: id,
+    before_state: { is_testnet: true, is_live: false },
+    after_state: { is_testnet: false, is_live: true, broker: conn.broker, tier,
+                   metrics: readiness },
+  }).then(() => {}, () => {})
 
   // Best-effort: invalidate the engine's cached testnet adapter
   const base = process.env.SIGNAL_ENGINE_URL
