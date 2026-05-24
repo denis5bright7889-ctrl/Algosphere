@@ -13,6 +13,8 @@
  */
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import { canPromoteLive, primaryProduct } from '@/lib/product-entitlements'
+import type { SubscriptionTier } from '@/lib/types'
 
 interface Readiness {
   attempts:          number
@@ -45,6 +47,28 @@ export async function POST(
   if (!conn) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (conn.is_testnet === false) {
     return NextResponse.json({ ok: true, already_live: true })
+  }
+
+  // Product-entitlement gate — live money requires the Quant™ layer
+  // (premium+). Sits before the readiness gate so an unentitled tier is
+  // refused on capability, never on shadow-execution stats. Server-only.
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('subscription_tier')
+    .eq('id', user.id)
+    .single()
+
+  const tier = (profile?.subscription_tier ?? 'free') as SubscriptionTier
+  if (!canPromoteLive(tier)) {
+    return NextResponse.json(
+      {
+        error:   'Live execution not included in your plan',
+        gate:    'product_entitlement',
+        product: primaryProduct(tier),
+        upgrade: 'premium',
+      },
+      { status: 403 },
+    )
   }
 
   // Readiness gate (RPC is SECURITY DEFINER, scoped to this user_id)
