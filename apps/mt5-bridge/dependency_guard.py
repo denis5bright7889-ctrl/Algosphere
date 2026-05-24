@@ -17,6 +17,9 @@ Returns a structured report the caller can log + expose on /health.
 from __future__ import annotations
 import importlib
 import importlib.metadata as md
+import platform
+import sys
+import time
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -38,12 +41,16 @@ class GuardReport:
     degraded:   bool = False          # True only if a capability is reduced
     fatal:      list[str] = field(default_factory=list)   # required deps missing
     capabilities: dict[str, bool] = field(default_factory=dict)
+    runtime:    dict = field(default_factory=dict)   # python/platform diagnostics
+    checked_at: float = 0.0           # epoch seconds of the check
 
     def as_dict(self) -> dict:
         return {
             'degraded':     self.degraded,
             'fatal':        self.fatal,
             'capabilities': self.capabilities,
+            'runtime':      self.runtime,
+            'checked_at':   self.checked_at,
             'deps': [
                 {'name': r.name, 'required': r.required, 'present': r.present,
                  'version': r.version, 'ok': r.ok, 'note': r.note}
@@ -83,8 +90,31 @@ def _major(version: Optional[str]) -> Optional[int]:
         return None
 
 
-def check_dependencies() -> GuardReport:
-    report = GuardReport()
+# Cached at first run — dependency state can't change within a process, so
+# /health and runtime diagnostics reuse the boot result instead of
+# re-importing every probe. Pass force=True to recompute.
+_CACHE: Optional[GuardReport] = None
+
+
+def snapshot() -> dict[str, Optional[str]]:
+    """Installed versions of every tracked distribution — for drift
+    diagnostics. Cheap, no imports; reads installed metadata only."""
+    return {dist: _installed_version(dist) for _, dist, *_ in _SPEC}
+
+
+def check_dependencies(force: bool = False) -> GuardReport:
+    global _CACHE
+    if _CACHE is not None and not force:
+        return _CACHE
+
+    report = GuardReport(
+        runtime={
+            'python':         sys.version.split()[0],
+            'implementation': platform.python_implementation(),
+            'platform':       platform.platform(),
+        },
+        checked_at=time.time(),
+    )
     for import_name, dist_name, required, want_major, capability in _SPEC:
         present = False
         try:
@@ -118,6 +148,7 @@ def check_dependencies() -> GuardReport:
                 # Optional missing/mismatch → degraded capability, never fatal.
                 report.degraded = True
 
+    _CACHE = report
     return report
 
 
