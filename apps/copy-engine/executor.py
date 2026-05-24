@@ -98,12 +98,19 @@ def _broker_conn(db, user_id: str, broker: str) -> dict | None:
     return rows[0] if rows else None
 
 
-def _count_open_same(db, user_id: str, symbol: str, direction: str | None) -> int:
+def _count_open_same(db, user_id: str, symbol: str, direction: str | None,
+                     exclude_id: str | None = None) -> int:
+    """Count OTHER open copies on (user, symbol[, direction]). exclude_id
+    drops the job's own copy_trade — created pre-broker for idempotent retry
+    reuse, it stays in 'pending' during a retryable broker failure and would
+    otherwise self-block the next attempt via the correlation cap."""
     q = (db.table('copy_trades').select('id', count='exact')
          .eq('follower_id', user_id).eq('symbol', symbol)
          .in_('status', list(OPEN_STATES)))
     if direction:
         q = q.eq('direction', direction)
+    if exclude_id:
+        q = q.neq('id', exclude_id)
     res = q.execute()
     return res.count or 0
 
@@ -218,7 +225,8 @@ async def _run_pipeline(db, engine: EngineClient, worker: str, job: CopyJob) -> 
     await asyncio.to_thread(_set_job, db, job.id, status='risk_check')
     conn = await asyncio.to_thread(_broker_conn, db, job.follower_id, broker)
     open_same = await asyncio.to_thread(
-        _count_open_same, db, job.follower_id, ev.symbol, ev.direction)
+        _count_open_same, db, job.follower_id, ev.symbol, ev.direction,
+        job.copy_trade_id)   # exclude this job's own (possibly pending) copy_trade
     daily = await asyncio.to_thread(_count_today, db, job.follower_id)
     ctx = GateContext(
         broker_connected = (broker == 'paper') or (conn is not None),
