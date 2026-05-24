@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
-import { isAdmin } from '@/lib/admin'
+import { isAdmin, canAccess } from '@/lib/admin'
+import { redactLockedSignal } from '@/lib/signal-abstraction'
 import { isDemo, effectiveTierForFeatures, demoTier } from '@/lib/demo'
 import { generateDemoSignals } from '@/lib/demo-data'
 import type { Signal, SubscriptionTier } from '@/lib/types'
@@ -52,6 +53,13 @@ export default async function SignalsPage() {
       .limit(50)
     signals = (data ?? []) as unknown as Signal[]
   }
+
+  // Authoritative tier gate: strip the edge (entry/SL/TP/RR/confidence) from
+  // signals this viewer can't access BEFORE it reaches the browser. Uses the
+  // same predicate SignalCard renders with, so the locked-card + upsell UX is
+  // unchanged — only the underlying numbers stop shipping in the RSC payload.
+  const email = user!.email ?? ''
+  signals = signals.map(s => redactLockedSignal(s, canAccess(email, userTier, s.tier_required)))
 
   return (
     <SignalsFeed

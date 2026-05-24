@@ -151,3 +151,36 @@ export function toPublicSignals(rows: unknown): PublicSignal[] {
   if (!Array.isArray(rows)) return []
   return (rows as SignalRowInput[]).map(toPublicSignal)
 }
+
+// ── Tier-scoped fidelity (Phase 3) ──────────────────────────────────────
+//
+// "Different tiers expose different abstraction levels." Access is decided
+// per signal (viewer tier vs the signal's tier_required), not globally —
+// so the unit is a redactor over the signal row, applied server-side.
+
+/** The tradeable edge — nulled when the viewer lacks tier access. */
+export const EDGE_FIELDS = [
+  'entry_price', 'stop_loss', 'take_profit_1', 'take_profit_2',
+  'take_profit_3', 'risk_reward', 'confidence_score', 'quality_score',
+] as const
+
+/**
+ * Server-side tier redaction for the dashboard feed. A locked signal
+ * (viewer tier < tier_required) keeps its card metadata — pair, direction,
+ * tier_required, timing — so the upsell card still renders, but the actual
+ * edge (entry/SL/TP/RR/confidence) is removed from the payload entirely.
+ *
+ * Previously the only gate was a `blur-sm` CSS class in SignalCard, so the
+ * real numbers shipped in the RSC payload and were trivially readable in
+ * devtools. This makes the gate authoritative. Accessible signals pass
+ * through untouched, so entitled viewers see no change.
+ */
+export function redactLockedSignal<T extends object>(row: T, hasAccess: boolean): T {
+  if (hasAccess) return row
+  return {
+    ...row,
+    entry_price: null, stop_loss: null,
+    take_profit_1: null, take_profit_2: null, take_profit_3: null,
+    risk_reward: null, confidence_score: null, quality_score: null,
+  } as T
+}
