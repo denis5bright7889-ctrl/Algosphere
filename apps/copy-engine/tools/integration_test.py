@@ -25,6 +25,7 @@ import sys
 import uuid
 import asyncio
 import pathlib
+from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 try:
@@ -38,6 +39,7 @@ from shared.models import SignalEvent, CopyJob
 from shared.engine_client import ExecResult
 import orchestrator
 import executor
+import coach
 
 _P, _F = '  ✓', '  ✗'
 SYMBOL = 'EURUSD'
@@ -169,6 +171,46 @@ def main() -> int:
         _ok(any(c['reduce_only'] and c['side'] == 'sell' for c in engine.calls),
             'close used reduce_only opposite-side order', fails)
 
+        # ── 5. Coach: behavioral analytics + notification + reports ─
+        # Seed a tilted journal: losses + revenge sizing → coach raises a
+        # warn alert → social_notifications row written (the last mile).
+        now_utc = datetime.now(timezone.utc)
+        pnls  = [-50, -40, -60, -30,  20, -25]
+        sizes = [0.1, 0.3, 0.8, 0.2, 0.1,  0.5]
+        jrows = [{
+            'user_id': follower_id, 'pair': SYMBOL, 'direction': 'buy',
+            'pnl': p, 'lot_size': l, 'session': 'london', 'source': 'auto',
+            'trade_date': now_utc.date().isoformat(),
+            'created_at': (now_utc - timedelta(minutes=(len(pnls) - i) * 4)).isoformat(),
+        } for i, (p, l) in enumerate(zip(pnls, sizes))]
+        db.table('journal_entries').insert(jrows).execute()
+
+        scored, raised = coach._process_user(db, follower_id)
+        _ok(scored, 'coach scored the follower (discipline computed)', fails)
+        _ok(raised >= 1, f'coach raised {raised} alert(s) (revenge sizing)', fails)
+
+        cs = (db.table('coach_state').select('discipline_score,revenge_events')
+              .eq('user_id', follower_id).execute().data or [])
+        _ok(bool(cs) and cs[0]['discipline_score'] is not None,
+            f"coach_state written (score={cs[0]['discipline_score'] if cs else 'none'})", fails)
+
+        notif = (db.table('social_notifications').select('id,message')
+                 .eq('recipient_id', follower_id).eq('notif_type', 'coach_alert')
+                 .execute().data or [])
+        _ok(len(notif) >= 1,
+            f'coaching notification delivered ({len(notif)} social_notifications row)', fails)
+
+        reps = (db.table('coach_reports').select('scope')
+                .eq('user_id', follower_id).execute().data or [])
+        scopes = {r['scope'] for r in reps}
+        _ok({'daily', 'weekly', 'monthly'} <= scopes,
+            f'daily/weekly/monthly reports written (got {sorted(scopes)})', fails)
+
+        ja = (db.table('journal_analytics').select('trades,profit_factor,net_pnl')
+              .eq('user_id', follower_id).execute().data or [])
+        _ok(bool(ja) and ja[0]['trades'] == 6,
+            f"journal_analytics computed ({ja[0]['trades'] if ja else 0}/6 trades)", fails)
+
     finally:
         # ── Teardown (FK-safe order; users last) ────────────────────
         print('── teardown ──')
@@ -181,9 +223,12 @@ def main() -> int:
             _try(lambda u=uid: db.table('social_notifications').delete().eq('recipient_id', u).execute())
             _try(lambda u=uid: db.table('copy_trades').delete().eq('follower_id', u).execute())
             _try(lambda u=uid: db.table('coach_state').delete().eq('user_id', u).execute())
+            _try(lambda u=uid: db.table('coach_alerts').delete().eq('user_id', u).execute())
+            _try(lambda u=uid: db.table('coach_reports').delete().eq('user_id', u).execute())
             _try(lambda u=uid: db.table('journal_analytics').delete().eq('user_id', u).execute())
             _try(lambda u=uid: db.table('portfolio_exposure').delete().eq('user_id', u).execute())
             _try(lambda u=uid: db.table('copy_reconciliation').delete().eq('follower_id', u).execute())
+            _try(lambda u=uid: db.table('journal_entries').delete().eq('user_id', u).execute())
         if sub_id:
             _try(lambda: db.table('copy_health').delete().eq('subscription_id', sub_id).execute())
         for ev_id in filter(None, [open_ev_id, close_ev_id]):

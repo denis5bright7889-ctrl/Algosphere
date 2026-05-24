@@ -110,8 +110,11 @@ def _open_alert_kinds(db, user_id: str) -> set[str]:
 
 
 def _insert_alerts(db, user_id: str, alerts) -> int:
-    """Insert only kinds not already open for this user (no spam). Returns
-    the count newly raised."""
+    """Insert only kinds not already open for this user (no spam). For
+    warn/critical findings, also drop an in-app notification into
+    social_notifications (the web app already renders these) — the coach's
+    'real-time coaching notification' last mile, DB-only. Returns the count
+    newly raised."""
     open_kinds = _open_alert_kinds(db, user_id)
     new = [a for a in alerts if a.kind not in open_kinds]
     for a in new:
@@ -120,23 +123,52 @@ def _insert_alerts(db, user_id: str, alerts) -> int:
             'title': a.title, 'payload': a.payload,
         }).execute()
         metrics.COACH_ALERTS.labels(kind=a.kind).inc()
+        if a.severity in ('warn', 'critical'):
+            try:
+                db.table('social_notifications').insert({
+                    'recipient_id': user_id, 'notif_type': 'coach_alert',
+                    'entity_type': 'coach',
+                    'message': f'Coach: {a.title}',
+                }).execute()
+            except Exception as e:
+                logger.warning(f'coach notification skipped: {e}')
     return len(new)
 
 
-def _write_daily_report(db, user_id: str, r: coaching.CoachingResult) -> None:
+# Per-scope window (days) for the report tiers.
+_SCOPE_DAYS = {'daily': 1, 'weekly': 7, 'monthly': 30}
+
+
+def _period_start(scope: str, today):
+    if scope == 'daily':
+        return today
+    if scope == 'weekly':
+        return today - timedelta(days=today.weekday())   # ISO week (Monday)
+    return today.replace(day=1)                           # month start
+
+
+def _write_reports(db, user_id: str, behav) -> None:
+    """Write daily/weekly/monthly PM-style reports. Each is the coaching
+    analysis over that scope's trade window; idempotent upsert per
+    (user, scope, period_start) so the current period's report stays fresh."""
     today = datetime.now(timezone.utc).date()
-    body = coaching.daily_report_markdown(user_id[:8], r)
-    db.table('coach_reports').upsert({
-        'user_id': user_id, 'scope': 'daily',
-        'period_start': today.isoformat(), 'period_end': today.isoformat(),
-        'body_markdown': body,
-        'metrics': {
-            'discipline_score': r.discipline_score, 'trades': r.trades,
-            'win_rate': r.win_rate, 'win_rate_after_losses': r.win_rate_after_losses,
-            'current_loss_streak': r.current_loss_streak,
-            'revenge_events': r.revenge_events, 'oversize_events': r.oversize_events,
-        },
-    }, on_conflict='user_id,scope,period_start').execute()
+    now = datetime.now(timezone.utc)
+    for scope, days in _SCOPE_DAYS.items():
+        cutoff = now - timedelta(days=days)
+        subset = [t for t in behav if t.ts >= cutoff]
+        r = coaching.analyze(subset)
+        db.table('coach_reports').upsert({
+            'user_id': user_id, 'scope': scope,
+            'period_start': _period_start(scope, today).isoformat(),
+            'period_end': today.isoformat(),
+            'body_markdown': coaching.daily_report_markdown(user_id[:8], r),
+            'metrics': {
+                'discipline_score': r.discipline_score, 'trades': r.trades,
+                'win_rate': r.win_rate, 'win_rate_after_losses': r.win_rate_after_losses,
+                'current_loss_streak': r.current_loss_streak,
+                'revenge_events': r.revenge_events, 'oversize_events': r.oversize_events,
+            },
+        }, on_conflict='user_id,scope,period_start').execute()
 
 
 def _upsert_analytics(db, user_id: str, a: journal_analytics.Analytics) -> None:
@@ -162,7 +194,7 @@ def _process_user(db, user_id: str) -> tuple[bool, int]:
     r = coaching.analyze(behav)
     _upsert_state(db, user_id, r)
     raised = _insert_alerts(db, user_id, r.alerts)
-    _write_daily_report(db, user_id, r)
+    _write_reports(db, user_id, behav)
     # Performance analytics (same trade load).
     _upsert_analytics(db, user_id, journal_analytics.compute(perf))
     return (r.discipline_score is not None), raised
