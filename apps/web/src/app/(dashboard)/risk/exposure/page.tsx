@@ -20,6 +20,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import ConcentrationHeatmap from '@/components/risk/ConcentrationHeatmap'
 import type { Database } from '@/lib/supabase/database.types'
 
 type Kill          = Database['public']['Tables']['global_risk_state']['Row']
@@ -271,6 +272,9 @@ export default async function RiskExposurePage() {
           )}
         </section>
       </div>
+
+      {/* ── Concentration heatmap ─────────────────────────────── */}
+      <ConcentrationHeatmap symbols={bySymbol} capPct={capConc} />
 
       {/* ── Quarantined / disabled strategies + Desync reminder ─ */}
       <div className="grid gap-4 md:grid-cols-3">
