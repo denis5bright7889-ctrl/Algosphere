@@ -39,7 +39,15 @@ from risk.broker_guard import get_guard
 
 router = APIRouter()
 
-SUPPORTED_BROKERS = {'binance', 'bybit', 'okx', 'mt5'}
+# Brokers the per-user factory can build (broker_connections + vault, or the
+# zero-credential paper broker). The copy orchestrator defaults followers to
+# 'paper', so it MUST be accepted here or every paper copy 503s at /execute.
+SUPPORTED_BROKERS = {'binance', 'bybit', 'okx', 'mt5', 'oanda', 'tradovate', 'paper'}
+
+# Subset that also has an env-based singleton builder (adapter_from_env) —
+# used by the user_id-less /execute/status probe. paper/oanda/tradovate are
+# per-user only (no env singleton), so they're excluded from the env probe.
+ENV_BROKERS = {'binance', 'bybit', 'okx', 'mt5'}
 
 
 # ─── Global kill switch (cached) ──────────────────────────────────────
@@ -382,8 +390,8 @@ async def execute_status(broker: str = 'binance') -> dict:
     """Quick liveness check for one broker leg. user_id-less so it only
     probes env-based singletons — for per-user health, query the
     broker_connections.status column from the web app."""
-    if broker not in SUPPORTED_BROKERS:
-        return {'configured': False, 'reason': f"unsupported broker {broker}"}
+    if broker not in ENV_BROKERS:
+        return {'configured': False, 'reason': f"no env singleton for broker {broker}"}
 
     adapter = await _get_env_adapter(broker)
     if adapter is None:
