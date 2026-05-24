@@ -20,6 +20,16 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import type { Database } from '@/lib/supabase/database.types'
+
+type Kill     = Database['public']['Tables']['global_risk_state']['Row']
+type Exposure = Database['public']['Tables']['portfolio_exposure']['Row']
+type Limits   = Database['public']['Tables']['risk_limits']['Row']
+type Health   = Database['public']['Tables']['copy_health']['Row']
+type Coach    = Database['public']['Tables']['coach_state']['Row']
+type Alert    = Database['public']['Tables']['coach_alerts']['Row']
+type Recon    = Database['public']['Tables']['copy_reconciliation']['Row']
+type Job      = Database['public']['Tables']['copy_jobs']['Row']
 
 export const dynamic = 'force-dynamic'
 
@@ -110,24 +120,18 @@ export default async function CommandCenterPage() {
       .order('created_at', { ascending: false }).limit(10),
   ])
 
-  // Casts: Supabase typegen doesn't know these tables yet (session-fresh).
-  // The RLS policies are the actual gatekeeper; types are a developer aid.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const kill   = (killRes.data ?? null) as any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const exp    = (expRes.data ?? null) as any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const lim    = (limRes.data ?? null) as any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const health = (healthRes.data ?? []) as any[]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const coach  = (coachRes.data ?? null) as any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const alerts = (alertsRes.data ?? []) as any[]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const recon  = (reconRes.data ?? []) as any[]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const jobs   = (jobsRes.data ?? []) as any[]
+  // Typed via opt-in Database aliases (the global client isn't generic-bound
+  // in this SDK version — see lib/supabase/server.ts).
+  // Step through unknown for array casts (untyped client returns
+  // GenericStringError-shape; see lib/supabase/server.ts).
+  const kill   = (killRes.data   ?? null) as Kill | null
+  const exp    = (expRes.data    ?? null) as Exposure | null
+  const lim    = (limRes.data    ?? null) as Limits | null
+  const health = (healthRes.data ?? []) as unknown as Health[]
+  const coach  = (coachRes.data  ?? null) as Coach | null
+  const alerts = (alertsRes.data ?? []) as unknown as Alert[]
+  const recon  = (reconRes.data  ?? []) as unknown as Recon[]
+  const jobs   = (jobsRes.data   ?? []) as unknown as Job[]
 
   const totalNotional = Number(exp?.total_notional ?? 0)
   const expCapPct = lim?.max_total_exposure_usd

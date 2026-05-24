@@ -13,6 +13,12 @@
  */
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import type { Database } from '@/lib/supabase/database.types'
+
+type CoachState   = Database['public']['Tables']['coach_state']['Row']
+type CoachAlert   = Database['public']['Tables']['coach_alerts']['Row']
+type Analytics    = Database['public']['Tables']['journal_analytics']['Row']
+type CopyJob      = Database['public']['Tables']['copy_jobs']['Row']
 
 export const dynamic = 'force-dynamic'
 
@@ -70,19 +76,14 @@ export default async function CopyInsightsPage() {
       .order('created_at', { ascending: false }).limit(15),
   ])
 
-  // TODO: regenerate Supabase types (`supabase gen types typescript`) to
-  // pick up the new tables (coach_state, coach_alerts, journal_analytics,
-  // copy_jobs cols). Until then the typed client returns GenericStringError
-  // for these tables, so we cast — the columns themselves are real and
-  // RLS-enforced server-side.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const state     = (stateRes.data ?? null) as any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const alerts    = (alertsRes.data ?? []) as any[]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const analytics = (analyticsRes.data ?? null) as any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const jobs      = (jobsRes.data ?? []) as any[]
+  // Typed via opt-in Database aliases (see lib/supabase/server.ts on why
+  // the global client isn't generic-bound in this SDK version).
+  // unknown-step required for array casts (untyped client returns
+  // GenericStringError shape; types overlap insufficiently otherwise).
+  const state     = (stateRes.data ?? null)     as CoachState | null
+  const alerts    = (alertsRes.data ?? []) as unknown as CoachAlert[]
+  const analytics = (analyticsRes.data ?? null) as Analytics | null
+  const jobs      = (jobsRes.data ?? []) as unknown as CopyJob[]
 
   return (
     <main className="mx-auto max-w-6xl space-y-6 p-6">
