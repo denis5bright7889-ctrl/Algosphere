@@ -2,7 +2,8 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 import LiveCryptoStrip from '@/components/market/LiveCryptoStrip'
-import MarketUniversePanel from '@/components/market/MarketUniversePanel'
+import MarketHub from '@/components/market/MarketHub'
+import { MARKET_UNIVERSE } from '@/lib/market-universe'
 
 export const metadata = { title: 'Market Tracker — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'
@@ -11,6 +12,35 @@ export default async function MarketTrackerPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+
+  // Intelligence layer: latest regime per symbol (real data only —
+  // unmatched universe symbols simply stay "not scanned", never guessed).
+  const regimeBySymbol: Record<string, { regime: string; score: number | null }> = {}
+  {
+    const { data: rg } = await supabase
+      .from('regime_snapshots')
+      .select('symbol, regime, der_score, scanned_at')
+      .order('scanned_at', { ascending: false })
+      .limit(120)
+    const seen = new Set<string>()
+    for (const r of rg ?? []) {
+      if (seen.has(r.symbol)) continue
+      seen.add(r.symbol)
+      regimeBySymbol[r.symbol] = { regime: r.regime, score: r.der_score }
+    }
+  }
+
+  const uni = MARKET_UNIVERSE.map((c) => ({
+    assetClass: c.assetClass,
+    label:      c.label,
+    blurb:      c.blurb,
+    instruments: c.instruments.map((i) => ({
+      symbol:   i.symbol,
+      label:    i.label,
+      group:    i.group ?? null,
+      provider: i.provider,
+    })),
+  }))
 
   // Trending traders: top by 24h rank change
   const { data: traders } = await supabase
@@ -64,13 +94,13 @@ export default async function MarketTrackerPage() {
                 : 'Extreme Fear'
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6">
+    <div className="mx-auto max-w-5xl px-1 py-4 sm:px-4 sm:py-6">
       <header className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">
           Market <span className="text-gradient">Tracker</span>
         </h1>
         <p className="text-xs text-muted-foreground mt-1">
-          Trending traders, hottest pairs, and the platform fear & greed pulse.
+          Segmented multi-asset intelligence — switch class, the working set follows.
         </p>
       </header>
 
@@ -79,7 +109,7 @@ export default async function MarketTrackerPage() {
       </div>
 
       <div className="mb-6">
-        <MarketUniversePanel />
+        <MarketHub universe={uni} regimeBySymbol={regimeBySymbol} />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">

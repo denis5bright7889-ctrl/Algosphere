@@ -7,11 +7,10 @@
  *
  * Two cross-cutting concerns live here so every consumer behaves
  * identically:
- *   1. Taxonomy — institutional IA: Intelligence / Markets /
- *      Execution / Portfolio / Community / Tools, plus an
- *      operational Account group (settings/billing/logout — chrome,
- *      not a feature group). One route per real page; we never add a
- *      nav link to a route that doesn't exist.
+ *   1. Taxonomy — institutional IA, intelligence-first:
+ *      Intelligence / Markets / Execution / Portfolio / Research /
+ *      Community / System. One route per real page; we never add a
+ *      nav link to a route that doesn't exist (no dead links, ever).
  *   2. Role-based visibility — `minTier` gates institutional tools
  *      so lower tiers see a simpler nav (the page itself still
  *      enforces its own TierGate; this is purely declutter).
@@ -23,7 +22,7 @@ import {
   Users, Network, Crown, MessagesSquare, Repeat,
   BookOpen, Calculator, Briefcase, BrainCircuit, KeyRound, Rocket, GraduationCap,
   Settings2, BadgeDollarSign, Handshake, BadgeCheck, LogOut,
-  LineChart, MessageSquare, Wrench, UserCog, Waves,
+  LineChart, MessageSquare, UserCog, Waves,
   Building2, Coins, TrendingUp, Grid3x3, Sparkles,
   type LucideIcon,
 } from 'lucide-react'
@@ -86,7 +85,8 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Execution',
     icon: Cpu,
     items: [
-      { href: '/execution',  label: 'Execution Desk', icon: Cpu,         minTier: 'vip',     keywords: 'auto orders fills bot' },
+      { href: '/algo',       label: 'Auto Trading',   icon: Cpu,         keywords: 'algo bot mt5 institutional execution gateway desk activate engine' },
+      { href: '/execution',  label: 'Execution Desk', icon: Cpu,         minTier: 'vip',     keywords: 'auto orders fills bot live dashboard' },
       { href: '/brokers',    label: 'Brokers',        icon: Landmark,    keywords: 'binance bybit okx mt5 api keys connect' },
       { href: '/risk',       label: 'Risk Engine',    icon: ShieldCheck, keywords: 'drawdown limits position size' },
       { href: '/journal',    label: 'Trade Journal',  icon: BookOpen,    keywords: 'trade log diary' },
@@ -98,45 +98,49 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Portfolio',
     icon: LineChart,
     items: [
-      { href: '/watchlist', label: 'Watchlist',      icon: Bell,      keywords: 'pin instruments universe symbols favourites' },
-      { href: '/copy',      label: 'Copy Portfolio', icon: Repeat,    keywords: 'mirror auto follow allocation' },
-      { href: '/analytics', label: 'Performance',    icon: BarChart3, keywords: 'pnl stats win rate analytics' },
+      { href: '/watchlist', label: 'Watchlists',     icon: Bell,      keywords: 'pin instruments universe symbols favourites' },
+      { href: '/analytics', label: 'Performance',    icon: BarChart3, keywords: 'pnl stats win rate analytics equity curve' },
+      { href: '/copy',      label: 'Copy Trading',   icon: Repeat,    keywords: 'mirror auto follow allocation portfolio' },
+    ],
+  },
+  {
+    // Research & strategy lab — building/validating an edge, not
+    // executing it. Split out of the old "Tools" grab-bag.
+    label: 'Research',
+    icon: FlaskConical,
+    items: [
+      { href: '/quant-builder', label: 'Quant Builder', icon: BrainCircuit,  minTier: 'premium', keywords: 'strategy algo no-code lab builder' },
+      { href: '/backtest',      label: 'Backtester',    icon: FlaskConical,  keywords: 'historical simulation strategy lab' },
+      { href: '/calculators',   label: 'Calculators',   icon: Calculator,    keywords: 'position size lot pip risk' },
+      { href: '/learn',         label: 'Academy',       icon: GraduationCap, keywords: 'education learn course lessons training data lab' },
     ],
   },
   {
     label: 'Community',
     icon: MessageSquare,
     items: [
+      { href: '/community',   label: 'Community Feed',       icon: Users,         keywords: 'discussion forum threads' },
       { href: '/strategies',  label: 'Strategy Marketplace', icon: Target,        keywords: 'published strategies marketplace subscribe' },
-      { href: '/community',   label: 'Community',            icon: Users,         keywords: 'discussion forum threads' },
-      { href: '/social',      label: 'Social Feed',          icon: MessagesSquare,keywords: 'posts' },
+      { href: '/social',      label: 'Social Feed',          icon: MessagesSquare,keywords: 'posts ideas' },
       { href: '/traders',     label: 'Leaderboards',         icon: Trophy,        keywords: 'ranking top traders verified' },
       { href: '/rooms',       label: 'Trader Rooms',         icon: Network,       keywords: 'voice telegram' },
       { href: '/communities', label: 'Premium Groups',       icon: Crown,         minTier: 'premium', keywords: 'vip exclusive' },
     ],
   },
   {
-    label: 'Tools',
-    icon: Wrench,
+    // Platform & account chrome — notifications, developer access,
+    // billing, identity. Operational, not a feature surface.
+    label: 'System',
+    icon: Settings2,
     items: [
-      { href: '/backtest',      label: 'Backtester',      icon: FlaskConical, keywords: 'historical simulation' },
-      { href: '/quant-builder', label: 'Quant Builder',   icon: BrainCircuit, minTier: 'premium', keywords: 'strategy algo no-code' },
-      { href: '/calculators',   label: 'Calculators',     icon: Calculator,   keywords: 'position size lot pip' },
-      { href: '/learn',         label: 'Academy',         icon: GraduationCap, keywords: 'education learn course lessons beginner training' },
-      { href: '/prop',          label: 'Prop Toolkit',    icon: Briefcase,    minTier: 'premium', keywords: 'ftmo challenge funded' },
-      { href: '/api-keys',      label: 'API Access',      icon: KeyRound,     minTier: 'premium', keywords: 'developer token rest' },
-      { href: '/launchpad',     label: 'Token Launchpad', icon: Rocket,       minTier: 'vip',     keywords: 'ico presale' },
-    ],
-  },
-  {
-    label: 'Account',
-    icon: UserCog,
-    items: [
-      { href: '/settings',     label: 'Settings',     icon: Settings2,        keywords: 'account security 2fa devices' },
-      { href: '/upgrade',      label: 'Subscription', icon: BadgeDollarSign,  keywords: 'billing plan renew upgrade' },
-      { href: '/referrals',    label: 'Affiliate',    icon: Handshake,        keywords: 'referral commission' },
-      { href: '/verification', label: 'Verification', icon: BadgeCheck,       keywords: 'verified track record' },
-      { action: 'logout',      label: 'Logout',       icon: LogOut,           keywords: 'sign out' },
+      { href: '/api-keys',     label: 'API Access',   icon: KeyRound,        minTier: 'premium', keywords: 'developer token rest webhook' },
+      { href: '/prop',         label: 'Prop Toolkit', icon: Briefcase,       minTier: 'premium', keywords: 'ftmo challenge funded' },
+      { href: '/launchpad',    label: 'Token Launchpad', icon: Rocket,       minTier: 'vip',     keywords: 'ico presale' },
+      { href: '/settings',     label: 'Settings',     icon: UserCog,         keywords: 'account security 2fa devices preferences' },
+      { href: '/upgrade',      label: 'Billing & Plan', icon: BadgeDollarSign, keywords: 'subscription billing plan renew upgrade' },
+      { href: '/referrals',    label: 'Affiliate',    icon: Handshake,       keywords: 'referral commission' },
+      { href: '/verification', label: 'Verification', icon: BadgeCheck,      keywords: 'verified track record kyc' },
+      { action: 'logout',      label: 'Logout',       icon: LogOut,          keywords: 'sign out' },
     ],
   },
 ]

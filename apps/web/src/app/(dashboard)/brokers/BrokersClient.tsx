@@ -673,14 +673,19 @@ function StatusExplainer({ c }: { c: Conn }) {
         <div className="space-y-1">
           <p>
             <span className="font-semibold">Disabled in this environment.</span>{' '}
-            {isMt5
-              ? 'MT5 requires the MetaTrader 5 terminal running on a Windows host. The current engine deploy is Linux (Railway), so no handshake is possible from here.'
-              : (c.error_message ?? 'This broker is not supported in the current deploy.')}
+            {/* Prefer the engine's own reason — it's bridge-aware now and
+                names the real cause. Fall back to a truthful default. */}
+            {c.error_message
+              ?? (isMt5
+                ? 'The MetaTrader 5 bridge is not reachable from the engine yet.'
+                : 'This broker is not supported in the current deploy.')}
           </p>
           {isMt5 && (
             <p className="text-zinc-300/80">
-              To enable: provision a Windows VPS, install the MT5 bridge service on it,
-              and point <span className="font-mono">SIGNAL_ENGINE_URL</span> there.
+              MT5 executes through the Windows bridge service
+              (<span className="font-mono">mt5.algospherequant.com</span>) — the Linux
+              engine delegates to it over HTTP. To enable, set{' '}
+              <span className="font-mono">MT5_BRIDGE_URL</span> on the engine and redeploy.
               Crypto testnet brokers (Binance / Bybit / OKX) work as-is.
             </p>
           )}
