@@ -45,6 +45,7 @@ class EngineClient:
 
     async def execute(self, *, broker: str, symbol: str, side: str,
                       quantity: float, user_id: str, client_order_id: str,
+                      price: Optional[float] = None,
                       stop_loss: Optional[float] = None,
                       take_profit: Optional[float] = None,
                       max_slippage_pct: float = 0.002,
@@ -56,6 +57,9 @@ class EngineClient:
         body = {
             'broker': broker, 'symbol': symbol, 'side': side,
             'order_type': 'market', 'quantity': quantity,
+            # price is a HINT for adapters without a price feed (PaperBroker
+            # needs it; real brokers ignore it on MARKET orders).
+            'price': price,
             'stop_loss': stop_loss, 'take_profit': take_profit,
             'client_order_id': client_order_id, 'reduce_only': reduce_only,
             'max_slippage_pct': max_slippage_pct, 'user_id': user_id,

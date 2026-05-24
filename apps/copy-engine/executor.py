@@ -159,7 +159,7 @@ def _create_copy_trade(db, *, job: CopyJob, ev: SignalEvent, sub: Subscription,
         'copy_mode':       sub.copy_mode,
         'broker':          job.broker,
         'status':          'pending',
-    }).select('id').execute())
+    }).execute())   # default Prefer: return=representation gives us all cols
     rows = res.data or []
     return rows[0]['id'] if rows else None
 
@@ -306,6 +306,7 @@ async def _run_pipeline(db, engine: EngineClient, worker: str, job: CopyJob) -> 
     result = await engine.execute(
         broker=broker, symbol=ev.symbol, side=ev.direction, quantity=lot,
         user_id=job.follower_id, client_order_id=coid,
+        price=ev.entry,   # hint for paper-like adapters; real brokers ignore on MARKET
         stop_loss=ev.stop_loss if sub.copy_sl else None,
         take_profit=ev.take_profit if sub.copy_tp else None,
     )

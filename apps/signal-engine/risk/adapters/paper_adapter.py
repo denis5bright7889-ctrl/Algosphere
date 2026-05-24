@@ -196,6 +196,9 @@ class PaperBroker(ExecutionAdapter):
         self.login      = f"paper_{user_id[:8]}"
         self._connected = True
         self._lock      = asyncio.Lock()
+        # ExecutionAdapter interface: every adapter exposes .testnet (the
+        # ExecuteOut payload uses it). Paper is always non-real-money.
+        self.testnet    = True
 
         state = _load_state(user_id)
         if state is None:
