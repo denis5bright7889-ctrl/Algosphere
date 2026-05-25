@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     polygon_api_key: str = ''
     alpha_vantage_api_key: str = ''
 
+    # Inbound provider webhooks. Finnhub posts events with an
+    # 'X-Finnhub-Secret' header == the secret shown in your Finnhub webhook
+    # dashboard; we verify against this. Other providers fall back to a
+    # per-provider <PROVIDER>_WEBHOOK_SECRET env var (see api/webhooks.py).
+    finnhub_webhook_secret: str = ''
+
     # Redis (optional)
     redis_url: str = ''
 
