@@ -24,6 +24,7 @@ import { createClient } from '@/lib/supabase/server'
 import { marketState, type MarketState } from '@/lib/market-language'
 import { tokenScreener, isNansenConfigured, type NansenChain } from '@/lib/nansen'
 import { getMacroSnapshot, isAlphaVantageConfigured } from '@/lib/alphavantage'
+import { composeMomentumView, type MomentumView } from '@/lib/momentum-engine'
 
 export type Bias    = 'Bullish' | 'Bearish' | 'Neutral' | 'Mixed' | 'N/A'
 export type Composite = 'Very High' | 'High' | 'Moderate' | 'Weak'
@@ -86,24 +87,22 @@ async function loadRegime(symbol: string): Promise<RegimeSnap | null> {
 
 // ── Layer builders ───────────────────────────────────────────────────────
 
-function momentumLayer(r: RegimeSnap | null): ConvictionLayer {
-  if (!r) return { name: 'Momentum', bias: 'N/A', strength: 0, signal: 'No recent scan', source: 'regime-engine' }
-  const der = Number(r.der_score) || 0
-  const ac  = Number(r.autocorr_score) || 0
-  // Strength = how energetic the move is (DER), 0..5
-  const strength = Math.min(5, Math.round(der * 5))
-  // Direction comes from autocorrelation sign — positive persistence ⇒ trend-with, negative ⇒ trend-fade
-  let bias: Bias = 'Neutral'
-  if (der >= 0.4) {
-    if (ac >=  0.05) bias = 'Bullish'
-    else if (ac <= -0.05) bias = 'Bearish'
-    else bias = 'Mixed'
+function momentumLayer(mv: MomentumView): ConvictionLayer {
+  if (mv.phase === 'Unknown') {
+    return { name: 'Momentum', bias: 'N/A', strength: 0, signal: mv.signal, source: 'momentum-engine' }
   }
-  const signal =
-    der >= 0.7 ? 'Strong, persistent' :
-    der >= 0.4 ? 'Moderate, sustainable' :
-    'Weak, indecisive'
-  return { name: 'Momentum', bias, strength, signal, source: 'regime-engine' }
+  // Bias from direction (which is itself derived from energy + persistence)
+  const bias: Bias =
+    mv.direction === 'Up'   ? 'Bullish' :
+    mv.direction === 'Down' ? 'Bearish' :
+    mv.phase === 'Parabolic' || mv.phase === 'Collapse Risk' ? 'Mixed' :
+    'Neutral'
+  // Strength = 1..5 from the 0-100 momentum score
+  const strength = Math.max(1, Math.min(5, Math.round(mv.score / 20)))
+  // Signal surfaces the phase + sustainability — institutional language only
+  const tail = mv.overcrowded ? ' · overcrowded' : mv.accelerating ? ' · accelerating' : mv.weakening ? ' · weakening' : ''
+  const signal = `${mv.phase}${tail}`
+  return { name: 'Momentum', bias, strength, signal, source: 'momentum-engine' }
 }
 
 function regimeLayer(r: RegimeSnap | null): ConvictionLayer {
@@ -293,17 +292,19 @@ function buildNarrative(symbol: string, layers: ConvictionLayer[], comp: ReturnT
 
 export async function composeConviction(symbol: string): Promise<ConvictionView> {
   const asset = classifyAsset(symbol)
-  const regime = await loadRegime(symbol)
 
-  // Layers in parallel; macro + Nansen are independent of regime.
-  const [sm, part, macro] = await Promise.all([
+  // Layers in parallel — momentum/regime read snapshot trajectory,
+  // macro + Nansen are independent of regime.
+  const [regime, mv, sm, part, macro] = await Promise.all([
+    loadRegime(symbol),
+    composeMomentumView(symbol),
     smartMoneyLayer(symbol, asset),
     participationLayer(symbol, asset),
     macroLayer(asset),
   ])
 
   const layers: ConvictionLayer[] = [
-    momentumLayer(regime),
+    momentumLayer(mv),
     regimeLayer(regime),
     volatilityLayer(regime),
     sm,
