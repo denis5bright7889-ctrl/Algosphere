@@ -12,6 +12,7 @@
  */
 import { loadIntelContext } from '../_components/guard'
 import { composeConviction, type ConvictionView, type ConvictionLayer } from '@/lib/conviction'
+import { composeStressView, type StressView, type StressLabel } from '@/lib/stress-engine'
 import { cn } from '@/lib/utils'
 
 export const metadata = { title: 'Conviction' }
@@ -21,7 +22,12 @@ const DEFAULT_BASKET = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'EURUSD', 'XAUUSD', 'AA
 
 export default async function ConvictionPage() {
   await loadIntelContext()    // auth + tier resolution
-  const views = await Promise.all(DEFAULT_BASKET.map((s) => composeConviction(s)))
+  // Compose the environment read and the per-symbol views in parallel — Stress
+  // is the universe-level frame that calibrates how to read per-symbol conviction.
+  const [stress, views] = await Promise.all([
+    composeStressView(),
+    Promise.all(DEFAULT_BASKET.map((s) => composeConviction(s))),
+  ])
 
   return (
     <main className="mx-auto max-w-6xl space-y-6 p-6">
@@ -34,11 +40,45 @@ export default async function ConvictionPage() {
         </p>
       </header>
 
+      <EnvironmentStrip stress={stress} />
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {views.map((v) => <ConvictionCard key={v.symbol} view={v} />)}
       </div>
     </main>
   )
+}
+
+// ── Environment strip — Stress read across the top of the conviction view ─
+
+function EnvironmentStrip({ stress }: { stress: StressView }) {
+  const tone = stressTone(stress.label)
+  return (
+    <section className={cn('flex items-center gap-4 rounded-xl border bg-card p-4 shadow-sm', tone.border)}>
+      <div className="flex flex-1 items-center gap-3">
+        <div className="flex flex-col">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Environment</span>
+          <span className={cn('text-lg font-semibold tracking-tight', tone.text)}>{stress.label}</span>
+        </div>
+        <div className="hidden h-10 w-px bg-border/60 sm:block" />
+        <p className="hidden flex-1 text-xs text-muted-foreground sm:block">{stress.narrative}</p>
+      </div>
+      <div className="flex shrink-0 flex-col items-end">
+        <span className={cn('text-xl font-semibold tabular-nums leading-none', tone.text)}>{stress.score}</span>
+        <span className="text-[9px] uppercase tracking-wider text-muted-foreground">stress · {stress.posture}</span>
+      </div>
+    </section>
+  )
+}
+
+function stressTone(label: StressLabel): { text: string; border: string } {
+  switch (label) {
+    case 'Aggressive Conditions':  return { text: 'text-emerald-400', border: 'border-emerald-500/30' }
+    case 'Stable Conditions':      return { text: 'text-sky-400',     border: 'border-sky-500/30' }
+    case 'Defensive Environment':  return { text: 'text-amber-400',   border: 'border-amber-500/30' }
+    case 'Market Stress Elevated': return { text: 'text-rose-400',    border: 'border-rose-500/40' }
+    default:                       return { text: 'text-muted-foreground', border: 'border-border' }
+  }
 }
 
 // ── Card ─────────────────────────────────────────────────────────────────
