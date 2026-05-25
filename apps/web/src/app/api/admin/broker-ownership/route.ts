@@ -58,6 +58,18 @@ interface HistRow extends HistoryEvent {
   new_owner_user_id:      string | null
   reason:                 string | null
 }
+interface ContentionRow {
+  fingerprint:       string
+  contender_user_id: string
+  status:            'active_contention' | 'resolved_contention' | 'dismissed_contention'
+  attempt_count:     number
+  first_seen_at:     string
+  last_attempt_at:   string
+  last_ip:           string | null
+  resolved_at:       string | null
+  resolved_by:       string | null
+  resolution_note:   string | null
+}
 
 export async function GET() {
   const admin = await _admin()
@@ -65,7 +77,7 @@ export async function GET() {
 
   const svc = _svc()
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString()
-  const [ownRes, connRes, histRes] = await Promise.all([
+  const [ownRes, connRes, histRes, contRes] = await Promise.all([
     svc.from('broker_account_ownership')
        .select('fingerprint, broker, owner_user_id, ownership_status, unlink_cooldown_until, linked_at, last_seen_at, last_seen_ip, risk_score')
        .limit(500),
@@ -76,11 +88,15 @@ export async function GET() {
        .select('action, fingerprint, ip_address, user_agent, created_at, previous_owner_user_id, new_owner_user_id, reason')
        .gte('created_at', since)
        .limit(5000),
+    svc.from('broker_contention')
+       .select('fingerprint, contender_user_id, status, attempt_count, first_seen_at, last_attempt_at, last_ip, resolved_at, resolved_by, resolution_note')
+       .limit(5000),
   ])
 
   const ownerships = (ownRes.data  ?? []) as unknown as OwnershipRow[]
   const conns      = (connRes.data ?? []) as unknown as ConnRow[]
   const history    = (histRes.data ?? []) as unknown as HistRow[]
+  const contention = (contRes.data ?? []) as unknown as ContentionRow[]
 
   // Index by fingerprint.
   const connsByFp: Record<string, ConnRow[]> = {}
@@ -89,11 +105,24 @@ export async function GET() {
   }
   const histByFp: Record<string, HistRow[]> = {}
   for (const h of history) (histByFp[h.fingerprint] ??= []).push(h)
+  const contByFp: Record<string, ContentionRow[]> = {}
+  for (const c of contention) (contByFp[c.fingerprint] ??= []).push(c)
 
   // Score + persist + reshape for the client.
   const rows = ownerships.map(o => {
-    const events = histByFp[o.fingerprint] ?? []
-    const risk   = scoreOwnership(events)
+    const allEvents = histByFp[o.fingerprint] ?? []
+    const cont      = contByFp[o.fingerprint] ?? []
+
+    // Per-contender resolution state. Contenders that an admin has
+    // resolved/dismissed are excluded from the RISK score's reclaim_blocked
+    // input — resolving genuinely removes the risk noise (per the brief).
+    const resolvedUsers = new Set(
+      cont.filter(c => c.status !== 'active_contention').map(c => c.contender_user_id),
+    )
+    const events = allEvents.filter(h =>
+      !(h.action === 'reclaim_blocked' && h.new_owner_user_id && resolvedUsers.has(h.new_owner_user_id)),
+    )
+    const risk = scoreOwnership(events)
     if (risk.score !== o.risk_score) {
       // Best-effort persist — risk write must never block the admin view.
       svc.from('broker_account_ownership')
@@ -102,16 +131,18 @@ export async function GET() {
         .then(() => {}, () => {})
     }
     const fpConns = connsByFp[o.fingerprint] ?? []
-    // Contention: distinct user_ids appearing in either active connections
-    // pointing at this fingerprint OR reclaim_blocked history that are NOT
-    // the current owner.
-    const contention = new Set<string>()
-    for (const c of fpConns) if (c.user_id !== o.owner_user_id) contention.add(c.user_id)
-    for (const h of events) {
-      if (h.action === 'reclaim_blocked' && h.new_owner_user_id && h.new_owner_user_id !== o.owner_user_id) {
-        contention.add(h.new_owner_user_id)
-      }
-    }
+
+    // Contention split from the broker_contention state table. Active drives
+    // banners + counters; resolved/dismissed stay for audit but are hidden
+    // from active operational UI.
+    const shape = (c: ContentionRow) => ({
+      user_id: c.contender_user_id, status: c.status, attempt_count: c.attempt_count,
+      first_seen_at: c.first_seen_at, last_attempt_at: c.last_attempt_at,
+      last_ip: c.last_ip, resolved_at: c.resolved_at, resolution_note: c.resolution_note,
+    })
+    const activeContention  = cont.filter(c => c.status === 'active_contention').map(shape)
+    const resolvedAttempts  = cont.filter(c => c.status !== 'active_contention').map(shape)
+
     return {
       fingerprint:    o.fingerprint,
       broker:         o.broker,
@@ -125,8 +156,11 @@ export async function GET() {
       connections:    fpConns.map(c => ({
         id: c.id, user_id: c.user_id, broker: c.broker, status: c.status, label: c.label,
       })),
-      contention:     Array.from(contention),
-      history:        events
+      // Active contention only (the operational signal). Resolved kept separate.
+      contention:        activeContention.map(c => c.user_id),
+      active_contention: activeContention,
+      resolved_attempts: resolvedAttempts,
+      history:        allEvents
         .slice()
         .sort((a, b) => b.created_at.localeCompare(a.created_at))
         .slice(0, 20)

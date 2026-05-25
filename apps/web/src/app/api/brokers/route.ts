@@ -5,6 +5,39 @@ import { encrypt, isVaultAvailable, mask } from '@/lib/vault'
 import { testBrokerConnection } from '@/lib/engine-client'
 import { brokerFingerprint } from '@/lib/broker-fingerprint'
 
+/**
+ * Persist a blocked claim into the broker_contention state table (current
+ * state) alongside the immutable reclaim_blocked history (audit). Best-
+ * effort, read-then-write: a blocked connect is rare so the non-atomic
+ * increment is fine. Status is never downgraded here — an admin's
+ * resolved/dismissed decision is preserved even if the contender retries.
+ */
+async function recordContention(
+  svc: ReturnType<typeof createServiceClient>,
+  fingerprint: string, contenderId: string, ip: string | null, ua: string | null,
+): Promise<void> {
+  try {
+    const { data: ex } = await svc
+      .from('broker_contention')
+      .select('id, attempt_count')
+      .eq('fingerprint', fingerprint).eq('contender_user_id', contenderId)
+      .maybeSingle()
+    if (ex) {
+      const row = ex as { id: string; attempt_count: number }
+      await svc.from('broker_contention').update({
+        attempt_count:   (row.attempt_count ?? 1) + 1,
+        last_attempt_at: new Date().toISOString(),
+        last_ip: ip, last_user_agent: ua,
+      }).eq('id', row.id)
+    } else {
+      await svc.from('broker_contention').insert({
+        fingerprint, contender_user_id: contenderId, status: 'active_contention',
+        attempt_count: 1, last_ip: ip, last_user_agent: ua,
+      })
+    }
+  } catch { /* contention state is best-effort; never blocks a connect */ }
+}
+
 // GET — list my broker connections (secrets never returned in plaintext)
 export async function GET() {
   const supabase = await createClient()
@@ -149,6 +182,7 @@ export async function POST(req: Request) {
             reason: 'fingerprint in unlink cooldown',
             actor_id: user.id, ip_address: ip, user_agent: ua,
           }).then(() => {}, () => {})
+          void recordContention(svc, fingerprint, user.id, ip, ua)
           return NextResponse.json(
             { error: 'This trading account is in a cooldown period and cannot be re-linked yet.' },
             { status: 409 },
@@ -164,6 +198,7 @@ export async function POST(req: Request) {
             reason: 'fingerprint owned by different user',
             actor_id: user.id, ip_address: ip, user_agent: ua,
           }).then(() => {}, () => {})
+          void recordContention(svc, fingerprint, user.id, ip, ua)
           return NextResponse.json(
             { error: 'This trading account is already connected to another AlgoSphere profile.' },
             { status: 409 },

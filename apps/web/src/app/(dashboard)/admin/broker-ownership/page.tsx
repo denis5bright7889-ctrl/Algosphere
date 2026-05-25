@@ -27,6 +27,12 @@ interface HistRow extends HistoryEvent {
   fingerprint: string; previous_owner_user_id: string | null
   new_owner_user_id: string | null; reason: string | null
 }
+interface ContentionRow {
+  fingerprint: string; contender_user_id: string
+  status: 'active_contention' | 'resolved_contention' | 'dismissed_contention'
+  attempt_count: number; first_seen_at: string; last_attempt_at: string
+  last_ip: string | null; resolved_at: string | null; resolution_note: string | null
+}
 
 const fmtTime = (v: string | null) => v ? new Date(v).toLocaleString() : '—'
 const bandClass = (b: RiskBand) =>
@@ -56,7 +62,7 @@ export default async function BrokerOwnershipAdminPage() {
   )
 
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString()
-  const [ownRes, connRes, histRes] = await Promise.all([
+  const [ownRes, connRes, histRes, contRes] = await Promise.all([
     svc.from('broker_account_ownership')
        .select('fingerprint, broker, owner_user_id, ownership_status, unlink_cooldown_until, linked_at, last_seen_at, last_seen_ip, risk_score')
        .limit(500),
@@ -66,38 +72,48 @@ export default async function BrokerOwnershipAdminPage() {
     svc.from('broker_ownership_history')
        .select('action, fingerprint, ip_address, user_agent, created_at, previous_owner_user_id, new_owner_user_id, reason')
        .gte('created_at', since).limit(5000),
+    svc.from('broker_contention')
+       .select('fingerprint, contender_user_id, status, attempt_count, first_seen_at, last_attempt_at, last_ip, resolved_at, resolution_note')
+       .limit(5000),
   ])
   const ownerships = (ownRes.data  ?? []) as unknown as OwnershipRow[]
   const conns      = (connRes.data ?? []) as unknown as ConnRow[]
   const history    = (histRes.data ?? []) as unknown as HistRow[]
+  const contention = (contRes.data ?? []) as unknown as ContentionRow[]
 
   const connsByFp: Record<string, ConnRow[]> = {}
   for (const c of conns) if (c.broker_account_fingerprint)
     (connsByFp[c.broker_account_fingerprint] ??= []).push(c)
   const histByFp: Record<string, HistRow[]> = {}
   for (const h of history) (histByFp[h.fingerprint] ??= []).push(h)
+  const contByFp: Record<string, ContentionRow[]> = {}
+  for (const c of contention) (contByFp[c.fingerprint] ??= []).push(c)
 
   const rows = ownerships.map(o => {
-    const events = histByFp[o.fingerprint] ?? []
-    const risk   = scoreOwnership(events)
+    const allEvents = histByFp[o.fingerprint] ?? []
+    const cont      = contByFp[o.fingerprint] ?? []
+    const active    = cont.filter(c => c.status === 'active_contention')
+    const resolved  = cont.filter(c => c.status !== 'active_contention')
+
+    // Exclude resolved/dismissed contenders' reclaim_blocked from the risk
+    // score — resolving removes the risk noise.
+    const resolvedUsers = new Set(resolved.map(c => c.contender_user_id))
+    const events = allEvents.filter(h =>
+      !(h.action === 'reclaim_blocked' && h.new_owner_user_id && resolvedUsers.has(h.new_owner_user_id)))
+    const risk = scoreOwnership(events)
     if (risk.score !== o.risk_score) {
       svc.from('broker_account_ownership')
         .update({ risk_score: risk.score, risk_flags: risk.flags })
         .eq('fingerprint', o.fingerprint).then(() => {}, () => {})
     }
-    const fpConns   = connsByFp[o.fingerprint] ?? []
-    const contention = new Set<string>()
-    for (const c of fpConns) if (c.user_id !== o.owner_user_id) contention.add(c.user_id)
-    for (const h of events)
-      if (h.action === 'reclaim_blocked' && h.new_owner_user_id && h.new_owner_user_id !== o.owner_user_id)
-        contention.add(h.new_owner_user_id)
-    return { o, risk, fpConns, contention: Array.from(contention),
-             recent: events.slice().sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0, 8) }
+    const fpConns = connsByFp[o.fingerprint] ?? []
+    return { o, risk, fpConns, active, resolved,
+             recent: allEvents.slice().sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0, 8) }
   }).sort((a,b) => b.risk.score - a.risk.score)
 
   const counts = {
     total:     rows.length,
-    contended: rows.filter(r => r.contention.length > 0).length,
+    contended: rows.filter(r => r.active.length > 0).length,
     critical:  rows.filter(r => r.risk.band === 'CRITICAL').length,
     high:      rows.filter(r => r.risk.band === 'HIGH').length,
     cooldown:  rows.filter(r => r.o.ownership_status === 'cooldown').length,
@@ -127,8 +143,8 @@ export default async function BrokerOwnershipAdminPage() {
           <p className="text-xs text-muted-foreground">No ownership rows yet.</p>
         ) : (
           <div className="space-y-3">
-            {rows.map(({ o, risk, fpConns, contention, recent }) => (
-              <details key={o.fingerprint} className="rounded-lg border bg-background/40 p-3 text-xs open:bg-background/60" open={risk.band !== 'LOW' || contention.length > 0}>
+            {rows.map(({ o, risk, fpConns, active, resolved, recent }) => (
+              <details key={o.fingerprint} className="rounded-lg border bg-background/40 p-3 text-xs open:bg-background/60" open={risk.band !== 'LOW' || active.length > 0}>
                 <summary className="flex flex-wrap items-center gap-3 cursor-pointer list-none">
                   <span className={`rounded border px-2 py-0.5 font-semibold uppercase ${bandClass(risk.band)}`}>
                     {risk.band} · {risk.score}
@@ -139,9 +155,14 @@ export default async function BrokerOwnershipAdminPage() {
                   <span className={`rounded px-1.5 py-0.5 text-[10px] ${o.ownership_status === 'cooldown' ? 'bg-amber-500/15 text-amber-400' : o.ownership_status === 'revoked' ? 'bg-red-500/15 text-red-400' : 'bg-emerald-500/15 text-emerald-400'}`}>
                     {o.ownership_status}
                   </span>
-                  {contention.length > 0 && (
+                  {active.length > 0 && (
                     <span className="rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] text-red-400">
-                      {contention.length} other user(s) attempted to claim
+                      {active.length} active contention
+                    </span>
+                  )}
+                  {resolved.length > 0 && (
+                    <span className="rounded bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      {resolved.length} resolved
                     </span>
                   )}
                   <span className="ml-auto text-[10px] text-muted-foreground">linked {fmtTime(o.linked_at)}</span>
@@ -164,15 +185,41 @@ export default async function BrokerOwnershipAdminPage() {
                       </ul>
                     )}
 
-                    <h3 className="mb-1 mt-3 text-[10px] uppercase tracking-wider text-muted-foreground">Contention ({contention.length})</h3>
-                    {contention.length === 0 ? <p className="text-muted-foreground">None.</p> : (
+                    <h3 className="mb-1 mt-3 text-[10px] uppercase tracking-wider text-muted-foreground">Active Contention ({active.length})</h3>
+                    {active.length === 0 ? <p className="text-muted-foreground">None — all attempts resolved.</p> : (
                       <ul className="space-y-1">
-                        {contention.map(uid => (
-                          <li key={uid} className="rounded border bg-amber-500/5 px-2 py-1">
-                            <code className="font-mono">{uid}</code>
+                        {active.map(c => (
+                          <li key={c.contender_user_id} className="rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1">
+                            <div className="flex items-center gap-2">
+                              <code className="font-mono">{c.contender_user_id.slice(0,8)}</code>
+                              <span className="text-amber-400">{c.attempt_count}× attempt{c.attempt_count > 1 ? 's' : ''}</span>
+                              {c.last_ip && <span className="ml-auto text-[10px] text-muted-foreground">{c.last_ip}</span>}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground">last {fmtTime(c.last_attempt_at)}</div>
                           </li>
                         ))}
                       </ul>
+                    )}
+
+                    {resolved.length > 0 && (
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-[10px] uppercase tracking-wider text-muted-foreground">
+                          Resolved Attempts ({resolved.length}) — audit retained
+                        </summary>
+                        <ul className="mt-1 space-y-1">
+                          {resolved.map(c => (
+                            <li key={c.contender_user_id} className="rounded border bg-background/40 px-2 py-1 text-muted-foreground">
+                              <div className="flex items-center gap-2">
+                                <code className="font-mono">{c.contender_user_id.slice(0,8)}</code>
+                                <span className="rounded bg-muted/40 px-1 py-0.5 text-[9px] uppercase">{c.status.replace('_contention','')}</span>
+                                <span>{c.attempt_count}×</span>
+                                {c.resolved_at && <span className="ml-auto text-[10px]">{fmtTime(c.resolved_at)}</span>}
+                              </div>
+                              {c.resolution_note && <div className="text-[10px]">note: {c.resolution_note}</div>}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
                     )}
 
                     <h3 className="mb-1 mt-3 text-[10px] uppercase tracking-wider text-muted-foreground">Risk flags</h3>
@@ -198,7 +245,11 @@ export default async function BrokerOwnershipAdminPage() {
                       </ul>
                     )}
 
-                    <Actions fingerprint={o.fingerprint} ownerUserId={o.owner_user_id} contention={contention} />
+                    <Actions
+                      fingerprint={o.fingerprint}
+                      ownerUserId={o.owner_user_id}
+                      contention={[...active.map(c => c.contender_user_id), ...fpConns.filter(c => c.user_id !== o.owner_user_id).map(c => c.user_id)]}
+                      activeContenders={active.map(c => c.contender_user_id)} />
                   </div>
                 </div>
               </details>

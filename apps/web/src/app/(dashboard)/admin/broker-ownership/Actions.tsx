@@ -8,12 +8,13 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 
 interface Props {
-  fingerprint: string
-  ownerUserId: string
-  contention:  string[]
+  fingerprint:      string
+  ownerUserId:      string
+  contention:       string[]   // any non-owner user_ids (transfer targets)
+  activeContenders: string[]   // only status=active_contention (dismiss/resolve targets)
 }
 
-export default function Actions({ fingerprint, ownerUserId, contention }: Props) {
+export default function Actions({ fingerprint, ownerUserId, contention, activeContenders }: Props) {
   const router = useRouter()
   const [pending, start] = useTransition()
   const [msg, setMsg]    = useState<string | null>(null)
@@ -48,7 +49,41 @@ export default function Actions({ fingerprint, ownerUserId, contention }: Props)
     <div className="mt-3 space-y-3 rounded-lg border bg-background/50 p-3">
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Admin actions</div>
 
-      <div className="space-y-1">
+      {/* Resolve / dismiss contenders — clears active contention, keeps audit. */}
+      {activeContenders.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <div className="text-[11px] font-medium">Active contenders</div>
+            <button type="button" disabled={pending}
+                    onClick={() => run(`/api/admin/broker-ownership/${fingerprint}/resolve-all`,
+                                       { action: 'resolve' }, 'Resolve all')}
+                    className="rounded bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-40">
+              Resolve all ({activeContenders.length})
+            </button>
+          </div>
+          <ul className="space-y-1">
+            {activeContenders.map(uid => (
+              <li key={uid} className="flex items-center gap-1.5 rounded border px-2 py-1">
+                <code className="font-mono text-[10px]">{uid.slice(0,8)}</code>
+                <button type="button" disabled={pending}
+                        onClick={() => run(`/api/admin/broker-ownership/${fingerprint}/contender`,
+                                           { contender_user_id: uid, action: 'resolve' }, 'Resolve')}
+                        className="ml-auto rounded bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-40">
+                  Resolve
+                </button>
+                <button type="button" disabled={pending}
+                        onClick={() => run(`/api/admin/broker-ownership/${fingerprint}/contender`,
+                                           { contender_user_id: uid, action: 'dismiss' }, 'Dismiss')}
+                        className="rounded bg-muted/50 px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted disabled:opacity-40">
+                  Dismiss
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="space-y-1 border-t pt-3">
         <div className="text-[11px] font-medium">Force-transfer ownership</div>
         <div className="flex flex-wrap gap-1">
           <select value={target} onChange={e => setTarget(e.target.value)}
