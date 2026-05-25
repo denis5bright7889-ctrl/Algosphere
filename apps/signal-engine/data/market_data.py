@@ -152,9 +152,14 @@ class AlphaVantageProvider(MarketDataProvider):
 COINBASE_GRANULARITY = {'1m': 60, '5m': 300, '15m': 900, '1h': 3600, '6h': 21600, '1d': 86400}
 
 # Engine crypto symbols (Binance-style …USDT) → Coinbase product ids.
+# Anything not listed here falls through to the `…USDT` -> `…-USD` fallback
+# in _product(); explicit entries are kept for documentation + to lock in
+# the intended product id for symbols where the naive strip wouldn't work.
 COINBASE_PRODUCT_MAP = {
-    'BTCUSDT': 'BTC-USD', 'ETHUSDT': 'ETH-USD', 'SOLUSDT': 'SOL-USD',
-    'BNBUSDT': 'BNB-USD', 'XRPUSDT': 'XRP-USD', 'ADAUSDT': 'ADA-USD',
+    'BTCUSDT': 'BTC-USD', 'ETHUSDT':  'ETH-USD', 'SOLUSDT': 'SOL-USD',
+    'XRPUSDT': 'XRP-USD', 'ADAUSDT':  'ADA-USD', 'DOGEUSDT': 'DOGE-USD',
+    'AVAXUSDT':'AVAX-USD','LINKUSDT': 'LINK-USD','LTCUSDT': 'LTC-USD',
+    'DOTUSDT': 'DOT-USD', 'BCHUSDT':  'BCH-USD',
 }
 
 
