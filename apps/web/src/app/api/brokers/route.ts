@@ -150,63 +150,59 @@ export async function POST(req: Request) {
     account_id: d.account_id ?? undefined,
     passphrase: d.passphrase ?? undefined,
   })
-  // Set when this connect is taking over from a previous owner whose
-  // cooldown has expired (or whose ownership is revoked). Used to log
-  // a 'transferred' history row instead of 'linked' on success.
-  let transferFrom: string | null = null
+  // ── Ownership-policy gate (single_owner default / shared / revoked) ──
+  // single_owner: exactly one owner; a DIFFERENT user is always blocked —
+  // ownership transitions only through the admin transfer/revoke endpoints
+  // (no auto-claim, even after an unlink cooldown). shared: explicit admin
+  // opt-in — a different user may connect as a co-user WITHOUT taking
+  // ownership. revoked: blocked at the gate; admin reassigns explicitly.
+  let sharedCoUser = false
   if (fingerprint) {
     const { data: existing } = await svc
       .from('broker_account_ownership')
-      .select('owner_user_id, ownership_status, unlink_cooldown_until')
+      .select('owner_user_id, ownership_status, ownership_mode, shared_enabled')
       .eq('fingerprint', fingerprint)
       .maybeSingle()
 
     if (existing) {
-      const e = existing as { owner_user_id: string; ownership_status: string; unlink_cooldown_until: string | null }
-      const sameUser       = e.owner_user_id === user.id
-      const cooldownActive = e.ownership_status === 'cooldown'
-                          && !!e.unlink_cooldown_until
-                          && new Date(e.unlink_cooldown_until) > new Date()
+      const e = existing as {
+        owner_user_id: string; ownership_status: string
+        ownership_mode: string; shared_enabled: boolean
+      }
+      const sameUser      = e.owner_user_id === user.id
+      const sharedAllowed = e.shared_enabled || e.ownership_mode === 'shared'
 
-      // Same user — always allow reconnect (the cooldown is to keep OTHERS
-      // out; the original owner can re-link instantly).
+      // Same user always reconnects. Different user only when shared.
       if (!sameUser) {
-        // Different user.
-        if (cooldownActive) {
-          // The brief: "before another account can claim broker".
+        if (sharedAllowed) {
+          // SHARED_MODE — allowed as a co-user; ownership is NOT transferred.
+          sharedCoUser = true
           svc.from('broker_ownership_history').insert({
             fingerprint, broker: d.broker,
             previous_owner_user_id: e.owner_user_id,
             new_owner_user_id:      user.id,
-            action: 'reclaim_blocked',
-            reason: 'fingerprint in unlink cooldown',
+            action: 'linked', reason: 'shared_mode_co_user',
             actor_id: user.id, ip_address: ip, user_agent: ua,
           }).then(() => {}, () => {})
-          void recordContention(svc, fingerprint, user.id, ip, ua)
-          return NextResponse.json(
-            { error: 'This trading account is in a cooldown period and cannot be re-linked yet.' },
-            { status: 409 },
-          )
-        }
-        if (e.ownership_status === 'active') {
-          // Currently owned by someone else and not in cooldown — blocked.
+        } else {
+          // single_owner / revoked — strict block + contention.
+          const reason = e.ownership_mode === 'revoked'   ? 'ownership revoked — admin reassignment required'
+                       : e.ownership_status === 'cooldown' ? 'fingerprint in unlink cooldown'
+                       : 'fingerprint owned by different user'
           svc.from('broker_ownership_history').insert({
             fingerprint, broker: d.broker,
             previous_owner_user_id: e.owner_user_id,
             new_owner_user_id:      user.id,
-            action: 'reclaim_blocked',
-            reason: 'fingerprint owned by different user',
+            action: 'reclaim_blocked', reason,
             actor_id: user.id, ip_address: ip, user_agent: ua,
           }).then(() => {}, () => {})
           void recordContention(svc, fingerprint, user.id, ip, ua)
           return NextResponse.json(
-            { error: 'This trading account is already connected to another AlgoSphere profile.' },
+            { error: 'This trading account is already connected to another AlgoSphere profile.',
+              code: 'BROKER_ALREADY_OWNED' },
             { status: 409 },
           )
         }
-        // Else: cooldown expired or status='revoked' → the upsert below
-        // will transfer ownership; emit a 'transferred' history row after success.
-        transferFrom = e.owner_user_id
       }
     }
   }
@@ -244,9 +240,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Failed to save connection' }, { status: 500 })
   }
 
-  // Register/refresh broker_account_ownership for this fingerprint (idempotent
-  // upsert). Best-effort: an ownership-table write must never block trading.
-  if (fingerprint) {
+  // Register/refresh ownership for this fingerprint (idempotent upsert).
+  // Skipped for a shared-mode co-user: they get a broker_connections row
+  // but must NOT overwrite the existing owner. Best-effort.
+  if (fingerprint && !sharedCoUser) {
     svc.from('broker_account_ownership').upsert({
       fingerprint, broker: d.broker, owner_user_id: user.id,
       current_connection_id: data.id,
@@ -256,10 +253,8 @@ export async function POST(req: Request) {
     }, { onConflict: 'fingerprint' }).then(() => {}, () => {})
     svc.from('broker_ownership_history').insert({
       fingerprint, broker: d.broker,
-      previous_owner_user_id: transferFrom,
-      new_owner_user_id:      user.id,
-      action:                 transferFrom ? 'transferred' : 'linked',
-      reason:                 transferFrom ? 'cooldown_expired_or_revoked' : null,
+      new_owner_user_id: user.id,
+      action: 'linked',
       actor_id: user.id, ip_address: ip, user_agent: ua,
     }).then(() => {}, () => {})
   }

@@ -19,6 +19,7 @@ export const dynamic = 'force-dynamic'
 interface OwnershipRow {
   fingerprint: string; broker: string; owner_user_id: string
   ownership_status: string; unlink_cooldown_until: string | null
+  ownership_mode: string; shared_enabled: boolean
   linked_at: string; last_seen_at: string | null; last_seen_ip: string | null
   risk_score: number
 }
@@ -64,7 +65,7 @@ export default async function BrokerOwnershipAdminPage() {
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString()
   const [ownRes, connRes, histRes, contRes] = await Promise.all([
     svc.from('broker_account_ownership')
-       .select('fingerprint, broker, owner_user_id, ownership_status, unlink_cooldown_until, linked_at, last_seen_at, last_seen_ip, risk_score')
+       .select('fingerprint, broker, owner_user_id, ownership_status, unlink_cooldown_until, ownership_mode, shared_enabled, linked_at, last_seen_at, last_seen_ip, risk_score')
        .limit(500),
     svc.from('broker_connections')
        .select('id, user_id, broker_account_fingerprint, broker, status, label')
@@ -154,6 +155,9 @@ export default async function BrokerOwnershipAdminPage() {
                   <span>owner <code className="font-mono">{o.owner_user_id.slice(0, 8)}</code></span>
                   <span className={`rounded px-1.5 py-0.5 text-[10px] ${o.ownership_status === 'cooldown' ? 'bg-amber-500/15 text-amber-400' : o.ownership_status === 'revoked' ? 'bg-red-500/15 text-red-400' : 'bg-emerald-500/15 text-emerald-400'}`}>
                     {o.ownership_status}
+                  </span>
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] ${o.ownership_mode === 'shared' ? 'bg-blue-500/15 text-blue-400' : o.ownership_mode === 'revoked' ? 'bg-red-500/15 text-red-400' : 'bg-muted/40 text-muted-foreground'}`}>
+                    {o.ownership_mode === 'shared' ? 'SHARED' : o.ownership_mode === 'revoked' ? 'REVOKED' : 'single-owner'}
                   </span>
                   {active.length > 0 && (
                     <span className="rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] text-red-400">
@@ -248,6 +252,7 @@ export default async function BrokerOwnershipAdminPage() {
                     <Actions
                       fingerprint={o.fingerprint}
                       ownerUserId={o.owner_user_id}
+                      ownershipMode={o.ownership_mode}
                       contention={[...active.map(c => c.contender_user_id), ...fpConns.filter(c => c.user_id !== o.owner_user_id).map(c => c.user_id)]}
                       activeContenders={active.map(c => c.contender_user_id)} />
                   </div>
