@@ -76,25 +76,28 @@ function pearson(a: number[], b: number[]): number | null {
   return Math.max(-1, Math.min(1, cov / Math.sqrt(va * vb)))
 }
 
+// Scoped to one TD call (gold) + Coinbase crypto so the whole matrix is
+// reliable — chaining two TD time_series calls throttles on the free tier
+// (one wins the per-minute credit race, the other returns empty).
 const PAIRS: ReadonlyArray<readonly [string, string, string]> = [
   ['BTC', 'ETH',     'BTC vs ETH'],
+  ['BTC', 'SOL',     'BTC vs SOL'],
+  ['ETH', 'SOL',     'ETH vs SOL'],
   ['BTC', 'XAU/USD', 'BTC vs Gold'],
   ['ETH', 'XAU/USD', 'ETH vs Gold'],
-  ['BTC', 'EUR/USD', 'BTC vs EUR/USD'],
-  ['ETH', 'EUR/USD', 'ETH vs EUR/USD'],
-  ['XAU/USD', 'EUR/USD', 'Gold vs EUR/USD'],
+  ['SOL', 'XAU/USD', 'SOL vs Gold'],
 ]
 
 export async function GET() {
-  const [btc, eth, gold, eur] = await Promise.all([
+  const [btc, eth, sol, gold] = await Promise.all([
     coinbaseCloses('BTC-USD'),
     coinbaseCloses('ETH-USD'),
+    coinbaseCloses('SOL-USD'),
     tdCloses('XAU/USD'),
-    tdCloses('EUR/USD'),
   ])
   const series: Record<string, number[]> = {
-    BTC: returns(btc), ETH: returns(eth),
-    'XAU/USD': returns(gold), 'EUR/USD': returns(eur),
+    BTC: returns(btc), ETH: returns(eth), SOL: returns(sol),
+    'XAU/USD': returns(gold),
   }
 
   const matrix = PAIRS.map(([a, b, pair]) => {
