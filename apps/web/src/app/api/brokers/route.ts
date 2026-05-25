@@ -117,6 +117,10 @@ export async function POST(req: Request) {
     account_id: d.account_id ?? undefined,
     passphrase: d.passphrase ?? undefined,
   })
+  // Set when this connect is taking over from a previous owner whose
+  // cooldown has expired (or whose ownership is revoked). Used to log
+  // a 'transferred' history row instead of 'linked' on success.
+  let transferFrom: string | null = null
   if (fingerprint) {
     const { data: existing } = await svc
       .from('broker_account_ownership')
@@ -126,28 +130,48 @@ export async function POST(req: Request) {
 
     if (existing) {
       const e = existing as { owner_user_id: string; ownership_status: string; unlink_cooldown_until: string | null }
-      if (e.owner_user_id !== user.id) {
-        // Audit the blocked reclaim attempt — best-effort, never blocks the response.
-        svc.from('broker_ownership_history').insert({
-          fingerprint, broker: d.broker,
-          previous_owner_user_id: e.owner_user_id,
-          new_owner_user_id:      user.id,
-          action: 'reclaim_blocked',
-          reason: 'fingerprint owned by different user',
-          actor_id: user.id, ip_address: ip, user_agent: ua,
-        }).then(() => {}, () => {})
-        return NextResponse.json(
-          { error: 'This trading account is already connected to another AlgoSphere profile.' },
-          { status: 409 },
-        )
-      }
-      if (e.ownership_status === 'cooldown'
-          && e.unlink_cooldown_until
-          && new Date(e.unlink_cooldown_until) > new Date()) {
-        return NextResponse.json(
-          { error: 'This trading account is in a cooldown period and cannot be re-linked yet.' },
-          { status: 409 },
-        )
+      const sameUser       = e.owner_user_id === user.id
+      const cooldownActive = e.ownership_status === 'cooldown'
+                          && !!e.unlink_cooldown_until
+                          && new Date(e.unlink_cooldown_until) > new Date()
+
+      // Same user — always allow reconnect (the cooldown is to keep OTHERS
+      // out; the original owner can re-link instantly).
+      if (!sameUser) {
+        // Different user.
+        if (cooldownActive) {
+          // The brief: "before another account can claim broker".
+          svc.from('broker_ownership_history').insert({
+            fingerprint, broker: d.broker,
+            previous_owner_user_id: e.owner_user_id,
+            new_owner_user_id:      user.id,
+            action: 'reclaim_blocked',
+            reason: 'fingerprint in unlink cooldown',
+            actor_id: user.id, ip_address: ip, user_agent: ua,
+          }).then(() => {}, () => {})
+          return NextResponse.json(
+            { error: 'This trading account is in a cooldown period and cannot be re-linked yet.' },
+            { status: 409 },
+          )
+        }
+        if (e.ownership_status === 'active') {
+          // Currently owned by someone else and not in cooldown — blocked.
+          svc.from('broker_ownership_history').insert({
+            fingerprint, broker: d.broker,
+            previous_owner_user_id: e.owner_user_id,
+            new_owner_user_id:      user.id,
+            action: 'reclaim_blocked',
+            reason: 'fingerprint owned by different user',
+            actor_id: user.id, ip_address: ip, user_agent: ua,
+          }).then(() => {}, () => {})
+          return NextResponse.json(
+            { error: 'This trading account is already connected to another AlgoSphere profile.' },
+            { status: 409 },
+          )
+        }
+        // Else: cooldown expired or status='revoked' → the upsert below
+        // will transfer ownership; emit a 'transferred' history row after success.
+        transferFrom = e.owner_user_id
       }
     }
   }
@@ -197,8 +221,10 @@ export async function POST(req: Request) {
     }, { onConflict: 'fingerprint' }).then(() => {}, () => {})
     svc.from('broker_ownership_history').insert({
       fingerprint, broker: d.broker,
-      new_owner_user_id: user.id,
-      action: 'linked',
+      previous_owner_user_id: transferFrom,
+      new_owner_user_id:      user.id,
+      action:                 transferFrom ? 'transferred' : 'linked',
+      reason:                 transferFrom ? 'cooldown_expired_or_revoked' : null,
       actor_id: user.id, ip_address: ip, user_agent: ua,
     }).then(() => {}, () => {})
   }
