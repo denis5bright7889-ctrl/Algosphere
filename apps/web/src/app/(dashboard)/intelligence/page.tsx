@@ -27,12 +27,14 @@ interface Tile { href: string; label: string; blurb: string; pill?: string }
 // transformation. Surfaced first so users discover the core before
 // drilling into specific asset classes.
 const CORE: Tile[] = [
-  { href: '/intelligence/conviction', label: 'Conviction',
+  { href: '/intelligence/conviction',   label: 'Conviction',
     blurb: 'Multi-layer agreement across momentum, regime, smart money, macro.', pill: 'new' },
-  { href: '/intelligence/momentum',   label: 'Momentum',
+  { href: '/intelligence/momentum',     label: 'Momentum',
     blurb: 'Phase detection: Accumulation → Trending → Parabolic → Distribution.', pill: 'new' },
-  { href: '/intelligence/stress',     label: 'Market Stress',
+  { href: '/intelligence/stress',       label: 'Market Stress',
     blurb: 'Universe-level environment read with posture guidance.', pill: 'new' },
+  { href: '/intelligence/participation',label: 'Participation',
+    blurb: 'Who is driving price — smart money, whales, aggression by asset.', pill: 'new' },
 ]
 
 const ASSET_CLASSES: Tile[] = [
