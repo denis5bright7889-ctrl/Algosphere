@@ -56,6 +56,7 @@ async def engine_status():
         'symbols':   s.symbol_list,
         'timeframe': s.timeframe,
         'provider':  'twelvedata' if s.twelve_data_api_key else ('alphavantage' if s.alpha_vantage_api_key else 'none'),
+        'crypto_provider': 'coinbase',  # keyless, always available for …USDT symbols
         'websocket': ws_manager.stats(),
         'time':      datetime.now(timezone.utc).isoformat(),
     }

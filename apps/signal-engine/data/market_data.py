@@ -147,6 +147,78 @@ class AlphaVantageProvider(MarketDataProvider):
         return bars[-1].close if bars else None
 
 
+# ─── Coinbase (crypto, keyless, US-region safe) ─────────────────────────────
+
+COINBASE_GRANULARITY = {'1m': 60, '5m': 300, '15m': 900, '1h': 3600, '6h': 21600, '1d': 86400}
+
+# Engine crypto symbols (Binance-style …USDT) → Coinbase product ids.
+COINBASE_PRODUCT_MAP = {
+    'BTCUSDT': 'BTC-USD', 'ETHUSDT': 'ETH-USD', 'SOLUSDT': 'SOL-USD',
+    'BNBUSDT': 'BNB-USD', 'XRPUSDT': 'XRP-USD', 'ADAUSDT': 'ADA-USD',
+}
+
+
+class CoinbaseProvider(MarketDataProvider):
+    """Crypto OHLCV via the public Coinbase Exchange API (no key).
+
+    Why Coinbase and not Binance: the engine runs in a US region (Railway
+    us-west); Binance REST returns HTTP 451 to US IPs, so the server can't
+    use it. Coinbase is US-domiciled and works. Returns [] for any
+    non-crypto symbol so the fallback chain hands forex/metals to Twelve
+    Data.
+    """
+
+    BASE = 'https://api.exchange.coinbase.com'
+
+    def __init__(self):
+        self._client = httpx.AsyncClient(
+            timeout=15.0, headers={'User-Agent': 'algosphere-engine'})
+
+    def _product(self, symbol: str) -> Optional[str]:
+        if symbol in COINBASE_PRODUCT_MAP:
+            return COINBASE_PRODUCT_MAP[symbol]
+        if symbol.endswith('USDT'):
+            return f'{symbol[:-4]}-USD'
+        return None
+
+    async def fetch_ohlcv(self, symbol: str, interval: str, outputsize: int = 300) -> list[OHLCVBar]:
+        product = self._product(symbol)
+        if not product:
+            return []  # not crypto — defer to another provider
+        gran = COINBASE_GRANULARITY.get(interval, 3600)
+        try:
+            resp = await self._client.get(
+                f'{self.BASE}/products/{product}/candles',
+                params={'granularity': gran},
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+            if not isinstance(rows, list):
+                return []
+            # Coinbase candle = [time, low, high, open, close, volume], newest-first.
+            bars = [OHLCVBar(
+                timestamp=datetime.utcfromtimestamp(int(r[0])).strftime('%Y-%m-%d %H:%M:%S'),
+                open=float(r[3]), high=float(r[2]), low=float(r[1]),
+                close=float(r[4]), volume=float(r[5]),
+            ) for r in rows[:outputsize] if isinstance(r, list) and len(r) >= 6]
+            bars.reverse()  # → ASC (oldest→newest), matching Twelve Data's order
+            return bars
+        except Exception as e:
+            logger.error(f"Coinbase fetch failed for {symbol} ({product}): {e}")
+            return []
+
+    async def fetch_live_price(self, symbol: str) -> Optional[float]:
+        product = self._product(symbol)
+        if not product:
+            return None
+        try:
+            resp = await self._client.get(f'{self.BASE}/products/{product}/ticker')
+            data = resp.json()
+            return float(data.get('price', 0)) or None
+        except Exception:
+            return None
+
+
 # ─── Provider factory with fallback chain ───────────────────────────────────
 
 class FallbackDataProvider(MarketDataProvider):
@@ -173,10 +245,16 @@ class FallbackDataProvider(MarketDataProvider):
 
 
 def build_provider(settings) -> Optional[FallbackDataProvider]:
-    """Builds the provider chain based on available API keys."""
-    providers: list[MarketDataProvider] = []
+    """Builds the provider chain.
+
+    Coinbase is always first and keyless — it serves crypto (…USDT) and
+    instantly returns [] for everything else, so forex/metals fall through
+    to Twelve Data. This also means the engine ALWAYS has a usable provider
+    for crypto even if no API key is configured (never 'none' for BTC/ETH).
+    """
+    providers: list[MarketDataProvider] = [CoinbaseProvider()]
     if settings.twelve_data_api_key:
         providers.append(TwelveDataProvider(settings.twelve_data_api_key))
     if settings.alpha_vantage_api_key:
         providers.append(AlphaVantageProvider(settings.alpha_vantage_api_key))
-    return FallbackDataProvider(providers) if providers else None
+    return FallbackDataProvider(providers)
