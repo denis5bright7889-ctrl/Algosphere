@@ -98,6 +98,17 @@ export function marketStructure(regime: string | null | undefined): Structure {
   }
 }
 
+// ── Behavioral / sizing (coach) ───────────────────────────────────────────
+export type SizingLabel = 'Consistent' | 'Steady' | 'Erratic' | '—'
+/** Coefficient of variation of position sizing → readable consistency.
+ * Lower CV = more uniform sizing. (Coach drift threshold ≈ 0.6.) */
+export function sizingConsistency(cv: number | null | undefined): SizingLabel {
+  if (typeof cv !== 'number' || !Number.isFinite(cv)) return '—'
+  if (cv <= 0.3) return 'Consistent'
+  if (cv <= 0.6) return 'Steady'
+  return 'Erratic'
+}
+
 // ── Session ───────────────────────────────────────────────────────────────
 export function sessionLabel(session: string | null | undefined): string {
   const map: Record<string, string> = {

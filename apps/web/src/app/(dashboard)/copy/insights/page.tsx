@@ -13,6 +13,7 @@
  */
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { sizingConsistency } from '@/lib/market-language'
 import type { Database } from '@/lib/supabase/database.types'
 
 type CoachState   = Database['public']['Tables']['coach_state']['Row']
@@ -114,9 +115,8 @@ export default async function CopyInsightsPage() {
             <Stat label="Loss streak"       value={String(state.current_loss_streak ?? 0)} />
             <Stat label="Revenge events"    value={String(state.revenge_events ?? 0)} />
             <Stat label="Oversize events"   value={String(state.oversize_events ?? 0)} />
-            <Stat label="Sizing CV"
-                  value={typeof state.sizing_cv === 'number'
-                    ? state.sizing_cv.toFixed(2) : '—'} />
+            <Stat label="Position sizing"
+                  value={sizingConsistency(state.sizing_cv as number | null)} />
           </div>
         )}
 
