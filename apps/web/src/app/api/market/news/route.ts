@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server'
+import { createServiceClient } from '@/lib/supabase/server'
 
 /**
- * Trading news feed — pulls public RSS sources, caches 15 min.
- * Graceful empty-array fallback on fetch failure.
+ * Trading news feed — merges two sources:
+ *   • public RSS feeds (cached 15 min), and
+ *   • stored news_items rows fed by the engine's inbound webhook consumer
+ *     (Finnhub etc.) — read fresh on every request so pushed news surfaces
+ *     immediately and survives an RSS outage.
+ * Graceful empty-array fallback on failure.
  */
 
 interface NewsItem {
@@ -51,9 +56,51 @@ function parseRSS(xml: string, source: string, category: NewsItem['category']): 
   return items
 }
 
+const CAT = new Set(['crypto', 'forex', 'macro', 'equities'])
+const IMP = new Set(['high', 'medium', 'low'])
+
+/** Webhook-fed news from news_items (service-role read; RLS service-only). */
+async function fetchStoredNews(): Promise<NewsItem[]> {
+  try {
+    const svc = createServiceClient()
+    const { data } = await svc
+      .from('news_items')
+      .select('title, url, source, category, impact, published_at')
+      .order('published_at', { ascending: false })
+      .limit(40)
+    return ((data ?? []) as unknown as Array<{
+      title: string; url: string; source: string
+      category: string | null; impact: string | null; published_at: string
+    }>).map(r => ({
+      title:        String(r.title).slice(0, 200),
+      url:          r.url,
+      source:       r.source,
+      category:     (CAT.has(r.category ?? '') ? r.category : 'equities') as NewsItem['category'],
+      impact:       (IMP.has(r.impact ?? '') ? r.impact : 'medium') as NewsItem['impact'],
+      published_at: r.published_at,
+    }))
+  } catch { return [] }
+}
+
+/** Merge sources, dedup by url, newest first, cap 40. */
+function mergeNews(...lists: NewsItem[][]): NewsItem[] {
+  const seen = new Set<string>()
+  const out: NewsItem[] = []
+  for (const item of lists.flat()) {
+    if (!item.url || seen.has(item.url)) continue
+    seen.add(item.url)
+    out.push(item)
+  }
+  return out
+    .sort((a, b) => new Date(b.published_at).getTime() - new Date(a.published_at).getTime())
+    .slice(0, 40)
+}
+
 export async function GET() {
+  const stored = await fetchStoredNews()  // always fresh (webhook-fed)
+
   if (cache && Date.now() - cache.at < TTL) {
-    return NextResponse.json({ items: cache.data, cached: true })
+    return NextResponse.json({ items: mergeNews(stored, cache.data), cached: true })
   }
 
   try {
@@ -68,17 +115,17 @@ export async function GET() {
         return parseRSS(await res.text(), s.name, s.category)
       } catch { return [] }
     }))
-    const items = results
+    const rss = results
       .flat()
       .sort((a, b) => new Date(b.published_at).getTime() - new Date(a.published_at).getTime())
       .slice(0, 40)
 
-    cache = { at: Date.now(), data: items }
-    return NextResponse.json({ items, cached: false })
+    cache = { at: Date.now(), data: rss }
+    return NextResponse.json({ items: mergeNews(stored, rss), cached: false })
   } catch (err) {
     console.error('news fetch error:', err)
     return NextResponse.json({
-      items: cache?.data ?? [],
+      items: mergeNews(stored, cache?.data ?? []),
       cached: !!cache,
       degraded: true,
     })

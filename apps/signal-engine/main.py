@@ -55,6 +55,18 @@ def _build_scheduler(worker: SignalWorker, monitor: LifecycleMonitor):
         misfire_grace_time=30,
     )
 
+    # Inbound webhook consumer: drain webhook_events every minute
+    # (Finnhub news → news_items; tracked-symbol events → re-scan nudge).
+    scheduler.add_job(
+        worker.process_webhook_events,
+        trigger='interval',
+        minutes=1,
+        id='process_webhooks',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=30,
+    )
+
     # Confidence calibration analytics — runs every 6 hours
     scheduler.add_job(
         _run_calibration,

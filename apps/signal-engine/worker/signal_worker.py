@@ -111,6 +111,83 @@ class SignalWorker:
             if isinstance(result, Exception):
                 logger.error(f"Error scanning {sym}: {result}")
 
+    # ─── Inbound webhook consumer ─────────────────────────────────────────
+
+    async def process_webhook_events(self) -> None:
+        """Drain unprocessed rows from webhook_events (ingested by
+        /api/v1/webhooks/{provider}). Best-effort, never raises:
+          • Finnhub news → news_items (deduped by url) so the market news
+            feed can surface it.
+          • Any event on a symbol the engine tracks → nudge an immediate
+            re-scan (breaking event → fresh scan → maybe a signal).
+        Every row is marked processed=true so the queue always drains.
+        """
+        if not self.settings.has_supabase:
+            return
+        try:
+            res = (self.db().table('webhook_events')
+                   .select('id, provider, event_type, symbol, payload')
+                   .eq('processed', False)
+                   .order('received_at', desc=False)
+                   .limit(100).execute())
+            rows = res.data or []
+        except Exception as e:
+            logger.warning(f"webhook consumer: fetch failed — {e}")
+            return
+        if not rows:
+            return
+
+        tracked = {s.upper() for s in self.settings.symbol_list}
+        nudge: set[str] = set()
+        processed_ids: list[str] = []
+
+        for r in rows:
+            try:
+                provider = (r.get('provider') or '').lower()
+                etype    = (r.get('event_type') or '').lower()
+                payload  = r.get('payload') or {}
+                data     = payload.get('data') if isinstance(payload.get('data'), dict) else {}
+
+                # Route 1 — market news → news_items (dedup by url)
+                if provider == 'finnhub' and etype in ('news', 'press_release', 'press-release'):
+                    url   = payload.get('url') or data.get('url')
+                    title = payload.get('headline') or payload.get('title') or data.get('headline')
+                    if url and title:
+                        exists = (self.db().table('news_items')
+                                  .select('id').eq('url', url).limit(1).execute()).data
+                        if not exists:
+                            self.db().table('news_items').insert({
+                                'title':        str(title)[:500],
+                                'url':          url,
+                                'source':       'finnhub',
+                                'category':     payload.get('category') or 'news',
+                                'published_at': _epoch_to_iso(payload.get('datetime') or data.get('datetime')),
+                            }).execute()
+
+                # Route 2 — event on a tracked symbol → re-scan nudge
+                sym = (r.get('symbol') or '').upper()
+                if sym and sym in tracked:
+                    nudge.add(sym)
+
+                processed_ids.append(r['id'])
+            except Exception as e:
+                logger.warning(f"webhook consumer: row {r.get('id')} failed — {e}")
+                processed_ids.append(r['id'])  # mark processed to avoid a poison loop
+
+        if processed_ids:
+            try:
+                self.db().table('webhook_events').update(
+                    {'processed': True}).in_('id', processed_ids).execute()
+            except Exception as e:
+                logger.warning(f"webhook consumer: mark-processed failed — {e}")
+
+        for sym in nudge:
+            try:
+                await self.scan_symbol(sym)
+                logger.info(f"webhook consumer: nudged re-scan of {sym}")
+            except Exception:
+                pass
+
     async def scan_symbol(self, symbol: str) -> None:
         """Run the full pipeline for a single symbol. Never raises."""
         try:
@@ -330,3 +407,16 @@ def _current_session(features) -> str:
     if features.is_new_york:  return 'new_york'
     if features.is_asian:     return 'asian'
     return 'off_hours'
+
+
+def _epoch_to_iso(v) -> str:
+    """Finnhub sends `datetime` as epoch seconds. Coerce to ISO; fall back
+    to now() for missing/odd values."""
+    try:
+        if isinstance(v, (int, float)) and v > 0:
+            return datetime.fromtimestamp(float(v), tz=timezone.utc).isoformat()
+        if isinstance(v, str) and v.isdigit():
+            return datetime.fromtimestamp(int(v), tz=timezone.utc).isoformat()
+    except Exception:
+        pass
+    return datetime.now(timezone.utc).isoformat()
