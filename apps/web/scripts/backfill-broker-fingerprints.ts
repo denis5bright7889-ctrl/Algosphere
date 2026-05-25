@@ -79,6 +79,17 @@ async function main(): Promise<void> {
       .maybeSingle()
     const ex = existing as { owner_user_id: string } | null
     if (ex && ex.owner_user_id !== r.user_id) {
+      // Make the collision visible to the admin review surface: log a
+      // reclaim_blocked history row carrying the colliding connection +
+      // would-be owner. Idempotent enough — admin can de-dup by created_at.
+      await db.from('broker_ownership_history').insert({
+        fingerprint: fp, broker,
+        previous_owner_user_id: ex.owner_user_id,
+        new_owner_user_id:      r.user_id,
+        action: 'reclaim_blocked',
+        reason: 'backfill_collision',
+        metadata: { connection_id: r.id },
+      })
       console.warn(`[${r.id}] ${broker}: fingerprint already owned by ${ex.owner_user_id.slice(0,8)} — left unset (manual review)`)
       collisions++; continue
     }
