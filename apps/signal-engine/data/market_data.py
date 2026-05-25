@@ -224,6 +224,113 @@ class CoinbaseProvider(MarketDataProvider):
             return None
 
 
+# ─── Polygon.io (institutional multi-asset backbone) ───────────────────────
+#
+# Aggregates endpoint: /v2/aggs/ticker/{ticker}/range/1/hour/{from}/{to}
+# Polygon prefixes the ticker by asset class:
+#   forex/metals  C:EURUSD   C:XAUUSD   C:GBPUSD ...
+#   crypto        X:BTCUSD   X:ETHUSD   X:SOLUSD ...     (drop the …T)
+#   indices       I:NDX      I:SPX      I:DJI ...
+#   equities      AAPL       MSFT       (no prefix)
+#
+# Polygon serves every asset class in one chain, which is why it slots in as
+# the multi-asset fallback after TwelveData. On the current 'Stocks Starter'-
+# class plan, data is end-of-15-min delayed (status: DELAYED) — fine for
+# 1h-bar regime classification, since the newest closed hourly bar is well
+# outside the delay window. Some symbols (SPX, DJI) require a higher plan
+# and return NOT_AUTHORIZED; those are silently treated as [] so the chain
+# tries the next provider rather than crashing.
+
+POLYGON_INTERVAL_MAP = {
+    '1m': (1, 'minute'), '5m': (5, 'minute'), '15m': (15, 'minute'),
+    '1h': (1, 'hour'),   '4h': (4, 'hour'),   '1d': (1, 'day'),
+}
+
+# Calendar-day lookback per interval. Sized to comfortably exceed 300 bars
+# for equities (which only trade ~6.5h/day, Mon-Fri); crypto/FX which trade
+# nearly 24/7 will simply have extra bars trimmed by `outputsize`.
+POLYGON_LOOKBACK_DAYS = {
+    '1m': 7, '5m': 14, '15m': 30, '1h': 90, '4h': 180, '1d': 730,
+}
+
+
+class PolygonProvider(MarketDataProvider):
+    """Multi-asset OHLCV via Polygon.io (a.k.a. 'Massive' in this stack).
+
+    Returns [] (not an exception) for any symbol the current plan isn't
+    authorized for, so the fallback chain moves on cleanly.
+    """
+
+    BASE = 'https://api.polygon.io'
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self._client = httpx.AsyncClient(timeout=15.0)
+
+    def _ticker(self, symbol: str) -> Optional[str]:
+        """Map engine symbol → Polygon ticker. Returns None for unmappable."""
+        s = symbol.upper()
+        # Crypto: …USDT → X:…USD
+        if s.endswith('USDT'):
+            return f'X:{s[:-4]}USD'
+        # 6-char forex/metals: EURUSD, XAUUSD, GBPUSD, etc. → C:EURUSD
+        if len(s) == 6 and s.isalpha():
+            return f'C:{s}'
+        # Indices (engine convention: prefix 'I:' or known names)
+        if s.startswith('I:'):
+            return s
+        if s in {'SPX','NDX','DJI','RUT','VIX','GER40','UK100','JPN225','NAS100','US30'}:
+            # Engine-friendly names → Polygon index tickers (NAS100→NDX, US30→DJI)
+            return f'I:{ {"NAS100":"NDX","US30":"DJI"}.get(s, s) }'
+        # Equities: plain ticker (AAPL, MSFT, TSLA, SPY, QQQ ...)
+        if s.isalpha() and 1 <= len(s) <= 5:
+            return s
+        return None
+
+    async def fetch_ohlcv(self, symbol: str, interval: str, outputsize: int = 300) -> list[OHLCVBar]:
+        ticker = self._ticker(symbol)
+        if not ticker:
+            return []
+        mult, unit = POLYGON_INTERVAL_MAP.get(interval, (1, 'hour'))
+        # YYYY-MM-DD format reliably returns the full window across all
+        # asset classes. Epoch-ms in the URL silently truncates responses
+        # on this plan tier — verified empirically (10 bars vs 88 for AAPL).
+        from datetime import timedelta
+        today = datetime.utcnow().date()
+        from_d = (today - timedelta(days=POLYGON_LOOKBACK_DAYS.get(interval, 90))).isoformat()
+        to_d   = today.isoformat()
+        url = f'{self.BASE}/v2/aggs/ticker/{ticker}/range/{mult}/{unit}/{from_d}/{to_d}'
+        try:
+            resp = await self._client.get(url, params={
+                'adjusted': 'true', 'sort': 'asc', 'limit': min(outputsize * 2, 5000),
+                'apiKey': self.api_key,
+            })
+            if resp.status_code == 403:
+                # NOT_AUTHORIZED — plan doesn't cover this symbol; let chain move on.
+                return []
+            resp.raise_for_status()
+            data = resp.json()
+            status = data.get('status')
+            if status not in ('OK', 'DELAYED'):
+                # ERROR / NOT_AUTHORIZED / etc. — degrade silently.
+                logger.debug(f"Polygon non-OK status for {symbol} ({ticker}): {status} {data.get('error','')}")
+                return []
+            rows = data.get('results') or []
+            bars = [OHLCVBar(
+                timestamp=datetime.utcfromtimestamp(int(r['t']) / 1000).strftime('%Y-%m-%d %H:%M:%S'),
+                open=float(r['o']), high=float(r['h']), low=float(r['l']),
+                close=float(r['c']), volume=float(r.get('v', 0) or 0),
+            ) for r in rows[-outputsize:] if 'o' in r and 'c' in r]
+            return bars
+        except Exception as e:
+            logger.error(f"Polygon fetch failed for {symbol} ({ticker}): {e}")
+            return []
+
+    async def fetch_live_price(self, symbol: str) -> Optional[float]:
+        bars = await self.fetch_ohlcv(symbol, '1m', 2)
+        return bars[-1].close if bars else None
+
+
 # ─── Provider factory with fallback chain ───────────────────────────────────
 
 class FallbackDataProvider(MarketDataProvider):
@@ -252,14 +359,28 @@ class FallbackDataProvider(MarketDataProvider):
 def build_provider(settings) -> Optional[FallbackDataProvider]:
     """Builds the provider chain.
 
-    Coinbase is always first and keyless — it serves crypto (…USDT) and
-    instantly returns [] for everything else, so forex/metals fall through
-    to Twelve Data. This also means the engine ALWAYS has a usable provider
-    for crypto even if no API key is configured (never 'none' for BTC/ETH).
+    Order is deliberate, not preference-ordered:
+      1. Coinbase   — crypto only, keyless, real-time. Serves …USDT, [] else.
+      2. TwelveData — FX/metals real-time. Hard-capped 800 credits/day on
+         the Basic plan, so it's first for the asset classes it serves but
+         WILL stop responding once the daily cap is exhausted.
+      3. Polygon    — the institutional multi-asset backbone. Serves FX,
+         metals, crypto, equities, AND indices in one chain. Status is
+         'DELAYED' (~15 min) on the current plan, which is fine for 1h-bar
+         classification but means it sits AFTER real-time TD/Coinbase for
+         the asset classes they cover. It is the ONLY path for equities
+         and indices, so adding it unlocks SPY/AAPL/NDX-style cards.
+      4. AlphaVantage — FX emergency only (~25 req/day free tier).
+
+    This means the engine ALWAYS has a usable provider for crypto even
+    without keys, and gains equity/index coverage the moment Polygon is
+    configured (POLYGON_API_KEY env var).
     """
     providers: list[MarketDataProvider] = [CoinbaseProvider()]
     if settings.twelve_data_api_key:
         providers.append(TwelveDataProvider(settings.twelve_data_api_key))
+    if settings.polygon_api_key:
+        providers.append(PolygonProvider(settings.polygon_api_key))
     if settings.alpha_vantage_api_key:
         providers.append(AlphaVantageProvider(settings.alpha_vantage_api_key))
     return FallbackDataProvider(providers)
