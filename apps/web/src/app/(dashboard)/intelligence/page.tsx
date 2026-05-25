@@ -12,14 +12,28 @@
  */
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
+import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/server'
 import CrossAssetNarrative from '@/components/market/CrossAssetNarrative'
 import CorrelationsPanel   from '@/components/market/CorrelationsPanel'
+import { composeStressView, type StressLabel } from '@/lib/stress-engine'
 
 export const metadata = { title: 'Market Intelligence — AlgoSphere Quant' }
 export const dynamic   = 'force-dynamic'
 
 interface Tile { href: string; label: string; blurb: string; pill?: string }
+
+// New top-tier engines added in the institutional-intelligence
+// transformation. Surfaced first so users discover the core before
+// drilling into specific asset classes.
+const CORE: Tile[] = [
+  { href: '/intelligence/conviction', label: 'Conviction',
+    blurb: 'Multi-layer agreement across momentum, regime, smart money, macro.', pill: 'new' },
+  { href: '/intelligence/momentum',   label: 'Momentum',
+    blurb: 'Phase detection: Accumulation → Trending → Parabolic → Distribution.', pill: 'new' },
+  { href: '/intelligence/stress',     label: 'Market Stress',
+    blurb: 'Universe-level environment read with posture guidance.', pill: 'new' },
+]
 
 const ASSET_CLASSES: Tile[] = [
   { href: '/market', label: 'Forex',          blurb: 'Majors, minors, crosses — live via Twelve Data.' },
@@ -52,6 +66,10 @@ export default async function IntelligenceLandingPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  // Universe Stress is the institutional frame; render it at the top so
+  // users see the environment before the cross-asset narrative.
+  const stress = await composeStressView()
+
   return (
     <main className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
       <header>
@@ -63,16 +81,48 @@ export default async function IntelligenceLandingPage() {
         </p>
       </header>
 
+      <EnvironmentStrip label={stress.label} score={stress.score} posture={stress.posture}
+                        narrative={stress.narrative} />
+
       <CrossAssetNarrative />
 
       <CorrelationsPanel />
 
+      <Section title="Intelligence Core" tiles={CORE}
+               sub="The institutional engines — start here." />
       <Section title="Asset Classes" tiles={ASSET_CLASSES}
                sub="Switch class in the Market Tracker — the working set follows the tab." />
       <Section title="On-chain Intelligence" tiles={ONCHAIN}
                sub="Live where the chain-engine service is deployed; static demo otherwise." />
       <Section title="Macro" tiles={MACRO} />
     </main>
+  )
+}
+
+// Universe-level Stress strip — links through to the full Stress dashboard.
+function EnvironmentStrip(props: { label: StressLabel; score: number; posture: string; narrative: string }) {
+  const tone =
+    props.label === 'Aggressive Conditions'  ? 'border-emerald-500/30 text-emerald-400' :
+    props.label === 'Stable Conditions'      ? 'border-sky-500/30 text-sky-400' :
+    props.label === 'Defensive Environment'  ? 'border-amber-500/30 text-amber-400' :
+    props.label === 'Market Stress Elevated' ? 'border-rose-500/40 text-rose-400' :
+                                                'border-border text-muted-foreground'
+  const [borderClass, textClass] = tone.split(' ')
+  return (
+    <Link href="/intelligence/stress"
+          className={cn('group flex items-center gap-3 rounded-2xl border bg-card p-4 transition-colors hover:bg-card/80',
+                        borderClass)}>
+      <div className="flex flex-col">
+        <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Environment</span>
+        <span className={cn('text-base font-semibold', textClass)}>{props.label}</span>
+      </div>
+      <div className="hidden h-10 w-px bg-border/60 sm:block" />
+      <p className="hidden flex-1 text-xs text-muted-foreground sm:block">{props.narrative}</p>
+      <div className="ml-auto flex shrink-0 flex-col items-end">
+        <span className={cn('text-lg font-semibold tabular-nums leading-none', textClass)}>{props.score}</span>
+        <span className="text-[9px] uppercase tracking-wider text-muted-foreground">stress · {props.posture}</span>
+      </div>
+    </Link>
   )
 }
 
