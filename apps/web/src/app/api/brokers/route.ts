@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { encrypt, isVaultAvailable, mask } from '@/lib/vault'
 import { testBrokerConnection } from '@/lib/engine-client'
+import { brokerFingerprint } from '@/lib/broker-fingerprint'
 
 // GET — list my broker connections (secrets never returned in plaintext)
 export async function GET() {
@@ -99,6 +100,58 @@ export async function POST(req: Request) {
 
   const d = parsed.data
   const svc = createServiceClient()
+
+  // ── Anti-sharing gate (institutional broker-ownership registry) ──────
+  // Deterministic non-secret fingerprint of the real-world broker account
+  // (sha256 of broker + public identity tuple; never includes the
+  // password/api_secret). Same real account → same fingerprint regardless
+  // of which AlgoSphere user is connecting. DB enforces uniqueness via
+  // broker_account_ownership.fingerprint; we check first so we can return
+  // the user-facing message instead of a raw 23505. Server-only — never
+  // trust the frontend for this.
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null
+  const ua = req.headers.get('user-agent') ?? null
+  const fingerprint = brokerFingerprint({
+    broker:     d.broker,
+    api_key:    d.api_key,
+    account_id: d.account_id ?? undefined,
+    passphrase: d.passphrase ?? undefined,
+  })
+  if (fingerprint) {
+    const { data: existing } = await svc
+      .from('broker_account_ownership')
+      .select('owner_user_id, ownership_status, unlink_cooldown_until')
+      .eq('fingerprint', fingerprint)
+      .maybeSingle()
+
+    if (existing) {
+      const e = existing as { owner_user_id: string; ownership_status: string; unlink_cooldown_until: string | null }
+      if (e.owner_user_id !== user.id) {
+        // Audit the blocked reclaim attempt — best-effort, never blocks the response.
+        svc.from('broker_ownership_history').insert({
+          fingerprint, broker: d.broker,
+          previous_owner_user_id: e.owner_user_id,
+          new_owner_user_id:      user.id,
+          action: 'reclaim_blocked',
+          reason: 'fingerprint owned by different user',
+          actor_id: user.id, ip_address: ip, user_agent: ua,
+        }).then(() => {}, () => {})
+        return NextResponse.json(
+          { error: 'This trading account is already connected to another AlgoSphere profile.' },
+          { status: 409 },
+        )
+      }
+      if (e.ownership_status === 'cooldown'
+          && e.unlink_cooldown_until
+          && new Date(e.unlink_cooldown_until) > new Date()) {
+        return NextResponse.json(
+          { error: 'This trading account is in a cooldown period and cannot be re-linked yet.' },
+          { status: 409 },
+        )
+      }
+    }
+  }
+
   const { data, error } = await svc
     .from('broker_connections')
     .insert({
@@ -114,6 +167,8 @@ export async function POST(req: Request) {
       is_live:           !d.is_testnet,
       is_default:        d.is_default,
       status:            'pending',
+      // Denormalized fingerprint for join-free lookups (NULL until migration 041).
+      broker_account_fingerprint: fingerprint,
     })
     .select('id, broker, label, is_testnet, is_default, status, created_at')
     .single()
@@ -128,6 +183,24 @@ export async function POST(req: Request) {
     }
     console.error('broker create error:', error)
     return NextResponse.json({ error: 'Failed to save connection' }, { status: 500 })
+  }
+
+  // Register/refresh broker_account_ownership for this fingerprint (idempotent
+  // upsert). Best-effort: an ownership-table write must never block trading.
+  if (fingerprint) {
+    svc.from('broker_account_ownership').upsert({
+      fingerprint, broker: d.broker, owner_user_id: user.id,
+      current_connection_id: data.id,
+      last_seen_at: new Date().toISOString(),
+      last_seen_ip: ip,
+      ownership_status: 'active',
+    }, { onConflict: 'fingerprint' }).then(() => {}, () => {})
+    svc.from('broker_ownership_history').insert({
+      fingerprint, broker: d.broker,
+      new_owner_user_id: user.id,
+      action: 'linked',
+      actor_id: user.id, ip_address: ip, user_agent: ua,
+    }).then(() => {}, () => {})
   }
 
   // Immediately handshake against the engine so the user gets a verdict
