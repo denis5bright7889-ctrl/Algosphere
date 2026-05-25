@@ -7,6 +7,9 @@
  * source is a single env change + redeploy; zero UI/route rewrites.
  *
  *   ONCHAIN_PROVIDER=mock        (default — seeded, always available)
+ *   ONCHAIN_PROVIDER=nansen      (real smart-money / momentum / heatmap;
+ *                                 surfaces the screener can't reach throw
+ *                                 ProviderNotWired and fall back to mock)
  *   ONCHAIN_PROVIDER=dune        (wire query IDs in providers/dune)
  *   ONCHAIN_PROVIDER=birdeye|dexscreener|moralis|alchemy
  *
@@ -17,6 +20,7 @@
  */
 import type { OnchainProvider } from './types'
 import { MockProvider } from './providers/mock'
+import { NansenProvider } from './providers/nansen'
 import { DuneProvider } from './providers/dune'
 import { BirdeyeProvider } from './providers/birdeye'
 import { DexScreenerProvider } from './providers/dexscreener'
@@ -28,10 +32,11 @@ export * from './types'
 export { ProviderNotWired }
 
 export type ProviderName =
-  | 'mock' | 'dune' | 'birdeye' | 'dexscreener' | 'moralis' | 'alchemy'
+  | 'mock' | 'nansen' | 'dune' | 'birdeye' | 'dexscreener' | 'moralis' | 'alchemy'
 
 function build(name: ProviderName): OnchainProvider {
   switch (name) {
+    case 'nansen':      return new NansenProvider()
     case 'dune':        return new DuneProvider()
     case 'birdeye':     return new BirdeyeProvider()
     case 'dexscreener': return new DexScreenerProvider()
@@ -44,7 +49,7 @@ function build(name: ProviderName): OnchainProvider {
 
 export function activeProviderName(): ProviderName {
   const raw = (process.env.ONCHAIN_PROVIDER ?? 'mock').toLowerCase()
-  const known: ProviderName[] = ['mock', 'dune', 'birdeye', 'dexscreener', 'moralis', 'alchemy']
+  const known: ProviderName[] = ['mock', 'nansen', 'dune', 'birdeye', 'dexscreener', 'moralis', 'alchemy']
   return (known as string[]).includes(raw) ? raw as ProviderName : 'mock'
 }
 
