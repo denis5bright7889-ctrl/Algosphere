@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 import LiveCryptoStrip from '@/components/market/LiveCryptoStrip'
 import MarketHub from '@/components/market/MarketHub'
+import CrossAssetNarrative from '@/components/market/CrossAssetNarrative'
+import CorrelationsPanel from '@/components/market/CorrelationsPanel'
 import { MARKET_UNIVERSE } from '@/lib/market-universe'
 
 export const metadata = { title: 'Market Tracker — AlgoSphere Quant' }
@@ -109,7 +111,15 @@ export default async function MarketTrackerPage() {
       </div>
 
       <div className="mb-6">
+        <CrossAssetNarrative />
+      </div>
+
+      <div className="mb-6">
         <MarketHub universe={uni} regimeBySymbol={regimeBySymbol} />
+      </div>
+
+      <div className="mb-6">
+        <CorrelationsPanel />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
