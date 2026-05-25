@@ -1,5 +1,5 @@
 import {
-  TrendingUp, ArrowLeftRight, Zap, AlertTriangle, HelpCircle,
+  TrendingUp, ArrowLeftRight, Zap, HelpCircle,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -12,12 +12,15 @@ interface Props {
   compact?: boolean
 }
 
+// Institutional, user-facing labels (the raw engine regime keys stay the
+// map KEYS, but users only ever see these readable states — never
+// 'Exhaustion'/'Unknown'/engine jargon).
 const REGIME_META: Record<Regime, { label: string; color: string; bg: string; icon: LucideIcon }> = {
-  trending:        { label: 'Trending',  color: 'text-emerald-400',       bg: 'bg-emerald-500/15 border-emerald-500/30', icon: TrendingUp     },
-  mean_reversion:  { label: 'Mean Rev.', color: 'text-blue-400',          bg: 'bg-blue-500/15 border-blue-500/30',       icon: ArrowLeftRight },
-  high_volatility: { label: 'High Vol.', color: 'text-amber-400',         bg: 'bg-amber-500/15 border-amber-500/30',     icon: Zap            },
-  exhaustion:      { label: 'Exhaustion', color: 'text-red-400',          bg: 'bg-red-500/15 border-red-500/30',         icon: AlertTriangle  },
-  unknown:         { label: 'Unknown',   color: 'text-muted-foreground',  bg: 'bg-muted/20 border-border',               icon: HelpCircle     },
+  trending:        { label: 'Trending',          color: 'text-emerald-400',      bg: 'bg-emerald-500/15 border-emerald-500/30', icon: TrendingUp     },
+  mean_reversion:  { label: 'Ranging',           color: 'text-sky-400',          bg: 'bg-sky-500/15 border-sky-500/30',         icon: ArrowLeftRight },
+  high_volatility: { label: 'Volatile',          color: 'text-amber-400',        bg: 'bg-amber-500/15 border-amber-500/30',     icon: Zap            },
+  exhaustion:      { label: 'Mixed Conditions',  color: 'text-muted-foreground', bg: 'bg-muted/20 border-border',               icon: ArrowLeftRight },
+  unknown:         { label: 'Awaiting Confirmation', color: 'text-muted-foreground', bg: 'bg-muted/20 border-border',           icon: HelpCircle     },
 }
 
 function getMeta(regime: string) {
