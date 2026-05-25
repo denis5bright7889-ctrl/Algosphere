@@ -57,7 +57,31 @@ class TwelveDataProvider(MarketDataProvider):
         self.api_key = api_key
         self._client = httpx.AsyncClient(timeout=15.0)
 
+    def _serves(self, symbol: str) -> bool:
+        """True if this provider can serve the symbol on the current plan.
+
+        The TwelveData Basic (free) plan covers FX / metals only — indices,
+        equities, ETFs and crypto either return an error or aren't entitled.
+        Every API attempt (even a failure) burns 1 of the 800 daily credits,
+        so we MUST early-return for unsupported asset classes. Mirrors the
+        Coinbase pattern (`[] for non-crypto`).
+
+        Rule:
+          - Symbols mapped in TWELVE_SYMBOL_MAP → serve
+          - 6-char alphabetic ticker (EURUSD / XAUUSD pattern) → serve
+          - Anything else (1-5 char equity tickers like AAPL, …USDT crypto,
+            I:NDX indices, etc.) → do NOT call the API
+        """
+        s = symbol.upper()
+        if s in TWELVE_SYMBOL_MAP:
+            return True
+        if len(s) == 6 and s.isalpha():
+            return True
+        return False
+
     async def fetch_ohlcv(self, symbol: str, interval: str, outputsize: int = 300) -> list[OHLCVBar]:
+        if not self._serves(symbol):
+            return []  # skip the API call — preserves the daily credit budget
         td_symbol = TWELVE_SYMBOL_MAP.get(symbol, symbol.replace('USD', '/USD'))
         td_interval = TWELVE_INTERVAL_MAP.get(interval, interval)
         params = {
@@ -89,6 +113,8 @@ class TwelveDataProvider(MarketDataProvider):
             return []
 
     async def fetch_live_price(self, symbol: str) -> Optional[float]:
+        if not self._serves(symbol):
+            return None  # same credit-preservation as fetch_ohlcv
         td_symbol = TWELVE_SYMBOL_MAP.get(symbol, symbol)
         try:
             resp = await self._client.get(
