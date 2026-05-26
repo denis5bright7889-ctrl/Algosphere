@@ -47,6 +47,11 @@ TWELVE_SYMBOL_MAP = {
     'USDJPY': 'USD/JPY', 'GBPJPY': 'GBP/JPY', 'AUDUSD': 'AUD/USD',
     'USDCAD': 'USD/CAD', 'XAGUSD': 'XAG/USD', 'US30': 'DJI',
     'NAS100': 'NDX',
+    # Phase-1 FX expansion. Explicit mappings required: the naive
+    # symbol.replace('USD','/USD') fallback breaks USD-first pairs
+    # ('USDCHF' -> '/USDCHF') and crosses ('EURJPY' stays 'EURJPY').
+    'NZDUSD': 'NZD/USD', 'USDCHF': 'USD/CHF',
+    'EURJPY': 'EUR/JPY', 'EURGBP': 'EUR/GBP',
 }
 
 
@@ -382,7 +387,59 @@ class FallbackDataProvider(MarketDataProvider):
         return None
 
 
-def build_provider(settings) -> Optional[FallbackDataProvider]:
+# Bar-interval → seconds, for cache freshness (a fetch is reused until a new
+# candle of this interval should have closed).
+INTERVAL_SECONDS = {
+    '1m': 60, '5m': 300, '15m': 900, '30m': 1800,
+    '1h': 3600, '4h': 14400, '1d': 86400,
+}
+
+
+class CachedDataProvider(MarketDataProvider):
+    """OHLCV cache keyed by (symbol, interval), wrapping the fallback chain.
+
+    Closed candles don't change within their interval, so re-fetching every
+    scan is wasteful. This serves cached bars until a new candle of the
+    timeframe should have closed (TTL = interval duration). With a 15-min
+    scan cadence on 1h bars that's ~4× fewer upstream calls; the dominant
+    win is keeping TwelveData under its 800/day cap so FX/metals never fall
+    through to a thin fallback.
+
+    Bonus resilience: if every provider returns empty (e.g. TD daily cap
+    hit mid-cycle), serve the last good bars rather than blanking the symbol.
+    In-process cache — the engine is a single long-running worker, so it
+    persists across scans.
+    """
+
+    def __init__(self, inner: MarketDataProvider):
+        self.inner = inner
+        self._cache: dict[tuple[str, str], tuple[list[OHLCVBar], float]] = {}
+
+    async def fetch_ohlcv(self, symbol: str, interval: str, outputsize: int = 300) -> list[OHLCVBar]:
+        key = (symbol, interval)
+        now = datetime.now().timestamp()
+        ttl = INTERVAL_SECONDS.get(interval, 3600)
+        cached = self._cache.get(key)
+        if cached and (now - cached[1]) < ttl:
+            return cached[0]
+        bars = await self.inner.fetch_ohlcv(symbol, interval, outputsize)
+        if bars:
+            self._cache[key] = (bars, now)
+            return bars
+        if cached:
+            age = int(now - cached[1])
+            logger.warning(f"OHLCV cache: upstream empty for {symbol} — serving cached bars (age {age}s)")
+            return cached[0]
+        return []
+
+    async def fetch_live_price(self, symbol: str) -> Optional[float]:
+        return await self.inner.fetch_live_price(symbol)
+
+    async def get_spread(self, symbol: str) -> float:
+        return await self.inner.get_spread(symbol)
+
+
+def build_provider(settings) -> Optional[MarketDataProvider]:
     """Builds the provider chain.
 
     Order is deliberate, not preference-ordered:
@@ -409,4 +466,6 @@ def build_provider(settings) -> Optional[FallbackDataProvider]:
         providers.append(PolygonProvider(settings.polygon_api_key))
     if settings.alpha_vantage_api_key:
         providers.append(AlphaVantageProvider(settings.alpha_vantage_api_key))
-    return FallbackDataProvider(providers)
+    # Wrap the chain in the OHLCV cache (cuts upstream calls; keeps TD under
+    # its daily cap; serves last-good bars on a transient provider outage).
+    return CachedDataProvider(FallbackDataProvider(providers))
