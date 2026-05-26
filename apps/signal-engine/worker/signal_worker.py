@@ -290,6 +290,18 @@ class SignalWorker:
             f"risk=${risk_decision.risk_amount:.2f}"
         )
 
+        # 9c. Dry-run gate — verify generation without publishing/executing.
+        # Everything above (ensemble → confidence → gate → risk) has passed;
+        # we log the would-be signal and STOP before any DB write / fan-out.
+        if self.settings.signal_dry_run:
+            logger.warning(
+                f"[{symbol}] DRY_RUN would publish: {proposal.direction.upper()} "
+                f"entry={proposal.entry} SL={proposal.stop_loss} RR={proposal.risk_reward} "
+                f"conf={confidence.score}/100({confidence.tier}) regime={regime.regime.value} "
+                f"lot={risk_decision.lot_size:.4f} — NOT publishing (dry-run)"
+            )
+            return
+
         # 10. Publish to Supabase
         signal_id = await self._publish_signal(symbol, proposal, confidence, regime, features)
         if signal_id:

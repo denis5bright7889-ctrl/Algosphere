@@ -5,6 +5,7 @@ Three sub-strategies with weighted voting, regime-adaptive weights, and ATR-base
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Literal
+from loguru import logger
 from engine.feature_engineer import EngineFeatures
 from engine.regime_engine import RegimeResult
 
@@ -90,15 +91,18 @@ def momentum_breakout(f: EngineFeatures, weight: float, is_trending: bool = Fals
     atr = f.atr14 or 1.0
 
     if is_trending:
-        # Continuation: BB upper break + MACD positive + DER > 0.4
+        # Continuation: BB break + MACD + DER. DER is the Kaufman Efficiency
+        # Ratio (0..1); 0.20 marks meaningful directional efficiency. Old
+        # 0.38 floor was effectively unreachable (live DER ~0.1-0.3) so this
+        # branch never fired even in 'trending' regimes.
         if (f.close > f.bb_upper and f.macd_histogram > 0 and
-                f.der > 0.38 and f.rsi14 < 75):
+                f.der > 0.20 and f.rsi14 < 75):
             strength = weight * min(f.der, 1.0) * _rsi_quality(f.rsi14, 'buy')
             return StrategyVote('momentum_breakout', 'buy', strength,
                                 f"BB upper break trend cont, RSI={f.rsi14:.1f}")
 
         if (f.close < f.bb_lower and f.macd_histogram < 0 and
-                f.der > 0.38 and f.rsi14 > 25):
+                f.der > 0.20 and f.rsi14 > 25):
             strength = weight * min(f.der, 1.0) * _rsi_quality(f.rsi14, 'sell')
             return StrategyVote('momentum_breakout', 'sell', strength,
                                 f"BB lower break trend cont, RSI={f.rsi14:.1f}")
@@ -140,6 +144,17 @@ def ensemble_signal(
 
     buy_votes  = [v for v in votes if v.direction == 'buy']
     sell_votes = [v for v in votes if v.direction == 'sell']
+
+    # Diagnostic: log the vote breakdown whenever ANY strategy fires, so
+    # rejections (STRATEGY_SIGNAL_REJECTED) and acceptances are observable
+    # operationally without DEBUG. Quiet when the tape is dead (all None).
+    voted = [v for v in votes if v.direction is not None]
+    if voted:
+        brk = ', '.join(f"{v.strategy}={v.direction}({v.strength:.2f})" for v in voted)
+        consensus = len(buy_votes) >= MIN_AGREEING or len(sell_votes) >= MIN_AGREEING
+        tag = 'STRATEGY_SIGNAL_ACCEPTED' if consensus else 'STRATEGY_SIGNAL_REJECTED'
+        logger.info(f"[{symbol}] {tag} regime={regime_result.regime.value} "
+                    f"votes=[{brk}] buy={len(buy_votes)} sell={len(sell_votes)} need={MIN_AGREEING}")
 
     if len(buy_votes) >= MIN_AGREEING:
         direction: Direction = 'buy'
