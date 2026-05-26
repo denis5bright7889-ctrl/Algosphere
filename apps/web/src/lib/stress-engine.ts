@@ -24,6 +24,7 @@ import 'server-only'
 import { createClient } from '@/lib/supabase/server'
 import { composeMomentumView } from '@/lib/momentum-engine'
 import { getMacroSnapshot, isAlphaVantageConfigured } from '@/lib/alphavantage'
+import { logDecision, fingerprint } from '@/lib/intel-memory'
 
 export type StressLabel =
   | 'Market Stress Elevated'
@@ -226,7 +227,7 @@ export async function composeStressView(): Promise<StressView> {
   const { score, partial } = composite(components)
   const label = score === 0 && partial ? 'Unknown' : labelOf(score)
   const posture = postureOf(label)
-  return {
+  const view: StressView = {
     label,
     score,
     posture,
@@ -235,4 +236,13 @@ export async function composeStressView(): Promise<StressView> {
     generated_at: new Date().toISOString(),
     partial,
   }
+
+  // Adaptive Phase A — record the environment read (universe-level; no symbol).
+  await logDecision({
+    surface:     'stress',
+    fingerprint: fingerprint([label, posture, ...components.filter((c) => c.available).map((c) => `${c.name}:${Math.round(c.stress * 10)}`)]),
+    payload:     view,
+  })
+
+  return view
 }
