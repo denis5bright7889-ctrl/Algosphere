@@ -29,6 +29,11 @@ class Settings(BaseSettings):
 
     # Engine
     signal_engine_enabled: bool = True
+    # When true, the pipeline runs the FULL path (ensemble → confidence →
+    # gate → risk) and LOGS the signal it would publish, but does NOT write
+    # to `signals` or fan out to the copy/execution pipeline. Used to verify
+    # generation after a tuning change without any live-trade exposure.
+    signal_dry_run: bool = False
     scan_interval_minutes: int = 5
     # Default scan universe — keep this in sync with the SYMBOLS env var in
     # production. TD-served symbols (forex / metals) each cost 1 credit per

@@ -47,9 +47,13 @@ def classify_regime(features: EngineFeatures) -> RegimeResult:
     atr_p = features.atr_percentile
 
     # --- Trending: high DER + positive autocorr + moderate entropy ---
-    if der >= 0.45 and ac >= 0.1 and ent < 2.5 and atr_p >= 25:
+    # DER is the Kaufman Efficiency Ratio (0..1). Empirically ~0.30 marks a
+    # genuine trend; the old 0.45 floor was unreachable in practice (live DER
+    # tops out ~0.19 in chop, ~0.30-0.45 in real trends) so 'trending' never
+    # classified — starving the ensemble. Recalibrated to the real ER scale.
+    if der >= 0.30 and ac >= 0.08 and ent < 2.5 and atr_p >= 25:
         regime = Regime.TRENDING
-        conf = min((der - 0.45) / 0.3 + (ac / 0.5) * 0.3, 1.0)
+        conf = min((der - 0.30) / 0.3 + (ac / 0.5) * 0.3, 1.0)
         weights = {'trend_continuation': 0.6, 'liquidity_sweep': 0.3, 'momentum_breakout': 0.1}
         desc = f"Trending — DER={der:.2f}, autocorr={ac:.2f}"
 
@@ -60,8 +64,8 @@ def classify_regime(features: EngineFeatures) -> RegimeResult:
         weights = {'momentum_breakout': 0.5, 'liquidity_sweep': 0.3, 'trend_continuation': 0.2}
         desc = f"High Volatility — ATR_pct={atr_p:.0f}%, entropy={ent:.2f}"
 
-    # --- Exhaustion: very low ATR percentile + low DER ---
-    elif atr_p <= 15 and der <= 0.25:
+    # --- Exhaustion: very low ATR percentile + very low DER (true chop) ---
+    elif atr_p <= 15 and der <= 0.10:
         regime = Regime.EXHAUSTION
         conf = 0.8
         weights = {'trend_continuation': 0.0, 'liquidity_sweep': 0.1, 'momentum_breakout': 0.0}
@@ -77,9 +81,9 @@ def classify_regime(features: EngineFeatures) -> RegimeResult:
     # --- Expansion: ATR climbing into the middle band with energy building ---
     # Carved out of UNKNOWN — vol elevated but not yet HIGH_VOLATILITY, with
     # enough directional energy to suggest a breakout setup rather than chop.
-    elif 50 <= atr_p < 75 and der >= 0.4 and ent < 3.0:
+    elif 50 <= atr_p < 75 and der >= 0.20 and ent < 3.0:
         regime = Regime.EXPANSION
-        conf = min((atr_p - 50) / 25 * 0.7 + (der - 0.4) / 0.3 * 0.3, 1.0)
+        conf = min((atr_p - 50) / 25 * 0.7 + (der - 0.20) / 0.2 * 0.3, 1.0)
         weights = {'momentum_breakout': 0.5, 'trend_continuation': 0.35, 'liquidity_sweep': 0.15}
         desc = f"Expansion — vol building (ATR_pct={atr_p:.0f}%), DER={der:.2f}"
 
@@ -87,7 +91,7 @@ def classify_regime(features: EngineFeatures) -> RegimeResult:
     # Carved out of UNKNOWN — moderate DER without persistence direction
     # (autocorr near zero), or high entropy with moderate DER. Strategy
     # mix is balanced and confidence intentionally low.
-    elif 0.25 <= der < 0.45 and abs(ac) < 0.1:
+    elif 0.12 <= der < 0.30 and abs(ac) < 0.12:
         regime = Regime.TRANSITIONAL
         conf = 0.45
         weights = {'trend_continuation': 0.35, 'liquidity_sweep': 0.35, 'momentum_breakout': 0.3}
