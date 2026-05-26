@@ -26,6 +26,7 @@ import type {
 } from '../../types'
 import { ProviderNotWired } from '../stub'
 import { tokenScreener, type NansenToken, type NansenChain } from '@/lib/nansen'
+import { sectorOf, SECTOR_LABEL, SECTOR_DEFAULT_NARRATIVE, type Sector } from '@/lib/token-sectors'
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -164,36 +165,44 @@ export class NansenProvider implements OnchainProvider {
       })
   }
 
-  // ─ Market rotation — chain-level aggregation (sector is null by design) ─
+  // ─ Market rotation — TRUE sector aggregation via token-sectors map ──
   async getMarketRotation(q?: Query): Promise<SectorRotation[]> {
     const tokens = await tokenScreener({
       chains:    nansenChains(q?.chains),
       timeframe: q?.window ?? '24h',
       orderBy:   'buy_volume',
       direction: 'DESC',
-      limit:     100,                  // pull a broad set, then aggregate
+      limit:     150,                  // wider pull so sector aggregates have density
     })
-    // Group screener rows by chain, sum buys / netflow, normalise strength.
-    const agg = new Map<string, { buy: number; sell: number; netflow: number; n: number }>()
+    // Group screener rows by SECTOR (curated lookup) — turns chain-axis
+    // rotation into the institutional sector-axis rotation the brief asks
+    // for (capital moving Meme → AI, DeFi → RWA, etc.).
+    const agg = new Map<Sector, { buy: number; sell: number; netflow: number; n: number; top: string[] }>()
     for (const t of tokens) {
-      const a = agg.get(t.chain) ?? { buy: 0, sell: 0, netflow: 0, n: 0 }
+      const sec = sectorOf(t.token_symbol)
+      const a = agg.get(sec) ?? { buy: 0, sell: 0, netflow: 0, n: 0, top: [] }
       a.buy     += t.buy_volume  || 0
       a.sell    += t.sell_volume || 0
       a.netflow += t.netflow     || 0
       a.n       += 1
-      agg.set(t.chain, a)
+      if (a.top.length < 3 && t.token_symbol) a.top.push(t.token_symbol.toUpperCase())
+      agg.set(sec, a)
     }
+    // Drop the 'Other' bucket only if it's the ONLY entry; otherwise it
+    // belongs in the picture (rotation away from the long tail is real
+    // signal). Same honesty rule — never hide a bucket we computed.
     if (agg.size === 0) return []
     const maxBuy = Math.max(...Array.from(agg.values()).map((a) => a.buy), 1)
-    return Array.from(agg.entries()).map<SectorRotation>(([chain, a]) => ({
-      // Chains used as the rotation axis when sectors aren't available.
-      // Capitalised so the UI doesn't render lowercase chain ids.
-      sector:           chain.charAt(0).toUpperCase() + chain.slice(1),
-      capital_flow_usd: a.netflow,
-      strength_score:   Math.round((a.buy / maxBuy) * 100),
-      delta_7d_pct:     0,                              // unknown from this endpoint
-      narrative:        null,
-    })).sort((x, y) => y.strength_score - x.strength_score)
+    return Array.from(agg.entries()).map<SectorRotation>(([sector, a]) => {
+      const leaders = a.top.length ? ` Leaders: ${a.top.join(', ')}.` : ''
+      return {
+        sector:           SECTOR_LABEL[sector],
+        capital_flow_usd: a.netflow,
+        strength_score:   Math.round((a.buy / maxBuy) * 100),
+        delta_7d_pct:     0,                              // screener doesn't supply 7d delta
+        narrative:        `${SECTOR_DEFAULT_NARRATIVE[sector]}${leaders}`,
+      }
+    }).sort((x, y) => y.strength_score - x.strength_score)
   }
 
   // ─ Heatmap — per-chain intensities from aggregated screener data ────────
