@@ -10,8 +10,13 @@ export const metadata: Metadata = {
     template: '%s | AlgoSphere Quant',
   },
   description:
-    'Professional trading signals, risk management, and analytics — all in one platform.',
-  keywords: ['trading signals', 'forex', 'risk management', 'trade journal', 'AI trading'],
+    'Institutional-grade market intelligence and AI-assisted execution infrastructure — regime, smart-money flow, liquidity, conviction, and risk in one quantitative operating system.',
+  keywords: [
+    'institutional trading infrastructure', 'quantitative trading platform',
+    'AI execution intelligence', 'market regime', 'smart money flow',
+    'liquidity intelligence', 'conviction engine', 'risk analytics',
+    'algorithmic trading', 'quant',
+  ],
   manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,

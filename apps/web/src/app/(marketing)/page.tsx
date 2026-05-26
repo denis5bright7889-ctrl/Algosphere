@@ -17,17 +17,17 @@ import MobileCtaBar from './_components/MobileCtaBar'
 import RefCookieCapture from '@/components/marketing/RefCookieCapture'
 
 export const metadata = {
-  title: 'AlgoSphere Quant — Professional Trading Signals & Analytics',
+  title: 'AlgoSphere Quant — Institutional Market Intelligence & Execution Infrastructure',
   description:
-    'Get daily trading signals, risk management tools, and a trade journal — all in one platform. Start free, upgrade when ready.',
+    'A quantitative trading operating system: market regime, smart-money flow, liquidity and conviction intelligence, AI-assisted execution and a 12-gate risk engine. Built for serious traders, quants and desks.',
 }
 
 const FEATURES: { icon: LucideIcon; title: string; description: string }[] = [
   {
     icon: Radar,
-    title: 'AI Signal Engine',
+    title: 'Market Intelligence Engine',
     description:
-      'Multi-timeframe regime-aware buy/sell signals for Forex, Gold and Crypto with entry, SL and layered TPs.',
+      'Regime, momentum, liquidity, smart-money flow and conviction — institutional market states across FX, metals, equities and crypto. No raw indicators; just intelligence.',
   },
   {
     icon: ShieldCheck,
@@ -128,8 +128,9 @@ export default function HomePage() {
               meet alpha
             </h1>
             <p className="mt-5 max-w-xl text-base text-muted-foreground sm:text-lg mx-auto lg:mx-0">
-              A real-time AI signal engine, a 12-gate risk system, and multi-broker
-              auto-execution — fused into one institutional trading terminal.
+              Market regime, smart-money flow, liquidity and conviction intelligence,
+              AI-assisted execution and a 12-gate risk engine — one quantitative
+              operating system, not a signals feed.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row lg:justify-start">
               <a href="/signup" className="btn-premium w-full sm:w-auto !px-8 !py-3 !text-base">
