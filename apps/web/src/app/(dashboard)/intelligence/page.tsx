@@ -39,6 +39,8 @@ const CORE: Tile[] = [
     blurb: 'Crowded longs / panic shorts — Bybit funding + open interest.', pill: 'new' },
   { href: '/intelligence/narrative',    label: 'Narrative',
     blurb: 'Theme strength, acceleration, fatigue, institutional participation, crowding.', pill: 'new' },
+  { href: '/intelligence/liquidity',    label: 'Liquidity',
+    blurb: 'Order-book structure — imbalance, walls, voids, sweep risk, execution quality.', pill: 'new' },
 ]
 
 const ASSET_CLASSES: Tile[] = [
