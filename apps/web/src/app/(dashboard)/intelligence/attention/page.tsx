@@ -32,15 +32,20 @@ export default async function AttentionPage() {
         <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-4 text-sm text-amber-200">
           <p className="font-semibold">Attention feed unavailable</p>
           <p className="mt-1 text-xs">
-            {board.reason}. {board.reason?.includes('credits')
-              ? 'The X API meters reads — attention resumes automatically when credits refresh or are topped up. The engine and webhook are wired and ready.'
-              : 'The engine is wired; this resolves when the X API responds.'}
+            {board.reason}. Reddit (free) is the baseline source — set REDDIT_CLIENT_ID /
+            REDDIT_CLIENT_SECRET to enable it; X enriches when its metered credits are available.
+            The engine degrades to whichever source responds.
           </p>
         </div>
       ) : (
         <>
           <section className="rounded-2xl border border-violet-500/25 bg-card p-5 shadow-sm">
-            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Attention Landscape</span>
+            <div className="flex items-start justify-between gap-3">
+              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Attention Landscape</span>
+              <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                live via {board.active_sources.join(' + ') || '—'}
+              </span>
+            </div>
             <p className="mt-1 text-sm leading-relaxed text-foreground/90">{board.headline}</p>
             <div className="mt-3 flex flex-wrap gap-2 text-[10px]">
               {board.dominant && <Tag label="Dominant" value={board.dominant} tone="text-emerald-400" />}
@@ -89,6 +94,7 @@ function AttentionCard({ view }: { view: AttentionView }) {
       <div className="mt-3 flex items-center justify-between border-t border-border/50 pt-2 text-[10px] text-muted-foreground">
         <span>Mentions 24h: <span className="tabular-nums text-foreground/80">{view.mentions_24h.toLocaleString()}</span></span>
         <span>Share: <span className="tabular-nums text-foreground/80">{view.share_of_attention_pct.toFixed(1)}%</span></span>
+        {view.sources.length > 0 && <span className="uppercase tracking-wider">{view.sources.join('+')}</span>}
       </div>
     </section>
   )
