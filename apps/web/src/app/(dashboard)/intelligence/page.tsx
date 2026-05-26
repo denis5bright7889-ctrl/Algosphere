@@ -29,8 +29,8 @@ interface Tile { href: string; label: string; blurb: string; pill?: string }
 const CORE: Tile[] = [
   { href: '/intelligence/conviction',   label: 'Conviction',
     blurb: 'Multi-layer agreement across momentum, regime, smart money, macro.', pill: 'new' },
-  { href: '/intelligence/momentum',     label: 'Momentum',
-    blurb: 'Phase detection: Accumulation → Trending → Parabolic → Distribution.', pill: 'new' },
+  { href: '/intelligence/momentum',     label: 'Momentum Phase',
+    blurb: 'Cross-asset phase: Accumulation → Trending → Parabolic → Distribution.', pill: 'new' },
   { href: '/intelligence/stress',       label: 'Market Stress',
     blurb: 'Universe-level environment read with posture guidance.', pill: 'new' },
   { href: '/intelligence/participation',label: 'Participation',

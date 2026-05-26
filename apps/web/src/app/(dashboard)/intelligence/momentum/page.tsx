@@ -10,7 +10,7 @@ import { loadIntelContext } from '../_components/guard'
 import { composeMomentumView, type MomentumView } from '@/lib/momentum-engine'
 import { cn } from '@/lib/utils'
 
-export const metadata = { title: 'Momentum' }
+export const metadata = { title: 'Momentum Phase' }
 export const dynamic  = 'force-dynamic'
 
 const BASKET = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'DOGEUSDT',
@@ -25,12 +25,18 @@ export default async function MomentumPage() {
 
   return (
     <main className="mx-auto max-w-6xl space-y-6 p-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Momentum</h1>
-        <p className="text-sm text-muted-foreground">
-          Institutional momentum phase across the universe. Ranked by health
-          score. Phases run from Accumulation through Trending to Collapse Risk.
-        </p>
+      <header className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Momentum Phase</h1>
+          <p className="text-sm text-muted-foreground">
+            Universe-wide phase detection across FX, crypto, metals, and equities —
+            Accumulation through Collapse Risk, ranked by health score.
+          </p>
+        </div>
+        <a href="/intelligence/token-momentum"
+           className="shrink-0 rounded-md border border-border bg-card/60 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-amber-500/40 hover:text-amber-300">
+          Token-level detail →
+        </a>
       </header>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

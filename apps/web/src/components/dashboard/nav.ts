@@ -17,12 +17,12 @@
  */
 import {
   LayoutDashboard, Activity, Radar, BarChart3, Bell,
-  Cpu, ShieldCheck, Landmark, FlaskConical, Ghost, Target,
+  Cpu, ShieldCheck, ShieldAlert, Landmark, FlaskConical, Ghost, Target,
   CandlestickChart, CalendarDays, Newspaper, Brain, Trophy,
   Users, Network, Crown, MessagesSquare, Repeat,
   BookOpen, Calculator, Briefcase, BrainCircuit, KeyRound, Rocket, GraduationCap,
   Settings2, BadgeDollarSign, Handshake, BadgeCheck, LogOut,
-  LineChart, MessageSquare, UserCog, Waves,
+  LineChart, MessageSquare, UserCog, Waves, PieChart,
   Building2, Coins, TrendingUp, Grid3x3, Sparkles,
   type LucideIcon,
 } from 'lucide-react'
@@ -57,12 +57,18 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/overview',  label: 'Dashboard',     icon: LayoutDashboard, keywords: 'home command center feed' },
       { href: '/signals',   label: 'Market Feed',   icon: Activity,        keywords: 'signals intelligence feed' },
+      // ── Intelligence Core (universe-level institutional engines) ────
+      { href: '/intelligence/conviction',           label: 'Conviction',           icon: Target,     keywords: 'multi layer agreement bias bullish bearish high moderate confidence' },
+      { href: '/intelligence/momentum',             label: 'Momentum Phase',       icon: Rocket,     keywords: 'phase accumulation trending parabolic exhaustion distribution sustainability quality cross asset' },
+      { href: '/intelligence/stress',               label: 'Market Stress',        icon: ShieldAlert, keywords: 'environment volatility macro defensive aggressive risk posture systemic' },
+      { href: '/intelligence/participation',        label: 'Participation',        icon: PieChart,   keywords: 'who driving price smart money whales aggression retail imbalance' },
       { href: '/regime',    label: 'Market Regime', icon: Radar,           keywords: 'volatility trend bias regime' },
-      { href: '/intelligence/smart-money',          label: 'Smart Money',          icon: Sparkles,   keywords: 'wallet accumulation conviction onchain' },
+      // ── On-chain Intelligence (per-token / per-flow surfaces) ───────
+      { href: '/intelligence/smart-money',          label: 'Smart Money',          icon: Sparkles,   keywords: 'wallet accumulation conviction onchain nansen' },
       { href: '/intelligence/whale-flows',          label: 'Whale Flows',          icon: Waves,      keywords: 'large transfers accumulation distribution' },
       { href: '/intelligence/exchange-flows',       label: 'Exchange Flows',       icon: Building2,  keywords: 'cex inflow outflow sell pressure' },
       { href: '/intelligence/stablecoin-liquidity', label: 'Stablecoin Liquidity', icon: Coins,      keywords: 'usdt usdc mint burn dry powder' },
-      { href: '/intelligence/token-momentum',       label: 'Token Momentum',       icon: TrendingUp, keywords: 'volume holder growth trending' },
+      { href: '/intelligence/token-momentum',       label: 'Token Momentum',       icon: TrendingUp, keywords: 'volume holder growth trending crypto per token nansen on chain' },
       { href: '/intelligence/market-rotation',      label: 'Market Rotation',      icon: Repeat,     keywords: 'sector capital flow narrative' },
       { href: '/intelligence/heatmap',              label: 'On-Chain Heatmap',     icon: Grid3x3,    keywords: 'cross chain intensity liquidity activity' },
       { href: '/whale',     label: 'Whale Analytics', icon: Waves, minTier: 'premium', keywords: 'smart money flows nansen onchain whales' },
