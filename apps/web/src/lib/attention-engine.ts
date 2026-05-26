@@ -77,6 +77,27 @@ function redditCreds(): { id: string; secret: string; ua: string } | null {
   return { id, secret, ua: process.env.REDDIT_USER_AGENT || 'web:algosphere-attention:1.0 (by /u/algosphere)' }
 }
 
+/**
+ * Resolves the OAuth body for whichever Reddit app type is configured:
+ *   • script app    → password grant (needs REDDIT_USERNAME + REDDIT_PASSWORD)
+ *   • installed app → installed_client grant (needs REDDIT_DEVICE_ID; app-only)
+ *   • web app       → client_credentials (app-only)
+ * Reddit script apps ONLY support the password grant — client_credentials
+ * and installed_client both 403 on them.
+ */
+function redditGrantBody(): string {
+  const user = process.env.REDDIT_USERNAME
+  const pass = process.env.REDDIT_PASSWORD
+  if (user && pass) {
+    return `grant_type=password&username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}`
+  }
+  const device = process.env.REDDIT_DEVICE_ID
+  if (device) {
+    return `grant_type=https://oauth.reddit.com/grants/installed_client&device_id=${encodeURIComponent(device)}`
+  }
+  return 'grant_type=client_credentials'
+}
+
 async function redditAccessToken(): Promise<string | null> {
   const c = redditCreds()
   if (!c) return null
@@ -90,7 +111,7 @@ async function redditAccessToken(): Promise<string | null> {
         'Content-Type': 'application/x-www-form-urlencoded',
         'User-Agent': c.ua,
       },
-      body: 'grant_type=client_credentials',
+      body: redditGrantBody(),
       cache: 'no-store',
     })
     if (!r.ok) return null
