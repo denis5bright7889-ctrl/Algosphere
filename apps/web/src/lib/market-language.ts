@@ -19,6 +19,7 @@ const norm = (s: string | null | undefined): string =>
 // ── Market state ────────────────────────────────────────────────────────
 export type MarketState =
   | 'Trending Up' | 'Trending Down' | 'Trending' | 'Ranging' | 'Volatile'
+  | 'Expansion' | 'Transitional'
   | 'Breakout Setup' | 'Reversal Risk' | 'Accumulation' | 'Distribution'
   | 'Mixed Conditions'
 
@@ -32,6 +33,8 @@ export function marketState(regime: string | null | undefined): MarketState {
     case 'ranging':         return 'Ranging'
     case 'high_volatility':
     case 'volatile':        return 'Volatile'
+    case 'expansion':       return 'Expansion'      // vol building, breakout setup forming
+    case 'transitional':    return 'Transitional'   // regime shift in progress
     case 'breakout':        return 'Breakout Setup'
     case 'reversal':        return 'Reversal Risk'
     case 'accumulation':    return 'Accumulation'
@@ -128,8 +131,12 @@ export function stateTone(state: MarketState): string {
       return 'text-rose-400 bg-rose-500/15 border-rose-500/30'
     case 'Volatile':
       return 'text-amber-400 bg-amber-500/15 border-amber-500/30'
+    case 'Expansion':                                              // vol building, energy growing
+      return 'text-orange-400 bg-orange-500/15 border-orange-500/30'
     case 'Breakout Setup':
       return 'text-blue-400 bg-blue-500/15 border-blue-500/30'
+    case 'Transitional':                                           // regime shifting — caution
+      return 'text-violet-400 bg-violet-500/15 border-violet-500/30'
     case 'Ranging':
       return 'text-sky-400 bg-sky-500/15 border-sky-500/30'
     default: // Mixed Conditions
