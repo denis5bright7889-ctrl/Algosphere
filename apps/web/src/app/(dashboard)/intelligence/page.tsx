@@ -41,6 +41,8 @@ const CORE: Tile[] = [
     blurb: 'Theme strength, acceleration, fatigue, institutional participation, crowding.', pill: 'new' },
   { href: '/intelligence/liquidity',    label: 'Liquidity',
     blurb: 'Order-book structure — imbalance, walls, voids, sweep risk, execution quality.', pill: 'new' },
+  { href: '/intelligence/attention',    label: 'Attention',
+    blurb: 'Social attention velocity — which narratives are surging vs cooling on X.', pill: 'new' },
 ]
 
 const ASSET_CLASSES: Tile[] = [
