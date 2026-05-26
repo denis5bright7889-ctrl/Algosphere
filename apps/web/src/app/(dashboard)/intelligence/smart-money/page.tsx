@@ -17,7 +17,7 @@ import { loadIntelContext } from '../_components/guard'
 import { composeSmartMoneyFlow, type MarketFlowSummary, type SectorRotationRow,
          type HighConvictionFlow, type FlowIntelligenceRow, type FlowState,
          type ConvictionLevel, type SmartMoneyBias, type RiskAppetite,
-         type FlowSustainability, type ParticipationQuality } from '@/lib/smart-money-engine'
+         type FlowSustainability, type ParticipationQuality, type WalletTier } from '@/lib/smart-money-engine'
 import { cn } from '@/lib/utils'
 import SmartMoneyClient from './SmartMoneyClient'
 
@@ -231,13 +231,26 @@ function HighConvictionCard({ flow }: { flow: HighConvictionFlow }) {
 
       <p className="mt-3 text-xs text-muted-foreground leading-relaxed">{flow.narrative}</p>
 
-      <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
+      <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">
         <Cell label="SM Quality"    value={`${flow.smart_money_quality}`} />
         <Cell label="Participation" value={flow.participation_quality} tone={qualityColour(flow.participation_quality)} />
+        <Cell label="Wallet Tier"   value={flow.wallet_tier}            tone={walletTierColour(flow.wallet_tier)} />
         <Cell label="Risk"          value={flow.risk_label}              tone={riskLabelColour(flow.risk_label)} />
       </div>
     </div>
   )
+}
+
+function walletTierColour(t: WalletTier): string {
+  switch (t) {
+    case 'Institutional':    return 'text-emerald-400'
+    case 'Smart Capital':    return 'text-sky-400'
+    case 'Ecosystem Wallet': return 'text-blue-400'
+    case 'Momentum Capital': return 'text-violet-400'
+    case 'Retail Whale':     return 'text-amber-400'
+    case 'Speculative':      return 'text-rose-400'
+    case 'Unclassified':     return 'text-muted-foreground'
+  }
 }
 
 function Cell({ label, value, tone }: { label: string; value: string | number; tone?: string }) {

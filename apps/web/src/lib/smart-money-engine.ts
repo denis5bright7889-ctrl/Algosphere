@@ -41,6 +41,18 @@ export type FlowState =
   | 'Exhaustion'
   | 'Collapse Risk'
 
+/** Dominant wallet-cohort tier active in a token RIGHT NOW (per the brief).
+ *  Derived from the token's profile — Nansen screener is aggregated, so we
+ *  classify the cohort character rather than per-wallet identities. */
+export type WalletTier =
+  | 'Institutional'      // high liquidity + SM allocation + low vol + sustained
+  | 'Smart Capital'      // strong SM allocation + buy dominance
+  | 'Momentum Capital'   // chasing price; high volume, lower SM share
+  | 'Speculative'        // low liquidity + extreme moves
+  | 'Retail Whale'       // large flow but unsophisticated profile
+  | 'Ecosystem Wallet'   // SM-backed in L1/L2/ecosystem token
+  | 'Unclassified'
+
 export type ConvictionLevel = 'Very High' | 'High' | 'Moderate' | 'Weak'
 export type SmartMoneyBias  = 'Bullish' | 'Bearish' | 'Neutral'
 export type RiskAppetite    = 'Defensive' | 'Measured' | 'Elevated' | 'Aggressive'
@@ -79,6 +91,8 @@ export interface HighConvictionFlow {
   conviction_level:        ConvictionLevel
   smart_money_quality:     number                  // 0..100
   participation_quality:   ParticipationQuality
+  /** Dominant wallet-cohort character active in this token RIGHT NOW. */
+  wallet_tier:             WalletTier
   risk_label:              'Low' | 'Moderate' | 'Elevated' | 'High'
   confidence:              number                  // 0..100 — composite signal confidence
   narrative:               string                  // composed institutional sentence
@@ -197,6 +211,35 @@ function riskLabel(t: NansenToken, quality: number): 'Low' | 'Moderate' | 'Eleva
   if (liq < 10_000_000 || age < 90) return 'Elevated'
   if (liq < 50_000_000 || quality < 50) return 'Moderate'
   return 'Low'
+}
+
+/** Classify the dominant wallet-cohort character active in a token RIGHT NOW.
+ *  Nansen screener is aggregated (no per-wallet data here), so we classify
+ *  the cohort PROFILE — not individual wallets. Same honesty rule as
+ *  everywhere else: no per-wallet attribution is fabricated. */
+function walletTierOf(t: NansenToken, sector: Sector, smQuality: number): WalletTier {
+  const liq      = t.liquidity ?? 0
+  const inflow   = t.inflow_fdv_ratio  ?? 0
+  const breadth  = t.nof_traders ?? 0
+  const pcAbs    = Math.abs(t.price_change ?? 0)
+  const buy      = t.buy_volume ?? 0; const sell = t.sell_volume ?? 0
+  const buyDom   = buy + sell > 0 ? Math.abs((buy - sell) / (buy + sell)) : 0
+  const ecosystem = sector === 'L1' || sector === 'L2'
+
+  // Order most-specific first.
+  if (liq >= 50_000_000 && smQuality >= 70 && inflow >= 0.015 && pcAbs < 0.06)
+    return 'Institutional'
+  if (smQuality >= 65 && inflow >= 0.010 && buyDom >= 0.20)
+    return 'Smart Capital'
+  if (ecosystem && smQuality >= 55 && inflow >= 0.005)
+    return 'Ecosystem Wallet'
+  if (liq < 5_000_000 && pcAbs >= 0.08)
+    return 'Speculative'
+  if (pcAbs >= 0.04 && smQuality < 50 && buy + sell > 0)
+    return 'Momentum Capital'
+  if (breadth < 200 && liq >= 5_000_000)
+    return 'Retail Whale'
+  return 'Unclassified'
 }
 
 function participationQualityOf(t: NansenToken): ParticipationQuality {
@@ -442,11 +485,14 @@ async function buildHighConvictionFlows(rows: NansenToken[], byTokenQuality: Map
                  && (phase === 'Trending' || phase === 'Expansion')
     const partQual = participationQualityOf(t)
     const sus = sustainabilityOf(t)
+    const sec = sectorOf(t.token_symbol)
+    const tier = walletTierOf(t, sec, q)
     // Conviction = SM quality + fusion alignment bonus + sustainability bonus
     const fusionBonus = aligned ? 12 : 0
     const susBonus    = sus === 'High' ? 5 : sus === 'Moderate' ? 2 : 0
-    const conviction  = clamp100(q + fusionBonus + susBonus)
-    const sectorName  = SECTOR_LABEL[sectorOf(t.token_symbol)]
+    const tierBonus   = tier === 'Institutional' ? 6 : tier === 'Smart Capital' ? 4 : 0
+    const conviction  = clamp100(q + fusionBonus + susBonus + tierBonus)
+    const sectorName  = SECTOR_LABEL[sec]
     const narrative   = flowNarrative(t.token_symbol, state, sectorName, phase, sus, partQual)
     return {
       symbol:                t.token_symbol.toUpperCase(),
@@ -458,6 +504,7 @@ async function buildHighConvictionFlows(rows: NansenToken[], byTokenQuality: Map
       conviction_level:      convictionLevel(conviction),
       smart_money_quality:   q,
       participation_quality: partQual,
+      wallet_tier:           tier,
       risk_label:            riskLabel(t, q),
       confidence:            conviction,                 // alias; UI uses both
       narrative,
