@@ -3,14 +3,31 @@
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 
+// `signals` on a copy_trade comes back as either a single object or
+// an array depending on the Supabase types — accept both, render
+// neither if missing (honest "—", never fabricated).
+type SignalJoin = { regime: string | null; confidence_score: number | null } | { regime: string | null; confidence_score: number | null }[] | null
+
 interface OpenRow {
   id: string; symbol: string; direction: string; follower_lot: number
   follower_entry: number | null; status: string; created_at: string
+  signals?: SignalJoin
 }
 interface ClosedRow {
   id: string; symbol: string; direction: string; follower_lot: number
   follower_pnl: number | null; follower_pnl_pct: number | null
   status: string; closed_at: string
+  signals?: SignalJoin
+}
+
+function rationale(r: { signals?: SignalJoin }): { regime: string; conf: string } {
+  const s = Array.isArray(r.signals) ? r.signals[0] : r.signals
+  const regime = s?.regime ?? '—'
+  const c = s?.confidence_score
+  const conf = typeof c === 'number'
+    ? `${Math.round(c > 1 ? c : c * 100)}%`
+    : '—'
+  return { regime, conf }
 }
 
 interface RiskTelemetry {
@@ -95,15 +112,20 @@ export default function ExecutionClient({
       {tab === 'open' && (
         <Table
           empty="No open positions. Auto-execution will populate this in real time."
-          headers={['Symbol', 'Side', 'Lots', 'Entry', 'Status', 'Opened']}
-          rows={open.map(o => [
-            o.symbol,
-            o.direction.toUpperCase(),
-            String(o.follower_lot ?? '—'),
-            o.follower_entry != null ? String(o.follower_entry) : 'pending',
-            o.status,
-            new Date(o.created_at).toLocaleString(),
-          ])}
+          headers={['Symbol', 'Side', 'Lots', 'Entry', 'Regime', 'Conf', 'Status', 'Opened']}
+          rows={open.map(o => {
+            const { regime, conf } = rationale(o)
+            return [
+              o.symbol,
+              o.direction.toUpperCase(),
+              String(o.follower_lot ?? '—'),
+              o.follower_entry != null ? String(o.follower_entry) : 'pending',
+              regime,
+              conf,
+              o.status,
+              new Date(o.created_at).toLocaleString(),
+            ]
+          })}
           sideCol={1}
         />
       )}
@@ -111,15 +133,20 @@ export default function ExecutionClient({
       {tab === 'closed' && (
         <Table
           empty="No closed trades yet."
-          headers={['Symbol', 'Side', 'Lots', 'PnL', 'PnL %', 'Closed']}
-          rows={closed.map(c => [
-            c.symbol,
-            c.direction.toUpperCase(),
-            String(c.follower_lot ?? '—'),
-            `${Number(c.follower_pnl ?? 0) >= 0 ? '+' : ''}$${Number(c.follower_pnl ?? 0).toFixed(2)}`,
-            c.follower_pnl_pct != null ? `${c.follower_pnl_pct}%` : '—',
-            c.closed_at ? new Date(c.closed_at).toLocaleString() : '—',
-          ])}
+          headers={['Symbol', 'Side', 'Lots', 'PnL', 'PnL %', 'Regime', 'Conf', 'Closed']}
+          rows={closed.map(c => {
+            const { regime, conf } = rationale(c)
+            return [
+              c.symbol,
+              c.direction.toUpperCase(),
+              String(c.follower_lot ?? '—'),
+              `${Number(c.follower_pnl ?? 0) >= 0 ? '+' : ''}$${Number(c.follower_pnl ?? 0).toFixed(2)}`,
+              c.follower_pnl_pct != null ? `${c.follower_pnl_pct}%` : '—',
+              regime,
+              conf,
+              c.closed_at ? new Date(c.closed_at).toLocaleString() : '—',
+            ]
+          })}
           sideCol={1}
           pnlCol={3}
         />

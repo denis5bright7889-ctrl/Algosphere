@@ -18,13 +18,27 @@ class Settings(BaseSettings):
     polygon_api_key: str = ''
     alpha_vantage_api_key: str = ''
 
+    # Inbound provider webhooks. Finnhub posts events with an
+    # 'X-Finnhub-Secret' header == the secret shown in your Finnhub webhook
+    # dashboard; we verify against this. Other providers fall back to a
+    # per-provider <PROVIDER>_WEBHOOK_SECRET env var (see api/webhooks.py).
+    finnhub_webhook_secret: str = ''
+
     # Redis (optional)
     redis_url: str = ''
 
     # Engine
     signal_engine_enabled: bool = True
     scan_interval_minutes: int = 5
-    symbols: str = 'XAUUSD,EURUSD,GBPUSD,USDJPY'
+    # Default scan universe — keep this in sync with the SYMBOLS env var in
+    # production. TD-served symbols (forex / metals) each cost 1 credit per
+    # scan; with the TwelveData Basic plan (800 credits/day, 8/min) the safe
+    # ceiling is ~5 TD symbols. Crypto via Coinbase is keyless and unmetered.
+    symbols: str = (
+        'XAUUSD,EURUSD,GBPUSD,USDJPY,AUDUSD,'              # forex + gold (TD)
+        'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,ADAUSDT,'         # majors (Coinbase)
+        'DOGEUSDT,AVAXUSDT,LINKUSDT,LTCUSDT,DOTUSDT'       # second tier (Coinbase)
+    )
     timeframe: str = '1h'
     min_confidence: int = 55
     max_consecutive_losses: int = 3

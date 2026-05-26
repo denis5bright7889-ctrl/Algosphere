@@ -29,7 +29,7 @@ export default async function WatchlistPage() {
   const items = (data ?? []) as WatchlistItem[]
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-6">
+    <div className="mx-auto max-w-4xl px-1 py-4 sm:px-4 sm:py-6">
       <header className="mb-5">
         <h1 className="text-2xl font-bold tracking-tight">
           <span className="text-gradient">Watchlist</span>

@@ -112,6 +112,19 @@ def analyze(trades: list[Trade]) -> CoachingResult:
         run = run + 1 if not _is_win(t.pnl) else 0
     win_rate_after_losses = round(100.0 * after_wins / after, 2) if after > 0 else None
 
+    # win rate after 2+ consecutive WINS — the mirror of tilt. A sharp drop
+    # here means the trader gives back gains after a hot streak (classic
+    # overconfidence / oversizing-after-wins). Awareness-only: it does NOT
+    # feed the discipline score, so persisted scores are unchanged.
+    aw_after, aw_wins, wrun = 0, 0, 0
+    for i, t in enumerate(trades):
+        if i > 0 and wrun >= 2:
+            aw_after += 1
+            if _is_win(t.pnl):
+                aw_wins += 1
+        wrun = wrun + 1 if _is_win(t.pnl) else 0
+    win_rate_after_wins = round(100.0 * aw_wins / aw_after, 2) if aw_after > 0 else None
+
     # trades per active hour (span between first and last trade)
     span_h = (trades[-1].ts - trades[0].ts).total_seconds() / 3600.0
     tph = round(n / span_h, 2) if span_h > 0 else None
@@ -160,6 +173,11 @@ def analyze(trades: list[Trade]) -> CoachingResult:
             alerts.append(Alert('winrate_drop', 'warn',
                 'Win rate drops sharply after consecutive losses',
                 {'win_rate': win_rate, 'after_losses': win_rate_after_losses}))
+        if (win_rate_after_wins is not None
+                and (win_rate - win_rate_after_wins) >= WINRATE_DROP_DELTA):
+            alerts.append(Alert('overconfidence', 'info',
+                'Win rate drops after winning streaks — watch for overconfidence',
+                {'win_rate': win_rate, 'after_wins': win_rate_after_wins}))
 
     return CoachingResult(
         trades=n, discipline_score=score, win_rate=win_rate,

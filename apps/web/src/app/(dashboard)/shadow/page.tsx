@@ -85,42 +85,62 @@ export default async function ShadowPage() {
         </span>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        {/* Tone is plain until there's data to judge — a red 0% fill or a
-            green 0.000% slippage on an empty account reads as real
-            (and flatteringly perfect) execution quality when there is none. */}
-        <Stat label="Total Executions" value={String(list.length)} />
-        <Stat
-          label="Fill Rate"
-          value={list.length > 0 ? `${fillRate}%` : '—'}
-          tone={list.length === 0 ? 'plain' : fillRate >= 95 ? 'green' : fillRate >= 80 ? 'amber' : 'red'}
-        />
-        <Stat
-          label="Avg Slippage"
-          value={closed.length > 0 ? `${(avgSlippage * 100).toFixed(3)}%` : '—'}
-          tone={closed.length === 0 ? 'plain' : avgSlippage < 0.001 ? 'green' : avgSlippage < 0.005 ? 'amber' : 'red'}
-        />
-        <Stat
-          label="Avg PnL Drift"
-          value={closed.filter(r => r.pnl_drift_pct != null).length > 0 ? `${avgDrift.toFixed(2)}%` : '—'}
-          tone={closed.filter(r => r.pnl_drift_pct != null).length === 0 ? 'plain' : avgDrift < 2 ? 'green' : avgDrift < 5 ? 'amber' : 'red'}
-        />
-      </div>
+      {/* Readable readiness intelligence (default). The validation gate +
+          engines are unchanged; raw telemetry lives in the collapsible. */}
+      {(() => {
+        const hasData    = list.length > 0
+        const hasClosed  = closed.filter(r => r.pnl_drift_pct != null).length > 0
+        const execQuality = !hasData ? 'Collecting Live Data'
+          : fillRate >= 95 ? 'Excellent' : fillRate >= 80 ? 'Good' : 'Developing'
+        const stability  = !hasClosed ? 'Awaiting More Closed Trades'
+          : (avgSlippage < 0.001 && avgDrift < 2) ? 'Stable' : 'Variable'
+        const trackRecord = list.length >= 50 ? 'Established' : 'Building Performance History'
+        return (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <Stat label="Trading Track Record" value={trackRecord} tone="plain" />
+              <Stat label="Execution Quality" value={execQuality}
+                    tone={!hasData ? 'plain' : fillRate >= 95 ? 'green' : fillRate >= 80 ? 'amber' : 'red'} />
+              <Stat label="Strategy Stability" value={stability}
+                    tone={!hasClosed ? 'plain' : stability === 'Stable' ? 'green' : 'amber'} />
+              <Stat label="Status" value={ready ? 'Validated' : 'Learning Phase'}
+                    tone={ready ? 'green' : 'amber'} />
+            </div>
 
-      <div className={cn(
-        'rounded-2xl border p-5 mb-6',
-        ready ? 'border-emerald-500/40 bg-emerald-500/[0.04]' : 'border-amber-500/30 bg-amber-500/[0.04]',
-      )}>
-        <p className="text-xs uppercase tracking-widest font-bold mb-2">
-          {ready ? '✓ Ready for Live' : '⏳ Validation in Progress'}
-        </p>
-        <p className="text-sm text-muted-foreground">
-          Live execution unlock requires: <strong>50+ executions, ≥95% fill rate,
-          &lt;0.1% avg slippage, &lt;2% PnL drift</strong>. You&apos;ve completed{' '}
-          {Math.min(list.length, 50)}/50 executions
-          {list.length < 50 && ` · ${50 - list.length} more needed`}.
-        </p>
-      </div>
+            <div className={cn(
+              'rounded-2xl border p-5 mb-6',
+              ready ? 'border-emerald-500/40 bg-emerald-500/[0.04]' : 'border-amber-500/30 bg-amber-500/[0.04]',
+            )}>
+              <p className="text-xs uppercase tracking-widest font-bold mb-2">
+                {ready ? '✓ Ready for Live' : '⏳ Learning Phase'}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {ready
+                  ? 'This broker has a validated live track record — you can promote it to live execution.'
+                  : `Building a performance history on simulated fills before live execution unlocks. ${Math.min(list.length, 50)} of 50 validation sessions complete${list.length < 50 ? ` — ${50 - list.length} to go` : ''}.`}
+              </p>
+
+              <details className="group mt-3 rounded-md border border-border/60 bg-muted/10">
+                <summary className="cursor-pointer list-none px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/70 hover:text-muted-foreground">
+                  Advanced Execution Metrics
+                </summary>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-3 pb-2 pt-1">
+                  <Stat label="Executions" value={String(list.length)} tone="plain" />
+                  <Stat label="Fill Rate" value={hasData ? `${fillRate}%` : '—'}
+                        tone={!hasData ? 'plain' : fillRate >= 95 ? 'green' : fillRate >= 80 ? 'amber' : 'red'} />
+                  <Stat label="Avg Slippage" value={closed.length > 0 ? `${(avgSlippage * 100).toFixed(3)}%` : '—'}
+                        tone={closed.length === 0 ? 'plain' : avgSlippage < 0.001 ? 'green' : avgSlippage < 0.005 ? 'amber' : 'red'} />
+                  <Stat label="Avg PnL Drift" value={hasClosed ? `${avgDrift.toFixed(2)}%` : '—'}
+                        tone={!hasClosed ? 'plain' : avgDrift < 2 ? 'green' : avgDrift < 5 ? 'amber' : 'red'} />
+                </div>
+                <p className="px-3 pb-3 text-[10px] text-muted-foreground/70">
+                  Live unlock gate: 50+ executions, ≥95% fill, &lt;0.1% slippage, &lt;2% drift.
+                </p>
+              </details>
+            </div>
+          </>
+        )
+      })()}
 
       <h2 className="text-xs uppercase tracking-widest text-muted-foreground font-bold mb-3">
         Recent Executions

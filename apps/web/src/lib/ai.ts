@@ -15,6 +15,15 @@
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models'
 
+/**
+ * Resolve the Gemini key. Vercel provisions it as AI_STUDIO_API_KEY
+ * (the name Google AI Studio exports); local/.env uses GEMINI_API_KEY.
+ * Accept either so the feed connects without forcing an env rename.
+ */
+function aiKey(): string | undefined {
+  return process.env.AI_STUDIO_API_KEY ?? process.env.GEMINI_API_KEY
+}
+
 export type GeminiModel =
   | 'gemini-flash-latest'    // default — fastest, free tier
   | 'gemini-2.5-flash'       // pinned version
@@ -67,8 +76,8 @@ interface BaseOpts {
 export async function generateText(
   opts: BaseOpts & { prompt: string },
 ): Promise<string> {
-  const key = process.env.GEMINI_API_KEY
-  if (!key) throw new AIError('GEMINI_API_KEY not configured', 'no_key')
+  const key = aiKey()
+  if (!key) throw new AIError('AI provider not configured (AI_STUDIO_API_KEY / GEMINI_API_KEY)', 'no_key')
 
   const model       = opts.model ?? 'gemini-flash-latest'
   const useCache    = opts.cache ?? true
@@ -138,8 +147,8 @@ export async function generateJSON<T>(
     validate: (raw: unknown) => raw is T   // type guard
   },
 ): Promise<T> {
-  const key = process.env.GEMINI_API_KEY
-  if (!key) throw new AIError('GEMINI_API_KEY not configured', 'no_key')
+  const key = aiKey()
+  if (!key) throw new AIError('AI provider not configured (AI_STUDIO_API_KEY / GEMINI_API_KEY)', 'no_key')
 
   const model      = opts.model ?? 'gemini-flash-latest'
   const controller = new AbortController()
@@ -197,5 +206,5 @@ export async function generateJSON<T>(
 
 /** True if the AI provider is configured. UI uses this to gate features. */
 export function isAIAvailable(): boolean {
-  return !!process.env.GEMINI_API_KEY
+  return !!aiKey()
 }

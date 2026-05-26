@@ -51,11 +51,19 @@ async def engine_status():
     from config import get_settings
     from websocket.manager import ws_manager
     s = get_settings()
+    # Report the active fallback chain in order — easier to debug than a
+    # single 'provider' string and surfaces the real institutional stack.
+    chain: list[str] = ['coinbase']  # keyless, always available for …USDT
+    if s.twelve_data_api_key:   chain.append('twelvedata')
+    if s.polygon_api_key:       chain.append('polygon')
+    if s.alpha_vantage_api_key: chain.append('alphavantage')
     return {
         'enabled':   s.signal_engine_enabled,
         'symbols':   s.symbol_list,
         'timeframe': s.timeframe,
-        'provider':  'twelvedata' if s.twelve_data_api_key else ('alphavantage' if s.alpha_vantage_api_key else 'none'),
+        'providers': chain,                 # full chain in priority order
+        'provider':  chain[1] if len(chain) > 1 else chain[0],  # legacy field
+        'crypto_provider': 'coinbase',
         'websocket': ws_manager.stats(),
         'time':      datetime.now(timezone.utc).isoformat(),
     }

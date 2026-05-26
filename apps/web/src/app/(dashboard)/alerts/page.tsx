@@ -36,7 +36,7 @@ export default async function AlertsPage() {
     .limit(15)
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6">
+    <div className="mx-auto max-w-3xl px-1 py-4 sm:px-4 sm:py-6">
       <header className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">
           Alerts & <span className="text-gradient">Notifications</span>
