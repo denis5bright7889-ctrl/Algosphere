@@ -25,6 +25,7 @@ import { marketState, type MarketState } from '@/lib/market-language'
 import { tokenScreener, isNansenConfigured, type NansenChain } from '@/lib/nansen'
 import { getMacroSnapshot, isAlphaVantageConfigured } from '@/lib/alphavantage'
 import { composeMomentumView, type MomentumView } from '@/lib/momentum-engine'
+import { logDecision, fingerprint } from '@/lib/intel-memory'
 
 export type Bias    = 'Bullish' | 'Bearish' | 'Neutral' | 'Mixed' | 'N/A'
 export type Composite = 'Very High' | 'High' | 'Moderate' | 'Weak'
@@ -313,7 +314,7 @@ export async function composeConviction(symbol: string): Promise<ConvictionView>
   ]
   const comp = compose(layers)
   const partial = layers.some((l) => l.bias === 'N/A')
-  return {
+  const view: ConvictionView = {
     symbol,
     asset_class: asset,
     layers,
@@ -322,4 +323,14 @@ export async function composeConviction(symbol: string): Promise<ConvictionView>
     generated_at: new Date().toISOString(),
     partial,
   }
+
+  // Adaptive Phase A — record the opinion (best-effort, deduped, never blocks).
+  await logDecision({
+    surface:     'conviction',
+    symbol,
+    fingerprint: fingerprint([comp.composite, comp.composite_bias, ...layers.map((l) => `${l.name}:${l.bias}`)]),
+    payload:     view,
+  })
+
+  return view
 }

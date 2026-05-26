@@ -27,6 +27,7 @@ import 'server-only'
 import { tokenScreener, isNansenConfigured, type NansenToken, type NansenChain } from '@/lib/nansen'
 import { sectorOf, SECTOR_LABEL, type Sector } from '@/lib/token-sectors'
 import { composeMomentumView, type MomentumView, type MomentumPhase } from '@/lib/momentum-engine'
+import { logDecision, fingerprint } from '@/lib/intel-memory'
 
 // ── Public types ─────────────────────────────────────────────────────────
 
@@ -580,6 +581,16 @@ export async function composeSmartMoneyFlow(opts: { window?: '1h' | '24h' | '7d'
   const highConv   = await buildHighConvictionFlows(tokens, byTokenQuality)
   const flow_table = buildFlowTable(tokens, byTokenQuality, summary.dominant_rotation)
   const narrative  = topNarrative(summary, summary.dominant_rotation)
+
+  // Adaptive Phase A — record the market-flow summary (universe-level).
+  await logDecision({
+    surface:     'smart-money',
+    fingerprint: fingerprint([
+      summary.smart_money_bias, summary.dominant_rotation, summary.conviction_level,
+      summary.risk_appetite, summary.flow_sustainability,
+    ]),
+    payload:     summary,
+  })
 
   return { summary, sectors, high_conviction: highConv, flow_table, narrative, generated_at, partial: false }
 }
