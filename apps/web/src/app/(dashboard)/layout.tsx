@@ -8,6 +8,8 @@ import DesktopSidebar from '@/components/dashboard/DesktopSidebar'
 import TopBar from '@/components/dashboard/TopBar'
 import MobileBottomNav from '@/components/dashboard/MobileBottomNav'
 import DemoBanner from '@/components/demo/DemoBanner'
+import InsightDrawer from '@/components/dashboard/InsightDrawer'
+import MobileCommandFab from '@/components/dashboard/MobileCommandFab'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -90,7 +92,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <DemoBanner accountType={profile?.account_type} />
         <main
           className={
-            'flex-1 overflow-y-auto p-4 md:p-6 ' +
+            // Tighter mobile gutters (12px) so dashboard pages that add their
+            // own px-4 wrapper don't double-pad and waste horizontal space
+            // on phones. Desktop unchanged.
+            'flex-1 overflow-y-auto px-3 py-4 md:p-6 ' +
             // Clearance for the floating mobile bottom bar (~60px bar + gap + safe area)
             'pb-[calc(88px+env(safe-area-inset-bottom))] md:pb-6'
           }
@@ -98,6 +103,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
           {children}
         </main>
       </div>
+
+      {/* Contextual insight rail — desktop */}
+      <InsightDrawer />
+
+      {/* Thumb-reachable command palette trigger — mobile */}
+      <MobileCommandFab />
 
       {/* Mobile-only bottom tab bar — fixed, thumb-friendly */}
       <MobileBottomNav />

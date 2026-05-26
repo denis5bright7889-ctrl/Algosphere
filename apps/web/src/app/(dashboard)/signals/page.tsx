@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
-import { isAdmin } from '@/lib/admin'
+import { isAdmin, canAccess } from '@/lib/admin'
+import { redactLockedSignal } from '@/lib/signal-abstraction'
 import { isDemo, effectiveTierForFeatures, demoTier } from '@/lib/demo'
 import { generateDemoSignals } from '@/lib/demo-data'
 import type { Signal, SubscriptionTier } from '@/lib/types'
@@ -35,13 +36,30 @@ export default async function SignalsPage() {
     const delay = tier === 'starter' ? STARTER_DEMO_DELAY_MIN : 0
     signals = generateDemoSignals(user!.id, tier, 12, delay)
   } else {
+    // Strategy-opacity boundary: this array is serialized into the RSC
+    // payload shipped to the browser, so it must carry NO engine internals
+    // (feature_snapshot, component sub-scores, engine_version, admin_notes,
+    // created_by, strategy_id). Select only client-safe columns. SignalsFeed
+    // renders none of the excluded fields, so this is behaviour-preserving.
     const { data } = await supabase
       .from('signals')
-      .select('*')
+      .select(
+        'id,pair,direction,entry_price,stop_loss,take_profit_1,take_profit_2,' +
+        'take_profit_3,risk_reward,confidence_score,regime,session,status,result,' +
+        'pips_gained,tier_required,lifecycle_state,published_at,invalidated_at,' +
+        'tp1_hit_at,tp2_hit_at,tp3_hit_at,stopped_at',
+      )
       .order('published_at', { ascending: false })
       .limit(50)
-    signals = (data ?? []) as Signal[]
+    signals = (data ?? []) as unknown as Signal[]
   }
+
+  // Authoritative tier gate: strip the edge (entry/SL/TP/RR/confidence) from
+  // signals this viewer can't access BEFORE it reaches the browser. Uses the
+  // same predicate SignalCard renders with, so the locked-card + upsell UX is
+  // unchanged — only the underlying numbers stop shipping in the RSC payload.
+  const email = user!.email ?? ''
+  signals = signals.map(s => redactLockedSignal(s, canAccess(email, userTier, s.tier_required)))
 
   return (
     <SignalsFeed

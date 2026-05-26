@@ -18,6 +18,11 @@ import { redirect } from 'next/navigation'
 import { isAdmin } from '@/lib/admin'
 import { createClient as serviceClient } from '@supabase/supabase-js'
 import OpsClient from './OpsClient'
+import type { Database } from '@/lib/supabase/database.types'
+
+type Kill = Database['public']['Tables']['global_risk_state']['Row']
+type Dlq  = Database['public']['Tables']['copy_jobs_dlq']['Row']
+type Claim = Pick<Database['public']['Tables']['copy_jobs']['Row'], 'claimed_by' | 'claimed_at'>
 
 export const dynamic = 'force-dynamic'
 
@@ -60,14 +65,10 @@ export default async function AdminOpsPage() {
     svc.from('copy_jobs').select('id', { head: true, count: 'exact' }).eq('status', 'failed'),
   ])
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const kill: any   = killRes.data
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const dlq:  any[] = (dlqRes.data ?? []) as any[]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const all:  any[] = (allDlqRes.data ?? []) as any[]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const claims: any[] = (claimsRes.data ?? []) as any[]
+  const kill   = (killRes.data ?? null) as Kill | null
+  const dlq    = (dlqRes.data    ?? []) as unknown as Dlq[]
+  const all    = (allDlqRes.data ?? []) as unknown as Pick<Dlq, 'failure_category' | 'replayed_at'>[]
+  const claims = (claimsRes.data ?? []) as unknown as Claim[]
 
   // DLQ stats by category
   const openByCat: Record<string, number> = {}
@@ -77,9 +78,10 @@ export default async function AdminOpsPage() {
     else openByCat[r.failure_category] = (openByCat[r.failure_category] ?? 0) + 1
   }
 
-  // Worker liveness
+  // Worker liveness — query filters not-null, but TS doesn't track that.
   const byWorker = new Map<string, { claims: number; last: string }>()
   for (const r of claims) {
+    if (!r.claimed_by || !r.claimed_at) continue
     const cur = byWorker.get(r.claimed_by)
     if (!cur || r.claimed_at > cur.last)
       byWorker.set(r.claimed_by, { claims: (cur?.claims ?? 0) + 1, last: r.claimed_at })

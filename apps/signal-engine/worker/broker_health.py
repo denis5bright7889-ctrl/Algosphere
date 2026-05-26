@@ -60,11 +60,17 @@ class BrokerHealthProbe:
 
     async def probe_all(self) -> None:
         try:
+            # DISABLED rows ARE re-probed: "disabled" is an environment
+            # verdict, and the environment can change between deploys
+            # (e.g. MT5_BRIDGE_URL gets configured, so MT5 becomes
+            # reachable). _probe_one's env-guard instantly re-disables
+            # anything still structurally unavailable — cheap — while a
+            # now-reachable broker proceeds to handshake and connects.
+            # Only REVOKED (user-deleted) rows are skipped.
             rows = (
                 self.db().table('broker_connections')
                 .select('id,user_id,broker,status,pending_cycles')
                 .neq('status', BrokerState.REVOKED)
-                .neq('status', BrokerState.DISABLED)
                 .execute()
             ).data or []
         except Exception as e:

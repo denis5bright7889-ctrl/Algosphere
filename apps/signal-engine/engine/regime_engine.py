@@ -13,6 +13,8 @@ class Regime(str, Enum):
     MEAN_REVERSION = "ranging"
     RANGING        = "ranging"
     HIGH_VOLATILITY= "volatile"
+    EXPANSION      = "expansion"      # ATR rising into the middle band before peak vol
+    TRANSITIONAL   = "transitional"   # ambiguous features — regime shift in progress
     EXHAUSTION     = "exhaustion"
     UNKNOWN        = "unknown"
 
@@ -72,6 +74,25 @@ def classify_regime(features: EngineFeatures) -> RegimeResult:
         weights = {'liquidity_sweep': 0.6, 'trend_continuation': 0.2, 'momentum_breakout': 0.2}
         desc = f"Mean Reversion/Ranging — autocorr={ac:.2f}"
 
+    # --- Expansion: ATR climbing into the middle band with energy building ---
+    # Carved out of UNKNOWN — vol elevated but not yet HIGH_VOLATILITY, with
+    # enough directional energy to suggest a breakout setup rather than chop.
+    elif 50 <= atr_p < 75 and der >= 0.4 and ent < 3.0:
+        regime = Regime.EXPANSION
+        conf = min((atr_p - 50) / 25 * 0.7 + (der - 0.4) / 0.3 * 0.3, 1.0)
+        weights = {'momentum_breakout': 0.5, 'trend_continuation': 0.35, 'liquidity_sweep': 0.15}
+        desc = f"Expansion — vol building (ATR_pct={atr_p:.0f}%), DER={der:.2f}"
+
+    # --- Transitional: features ambiguous, regime shift in progress ---
+    # Carved out of UNKNOWN — moderate DER without persistence direction
+    # (autocorr near zero), or high entropy with moderate DER. Strategy
+    # mix is balanced and confidence intentionally low.
+    elif 0.25 <= der < 0.45 and abs(ac) < 0.1:
+        regime = Regime.TRANSITIONAL
+        conf = 0.45
+        weights = {'trend_continuation': 0.35, 'liquidity_sweep': 0.35, 'momentum_breakout': 0.3}
+        desc = f"Transitional — regime shift in progress (DER={der:.2f}, autocorr={ac:.2f})"
+
     else:
         regime = Regime.UNKNOWN
         conf = 0.4
@@ -96,11 +117,18 @@ def regime_suppresses_trading(regime: Regime) -> bool:
 
 
 def regime_quality_score(regime: Regime) -> float:
-    """0–1 quality multiplier for confidence scoring."""
+    """0–1 quality multiplier for confidence scoring.
+
+    Expansion = 0.75 (breakout setups have real edge but with wider stops).
+    Transitional = 0.5 (intentionally below UNKNOWN's 0.6 — we KNOW
+    the regime is shifting, which is exactly when signal quality suffers).
+    """
     return {
         Regime.TRENDING:       1.0,
         Regime.MEAN_REVERSION: 0.85,
         Regime.HIGH_VOLATILITY: 0.65,
+        Regime.EXPANSION:      0.75,
+        Regime.TRANSITIONAL:   0.5,
         Regime.EXHAUSTION:     0.0,
         Regime.UNKNOWN:        0.6,
     }.get(regime, 0.5)

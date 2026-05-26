@@ -11,6 +11,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { closeShadowExecution } from '@/lib/shadow-log'
+import { notifyTelegram, tradeClosedMessage } from '@/lib/telegram-notify'
 
 const PLATFORM_SHARE_PCT = 5     // platform always takes 5% of shared profit
 const PIP_VALUE_USD       = 10   // conservative default per lot per pip
@@ -61,6 +62,21 @@ export async function settleCopyTradesForSignal(
 
   if (!copies || copies.length === 0) return result
 
+  // Batch-fetch follower Telegram chat IDs once per settlement so we
+  // don't N+1 the profiles table inside the per-copy loop. Followers
+  // without a chat_id stay silent — never spammed, never invented.
+  const followerIds = Array.from(new Set(copies.map((c) => c.follower_id)))
+  const telegramByFollower = new Map<string, number | string | null>()
+  if (followerIds.length > 0) {
+    const { data: profs } = await db
+      .from('profiles')
+      .select('id, telegram_chat_id')
+      .in('id', followerIds)
+    for (const p of profs ?? []) {
+      telegramByFollower.set(p.id as string, (p.telegram_chat_id as number | string | null) ?? null)
+    }
+  }
+
   for (const copy of copies) {
     try {
       const lot = Number(copy.follower_lot ?? 0)
@@ -82,6 +98,22 @@ export async function settleCopyTradesForSignal(
         .eq('id', copy.id)
 
       result.copies_settled += 1
+
+      // Telegram notification — best-effort, never blocks settlement.
+      // Silent no-op if the follower hasn't linked a chat ID.
+      const followerPnlPct = lot > 0
+        ? Math.round((followerPnl / (lot * PIP_VALUE_USD * 100)) * 10_000) / 100
+        : null
+      void notifyTelegram(
+        telegramByFollower.get(copy.follower_id) ?? null,
+        tradeClosedMessage({
+          symbol:    signal.pair,
+          direction: signal.direction,
+          pnl:       followerPnl,
+          pnlPct:    followerPnlPct,
+          pips:      realizedPips,
+        }),
+      )
 
       // Close out any open shadow-log row for this copy (drift vs leader)
       await closeShadowExecution(db, {

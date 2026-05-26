@@ -64,7 +64,9 @@ export default async function TopBar() {
           className="flex min-w-0 items-center gap-1.5 md:hidden"
         >
           <Logo size="xs" alt="" />
-          <span className="truncate text-sm font-bold leading-none tracking-tight">
+          {/* Wordmark dropped on very narrow screens so the bar never
+              congests; logo + bottom-nav still carry the brand. */}
+          <span className="hidden min-[390px]:inline truncate text-sm font-bold leading-none tracking-tight">
             <span className="text-gradient">AlgoSphere</span>
             <span className="ml-1 text-foreground/80">Quant</span>
           </span>
@@ -96,10 +98,11 @@ export default async function TopBar() {
           </a>
         )}
         <NotificationBell />
+        {/* Redundant on mobile (Settings is in the drawer + user menu) */}
         <a
           href="/settings"
           aria-label="Settings"
-          className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+          className="hidden sm:inline-flex rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
         >
           <Settings className="h-4 w-4" strokeWidth={1.75} />
         </a>

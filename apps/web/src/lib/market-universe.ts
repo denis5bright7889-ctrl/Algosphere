@@ -18,12 +18,13 @@
  *
  * Category order honours the explicit product spec:
  *   1 Forex · 2 Gold (XAUUSD) · 3 Indices · 4 Stocks ·
- *   5 Commodities · 6 Futures · 7 Crypto
+ *   5 Commodities · 6 Futures · 7 Crypto · 8 Bonds & Yields · 9 Volatility
  */
 import { CRYPTO_SYMBOLS } from './binance'
 
 export type AssetClass =
   | 'forex' | 'gold' | 'indices' | 'stocks' | 'commodities' | 'futures' | 'crypto'
+  | 'bonds' | 'volatility'
 
 export type Provider = 'crypto-stream' | 'twelvedata' | 'finnhub' | null
 
@@ -74,6 +75,18 @@ const cmd = (symbol: string, label: string, group: string, td: string | null): I
 // null until a dedicated futures feed is wired.
 const fut = (symbol: string, label: string): Instrument =>
   ({ symbol, label, assetClass: 'futures', provider: null })
+
+// Bonds: yields aren't on the free Twelve Data tier; catalogued only,
+// same pattern as futures. A paid feed plugs in by switching `provider`.
+const bond = (symbol: string, label: string): Instrument =>
+  ({ symbol, label, assetClass: 'bonds', provider: null })
+
+// Volatility: VIX trades as a Twelve Data symbol on the free tier;
+// crypto vol indices (DVOL, BVIV) aren't carried — catalogued without
+// a feed until a dedicated provider is added.
+const vol = (symbol: string, label: string, td: string | null): Instrument =>
+  ({ symbol, label, assetClass: 'volatility',
+     provider: td ? 'twelvedata' : null, providerSymbol: td ?? undefined })
 
 export const MARKET_UNIVERSE: UniverseCategory[] = [
   {
@@ -162,6 +175,30 @@ export const MARKET_UNIVERSE: UniverseCategory[] = [
     label: 'Crypto',
     blurb: 'Live via Binance → Coinbase fallback (public WS, no key required).',
     instruments: CRYPTO,
+  },
+  {
+    assetClass: 'bonds',
+    label: 'Bonds & Yields',
+    blurb: 'Sovereign bond yields — no free-tier feed; catalogued only (same handling as futures).',
+    instruments: [
+      bond('US10Y', 'US 10Y Treasury'),
+      bond('US02Y', 'US 2Y Treasury'),
+      bond('US30Y', 'US 30Y Treasury'),
+      bond('UK10Y', 'UK 10Y Gilt'),
+      bond('DE10Y', 'German 10Y Bund'),
+      bond('JP10Y', 'Japan 10Y JGB'),
+    ],
+  },
+  {
+    assetClass: 'volatility',
+    label: 'Volatility',
+    blurb: 'Market volatility indices. VIX is live via Twelve Data; crypto vol indices (DVOL, BVIV) are catalogued without a feed.',
+    instruments: [
+      vol('VIX',  'CBOE VIX (S&P 500)', 'VIX'),
+      vol('VVIX', 'VIX of VIX',          null),
+      vol('DVOL', 'Deribit BTC DVOL',    null),
+      vol('BVIV', 'BVIV (BTC IV index)', null),
+    ],
   },
 ]
 

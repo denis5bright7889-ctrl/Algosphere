@@ -12,13 +12,49 @@ const LEVEL_CLS: Record<string, string> = {
   advanced:     'text-rose-300 border-rose-500/30 bg-rose-500/10',
 }
 
+/**
+ * Resolve the signed-in user defensively. The (dashboard) layout already
+ * enforces auth before this renders, so a transient Supabase/env failure
+ * here must NOT crash the page — the curriculum is fully static and safe
+ * to show. We only force a /login redirect when auth definitively
+ * reports no session (not when the lookup itself errors).
+ */
+async function ensureAuthedOrRender(): Promise<void> {
+  if (
+    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  ) {
+    // Misconfigured env: the layout couldn't have admitted an unauthed
+    // user anyway. Render the static hub rather than hard-crash.
+    console.error('[learn] Supabase env missing — rendering hub without auth recheck')
+    return
+  }
+  try {
+    const supabase = await createClient()
+    const { data: { user }, error } = await supabase.auth.getUser()
+    if (error) {
+      console.error('[learn] auth lookup failed, rendering anyway:', error.message)
+      return
+    }
+    if (!user) redirect('/login')
+  } catch (e) {
+    // redirect() throws a NEXT_REDIRECT control-flow signal — re-throw it
+    // so navigation still works; swallow only genuine failures.
+    if (e instanceof Error && e.message === 'NEXT_REDIRECT') throw e
+    if (
+      typeof e === 'object' && e !== null &&
+      'digest' in e && typeof (e as { digest: unknown }).digest === 'string' &&
+      (e as { digest: string }).digest.startsWith('NEXT_REDIRECT')
+    ) throw e
+    console.error('[learn] auth check threw, rendering hub anyway:', e)
+  }
+}
+
 export default async function LearnPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  await ensureAuthedOrRender()
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-6">
+    <div className="mx-auto max-w-4xl px-1 py-4 sm:px-4 sm:py-6">
       <header className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">
           Education <span className="text-gradient">Hub</span>
