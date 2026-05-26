@@ -35,6 +35,8 @@ const CORE: Tile[] = [
     blurb: 'Universe-level environment read with posture guidance.', pill: 'new' },
   { href: '/intelligence/participation',label: 'Participation',
     blurb: 'Who is driving price — smart money, whales, aggression by asset.', pill: 'new' },
+  { href: '/intelligence/positioning',  label: 'Positioning',
+    blurb: 'Crowded longs / panic shorts — Bybit funding + open interest.', pill: 'new' },
 ]
 
 const ASSET_CLASSES: Tile[] = [
