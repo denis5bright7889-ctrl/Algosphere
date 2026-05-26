@@ -72,8 +72,10 @@ let redditToken: { value: string; exp: number } | null = null
 
 function redditCreds(): { id: string; secret: string; ua: string } | null {
   const id = process.env.REDDIT_CLIENT_ID
-  const secret = process.env.REDDIT_CLIENT_SECRET
-  if (!id || !secret) return null
+  if (!id) return null
+  // Installed (public) apps have no secret → empty string is valid; the
+  // Basic-auth header becomes `id:` which Reddit accepts for public clients.
+  const secret = process.env.REDDIT_CLIENT_SECRET ?? ''
   return { id, secret, ua: process.env.REDDIT_USER_AGENT || 'web:algosphere-attention:1.0 (by /u/algosphere)' }
 }
 
@@ -124,19 +126,40 @@ async function redditAccessToken(): Promise<string | null> {
   }
 }
 
+const REDDIT_UA = () => process.env.REDDIT_USER_AGENT || 'web:algosphere-attention:1.0 (by /u/algosphere)'
+
+/**
+ * Reddit mention counts for a query. Two paths:
+ *   • Authed (oauth.reddit.com) when an OAuth token is obtainable — only
+ *     works for an 'installed app' (installed_client) or user-context creds.
+ *     Higher rate limits.
+ *   • Unauthenticated (www.reddit.com/search.json) otherwise — Reddit's
+ *     public JSON, no app/credentials needed, just a descriptive UA. Works
+ *     today with zero setup; lower rate limits (fine at 6 queries / 15-min
+ *     cache). This is the default path so Attention runs out of the box.
+ */
+/** True only when a grant Reddit actually honours is configured. client_id +
+ *  secret ALONE is not enough (script/web apps need user context; only an
+ *  installed app's device_id, or username+password, yields an app/user token). */
+function redditOAuthConfigured(): boolean {
+  return Boolean((process.env.REDDIT_USERNAME && process.env.REDDIT_PASSWORD) || process.env.REDDIT_DEVICE_ID)
+}
+
 async function fetchReddit(query: string): Promise<SourceResult> {
-  const c = redditCreds()
-  if (!c) return { ok: false, reason: 'Reddit not configured' }
-  const token = await redditAccessToken()
-  if (!token) return { ok: false, reason: 'Reddit auth failed' }
+  const ua = REDDIT_UA()
+  // Only attempt OAuth when a viable grant is wired; otherwise go straight to
+  // the public JSON endpoint (avoids a doomed 403 token call every request).
+  const token = redditOAuthConfigured() ? await redditAccessToken() : null
+  const qs = `q=${encodeURIComponent(query)}&sort=new&limit=100&t=week&type=link`
   try {
-    const url = `${REDDIT_SEARCH}?q=${encodeURIComponent(query)}&sort=new&limit=100&t=week&type=link`
-    const r = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}`, 'User-Agent': c.ua },
-      // Attention shifts over hours; 15-min cache keeps Reddit calls modest.
-      next: { revalidate: 900 },
-    })
-    if (!r.ok) return { ok: false, reason: `Reddit search ${r.status}` }
+    const r = token
+      ? await fetch(`${REDDIT_SEARCH}?${qs}`, {
+          headers: { Authorization: `Bearer ${token}`, 'User-Agent': ua }, next: { revalidate: 900 },
+        })
+      : await fetch(`https://www.reddit.com/search.json?${qs}`, {
+          headers: { 'User-Agent': ua }, next: { revalidate: 900 },
+        })
+    if (!r.ok) return { ok: false, reason: `Reddit ${r.status}` }
     const j = (await r.json()) as { data?: { children?: Array<{ data?: { created_utc?: number } }> } }
     const posts = j.data?.children ?? []
     const nowS = Date.now() / 1000
@@ -211,11 +234,11 @@ function narrate(label: string, state: AttentionState, accelPct: number, sources
 
 export async function composeAttentionBoard(): Promise<AttentionBoard> {
   const generated_at = new Date().toISOString()
-  const haveReddit = redditCreds() !== null
+  // Reddit's public JSON needs no credentials, so it's always attempted
+  // (degrades per-target if Reddit rate-limits/blocks the egress IP). X is
+  // attempted only when a bearer token is present.
+  const haveReddit = true
   const haveX = Boolean(xBearer())
-  if (!haveReddit && !haveX) {
-    return emptyBoard('No social source configured (set REDDIT_CLIENT_ID/SECRET or TWITTER_BEARER_TOKEN)', generated_at)
-  }
 
   const perTarget = await Promise.all(TARGETS.map(async (t) => {
     const [redditRes, xRes] = await Promise.all([
