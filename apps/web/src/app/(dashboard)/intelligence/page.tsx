@@ -37,6 +37,8 @@ const CORE: Tile[] = [
     blurb: 'Who is driving price — smart money, whales, aggression by asset.', pill: 'new' },
   { href: '/intelligence/positioning',  label: 'Positioning',
     blurb: 'Crowded longs / panic shorts — Bybit funding + open interest.', pill: 'new' },
+  { href: '/intelligence/narrative',    label: 'Narrative',
+    blurb: 'Theme strength, acceleration, fatigue, institutional participation, crowding.', pill: 'new' },
 ]
 
 const ASSET_CLASSES: Tile[] = [
