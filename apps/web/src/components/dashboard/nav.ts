@@ -68,6 +68,11 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/intelligence/attention',            label: 'Attention',            icon: MessagesSquare, keywords: 'social twitter x mentions narrative hype surging accelerating attention crowd' },
       { href: '/intelligence/market-pulse',         label: 'Market Pulse',         icon: PieChart,   keywords: 'crypto dominance btc eth altcoin total market cap top gainers losers movers trending breadth risk on off coingecko' },
       { href: '/intelligence/markets',              label: 'Markets Explorer',     icon: Grid3x3,    keywords: 'symbol registry catalog universe forex crypto indices metals commodities stocks search filter liquidity volatility sector tags institutional' },
+      { href: '/intelligence/sectors',              label: 'Sector Intelligence',  icon: Grid3x3,    keywords: 'sector rotation ai layer1 meme defi rwa infra strength breadth participation overheated accelerating capital flow' },
+      { href: '/intelligence/breadth',              label: 'Market Breadth',       icon: BarChart3,  keywords: 'advancing declining participation health risk on off narrow leadership broad thrust internals' },
+      { href: '/intelligence/dominance',            label: 'Dominance & Rotation', icon: PieChart,   keywords: 'btc eth altcoin dominance rotation leadership shift trending weakening sector capital concentration' },
+      { href: '/intelligence/correlations',         label: 'Correlations',         icon: Network,    keywords: 'rolling correlation matrix pearson inverse positive btc eth gold hedge diversification cross asset' },
+      { href: '/intelligence/volatility',           label: 'Volatility',           icon: Activity,   keywords: 'atr volatility ranking expansion high risk low stable tier engine measured catalog' },
       { href: '/regime',    label: 'Market Regime', icon: Radar,           keywords: 'volatility trend bias regime' },
       // ── On-chain Intelligence (per-token / per-flow surfaces) ───────
       { href: '/intelligence/smart-money',          label: 'Smart Money',          icon: Sparkles,   keywords: 'wallet accumulation conviction onchain nansen' },

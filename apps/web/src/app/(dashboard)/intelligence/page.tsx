@@ -49,6 +49,21 @@ const CORE: Tile[] = [
     blurb: 'The institutional symbol catalog — search, filter, regime + Open Chart per row.', pill: 'new' },
 ]
 
+// Market internals — systemic breadth, sector rotation, dominance,
+// correlation, volatility. The macro "internal market state" layer.
+const INTERNALS: Tile[] = [
+  { href: '/intelligence/sectors',      label: 'Sector Intelligence',
+    blurb: 'Crypto sector rotation — strength, breadth, sustainability, overheating risk.', pill: 'new' },
+  { href: '/intelligence/breadth',      label: 'Market Breadth',
+    blurb: 'Participation quality — advancing/declining, leadership concentration, health score.', pill: 'new' },
+  { href: '/intelligence/dominance',    label: 'Dominance & Rotation',
+    blurb: 'BTC/ETH/alt dominance with sector leadership-rotation read.', pill: 'new' },
+  { href: '/intelligence/correlations', label: 'Correlations',
+    blurb: 'Rolling 30d cross-asset correlation — diversification & hedging behaviour.', pill: 'new' },
+  { href: '/intelligence/volatility',   label: 'Volatility',
+    blurb: 'Live engine ATR ranking + static registry volatility tiers.', pill: 'new' },
+]
+
 const ASSET_CLASSES: Tile[] = [
   { href: '/market', label: 'Forex',          blurb: 'Majors, minors, crosses — live via Twelve Data.' },
   { href: '/market', label: 'Crypto',         blurb: 'BTC/ETH/SOL/… — live via Binance + Coinbase fallback.' },
@@ -104,6 +119,8 @@ export default async function IntelligenceLandingPage() {
 
       <Section title="Intelligence Core" tiles={CORE}
                sub="The institutional engines — start here." />
+      <Section title="Market Internals" tiles={INTERNALS}
+               sub="Systemic breadth, sector rotation, dominance, correlation, volatility." />
       <Section title="Asset Classes" tiles={ASSET_CLASSES}
                sub="Switch class in the Market Tracker — the working set follows the tab." />
       <Section title="On-chain Intelligence" tiles={ONCHAIN}
