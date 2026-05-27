@@ -52,6 +52,13 @@ TWELVE_SYMBOL_MAP = {
     # ('USDCHF' -> '/USDCHF') and crosses ('EURJPY' stays 'EURJPY').
     'NZDUSD': 'NZD/USD', 'USDCHF': 'USD/CHF',
     'EURJPY': 'EUR/JPY', 'EURGBP': 'EUR/GBP',
+    # Metals — TwelveData free tier serves spot metals like gold/silver.
+    # (XPT/XPD also resolve via the 6-char fallback, but explicit is clearer.)
+    'XPTUSD': 'XPT/USD', 'XPDUSD': 'XPD/USD',
+    # Energy — 5-char tickers need explicit mapping or _serves() skips them.
+    # Free-tier coverage of energy is NOT guaranteed; if TD returns empty the
+    # symbol is marked OFFLINE in /health/symbols (never fabricated).
+    'USOIL': 'WTI/USD', 'UKOIL': 'BCO/USD',
 }
 
 
@@ -433,6 +440,13 @@ class CachedDataProvider(MarketDataProvider):
     the previous in-memory-only cache. Never raises.
     """
 
+    # A live fetch must return at least this many bars to be treated as
+    # "good" (overwrite cache + persist). TwelveData intermittently returns
+    # thin responses (e.g. 10 bars) under load; those must NOT poison a
+    # richer cached/persisted set or the symbol would skip on the pipeline's
+    # 50-bar floor. Set just above that floor for margin.
+    _MIN_USABLE_BARS = 60
+
     def __init__(self, inner: MarketDataProvider, store=None):
         self.inner = inner
         self._cache: dict[tuple[str, str], tuple[list[OHLCVBar], float]] = {}
@@ -463,35 +477,45 @@ class CachedDataProvider(MarketDataProvider):
                        cached[0][-1].timestamp if cached[0] else None)
             return cached[0]
 
-        # 2. Live providers.
+        # 2. Live providers. A GOOD fetch (>= MIN_USABLE bars) overwrites the
+        #    cache + persists; a thin/empty fetch falls through to richer data.
         bars = await self.inner.fetch_ohlcv(symbol, interval, outputsize)
-        if bars:
+        if len(bars) >= self._MIN_USABLE_BARS:
             self._cache[key] = (bars, now)
             self._mark(key, 'ACTIVE', len(bars), bars[-1].timestamp)
             if self._store:
                 self._store.save(symbol, interval, bars, provider='live')
             return bars
 
-        # 3. Hot cache, stale (upstream empty this cycle).
-        if cached:
+        thin = 'thin(%d)' % len(bars) if bars else 'empty'
+
+        # 3. Hot cache — prefer it when it's richer than what upstream gave.
+        if cached and len(cached[0]) >= max(len(bars), self._MIN_USABLE_BARS):
             age = int(now - cached[1])
-            logger.warning(f"OHLCV cache: upstream empty for {symbol} — serving hot cache (age {age}s)")
+            logger.warning(f"OHLCV cache: upstream {thin} for {symbol} — serving hot "
+                           f"cache ({len(cached[0])} bars, age {age}s)")
             self._mark(key, 'DEGRADED', len(cached[0]),
                        cached[0][-1].timestamp if cached[0] else None)
             return cached[0]
 
-        # 4. Persistent store (cold start — survives deploys). Do NOT warm the
-        #    hot cache, so upstream is retried every cycle until it recovers.
+        # 4. Persistent store (cold start — survives deploys). Prefer it when
+        #    richer; do NOT warm the hot cache so upstream is retried next cycle.
         if self._store:
             loaded = self._store.load(symbol, interval)
-            if loaded:
+            if loaded and len(loaded[0]) >= max(len(bars), self._MIN_USABLE_BARS):
                 pbars, last_ts = loaded
-                logger.warning(f"OHLCV cold-start: {symbol} upstream empty — serving "
+                logger.warning(f"OHLCV cold-start: {symbol} upstream {thin} — serving "
                                f"{len(pbars)} persisted bars (last {last_ts})")
                 self._mark(key, 'STALE', len(pbars), last_ts)
                 return pbars
 
-        # 5. Nothing anywhere.
+        # 5. Nothing richer available. Return whatever upstream gave (even thin)
+        #    so the pipeline's own 50-bar floor decides; cache it in memory only
+        #    (do NOT persist a thin set — the store stays clean of poisoned data).
+        if bars:
+            self._cache[key] = (bars, now)
+            self._mark(key, 'DEGRADED', len(bars), bars[-1].timestamp)
+            return bars
         self._mark(key, 'OFFLINE', 0, None)
         return []
 
