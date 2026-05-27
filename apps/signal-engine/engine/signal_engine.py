@@ -120,9 +120,52 @@ def momentum_breakout(f: EngineFeatures, weight: float, is_trending: bool = Fals
     return StrategyVote('momentum_breakout', None, 0.0, "No momentum breakout")
 
 
-# ─── Ensemble Voting ────────────────────────────────────────────────────────
+# ─── Ensemble: Weighted Probabilistic Decisioning (institutional v2) ─────────
+#
+# Replaces the old hard 2-of-3 consensus (which starved in ranging / mixed
+# regimes — see signal-engine logs: every cycle STRATEGY_SIGNAL_REJECTED)
+# with a signed, weight-aware probabilistic vote.
+#
+#   weighted_score = Σ ( direction_sign × strength )
+#
+# where `strength` already folds in the regime engine-weight × signal
+# quality. Contradictions CANCEL in the signed sum instead of hard-blocking,
+# and aligned-but-weak signals AGGREGATE past the threshold. A direction is
+# asserted only when |weighted_score| clears a regime-adaptive threshold T:
+# lower in directional regimes (easier entries), higher in chop (avoid
+# noise), widest in transition / exhaustion (unstable → demand a stronger
+# net edge).
+#
+# This is the L3 aggregation layer ONLY. All safety is UNCHANGED and lives
+# downstream (L4): confidence scoring, the signal gate, the AUTHORITATIVE
+# institutional risk gate, and the dry-run gate all still run on every
+# proposal this produces. Low agreement no longer forces rejection; a real
+# AVOID still comes from the risk layer, not from vote-counting.
 
-MIN_AGREEING = 2
+# Regime-adaptive decision thresholds (keyed on Regime.value).
+_REGIME_THRESHOLD: dict[str, float] = {
+    'trending':     0.12,   # directional → easier entries
+    'expansion':    0.14,   # vol building into a move
+    'volatile':     0.20,   # high vol → require a stronger net edge
+    'ranging':      0.20,   # chop → avoid noise
+    'transitional': 0.22,   # regime shift → widen the neutral zone
+    'exhaustion':   0.24,   # unstable → demand strong net edge
+    'unknown':      0.24,
+}
+_DEFAULT_THRESHOLD = 0.22
+TOTAL_ENGINES = 3
+
+
+def _threshold_for(regime_value: str) -> float:
+    return _REGIME_THRESHOLD.get(regime_value, _DEFAULT_THRESHOLD)
+
+
+def _signed(v: StrategyVote) -> float:
+    """Vote as a signed contribution: buy = +strength, sell = −strength."""
+    if v.direction == 'buy':  return +v.strength
+    if v.direction == 'sell': return -v.strength
+    return 0.0
+
 
 def ensemble_signal(
     symbol: str,
@@ -130,11 +173,14 @@ def ensemble_signal(
     regime_result: RegimeResult,
 ) -> Optional[SignalProposal]:
     """
-    Runs all three strategies with regime-adaptive weights and applies ensemble voting.
-    Returns a SignalProposal if MIN_AGREEING strategies agree on direction.
+    Weighted probabilistic ensemble. Produces a SignalProposal when the net
+    weighted score clears the regime-adaptive threshold T. No hard consensus
+    requirement — aligned weak signals aggregate, and contradictions net out
+    rather than forcing rejection.
     """
     w = regime_result.strategy_weights
-    is_trending = regime_result.regime.value == 'trending'
+    regime_value = regime_result.regime.value
+    is_trending = regime_value == 'trending'
 
     votes = [
         trend_continuation(features, w.get('trend_continuation', 0.33)),
@@ -142,29 +188,31 @@ def ensemble_signal(
         momentum_breakout(features, w.get('momentum_breakout', 0.34), is_trending),
     ]
 
-    buy_votes  = [v for v in votes if v.direction == 'buy']
-    sell_votes = [v for v in votes if v.direction == 'sell']
-
-    # Diagnostic: log the vote breakdown whenever ANY strategy fires, so
-    # rejections (STRATEGY_SIGNAL_REJECTED) and acceptances are observable
-    # operationally without DEBUG. Quiet when the tape is dead (all None).
+    weighted_score = sum(_signed(v) for v in votes)
     voted = [v for v in votes if v.direction is not None]
+    valid_votes = len(voted)
+    # Signal liquidity (FIX 2): how many engines actually voted. Used for
+    # observability + confidence context — NEVER to block trading.
+    signal_liquidity = round(valid_votes / TOTAL_ENGINES, 2)
+    T = _threshold_for(regime_value)
+
+    direction: Optional[Direction] = None
+    if weighted_score > T:
+        direction = 'buy'
+    elif weighted_score < -T:
+        direction = 'sell'
+
+    # Observability: log whenever ANY strategy fired. Quiet on a dead tape.
     if voted:
         brk = ', '.join(f"{v.strategy}={v.direction}({v.strength:.2f})" for v in voted)
-        consensus = len(buy_votes) >= MIN_AGREEING or len(sell_votes) >= MIN_AGREEING
-        tag = 'STRATEGY_SIGNAL_ACCEPTED' if consensus else 'STRATEGY_SIGNAL_REJECTED'
-        logger.info(f"[{symbol}] {tag} regime={regime_result.regime.value} "
-                    f"votes=[{brk}] buy={len(buy_votes)} sell={len(sell_votes)} need={MIN_AGREEING}")
+        tag = 'STRATEGY_SIGNAL_ACCEPTED' if direction else 'STRATEGY_SIGNAL_REJECTED'
+        logger.info(f"[{symbol}] {tag} regime={regime_value} votes=[{brk}] "
+                    f"score={weighted_score:+.3f} T={T:.2f} liquidity={signal_liquidity}")
 
-    if len(buy_votes) >= MIN_AGREEING:
-        direction: Direction = 'buy'
-        agreeing = buy_votes
-    elif len(sell_votes) >= MIN_AGREEING:
-        direction = 'sell'
-        agreeing = sell_votes
-    else:
-        return None  # No consensus
+    if direction is None:
+        return None
 
+    agreeing = [v for v in votes if v.direction == direction]
     strength = sum(v.strength for v in agreeing)
     entry = features.close
     atr   = features.atr14
