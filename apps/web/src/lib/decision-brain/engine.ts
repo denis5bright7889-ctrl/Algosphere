@@ -34,7 +34,9 @@ import { DECISION_CONFIG, type EngineName,
   type MarketState, type MomentumState, type FlowBias, type Participation,
   type RiskLevel, type TradePermission, type DirectionBias, type TimeHorizon,
 } from './config'
-import type { DecisionObject, DecisionContext, NormalizedSignal } from './types'
+import { regimeAdaptedWeights, type BriefEngine, type WeightVector } from './weights'
+import { logDecision, fingerprint } from '@/lib/intel-memory'
+import type { DecisionObject, DecisionContext, NormalizedSignal, StrictDecision } from './types'
 
 /** Crypto bellwether used as the market-momentum proxy (labelled in output). */
 const MOMENTUM_PROXY = 'BTCUSDT'
@@ -351,25 +353,50 @@ export function buildMarketDecision(ctx: DecisionContext): DecisionObject {
   if (missingCritical) confidence = Math.min(confidence, DECISION_CONFIG.criticalMissingCeiling)
   confidence = Math.max(0, Math.min(100, confidence))
 
-  // Output enums
+  // Output enums (independent of confidence)
   const market_state: MarketState = ctx.raw.regimeState ?? 'UNCERTAIN'
   const momentum_state: MomentumState =
     ctx.raw.momentumState ?? regimeMomentumFallback(market_state)
   const flow_bias: FlowBias = ctx.raw.flowBias ?? 'NEUTRAL'
   const participation: Participation = ctx.raw.participation ?? 'NARROW'
 
+  // ── L3 adaptive weighting + MDS (brief model) ──────────────────────────
+  const weights = regimeAdaptedWeights(market_state, momentum_state, ctx.raw.volExtreme)
+  const { scores, available } = briefEngineScores(ctx)
+  const mds = weightedMds(scores, available, weights)
+
+  // ── Confidence = 1 − Σ(disagreement_penalty) (brief), then coverage. ───
+  const P = DECISION_CONFIG.penalties
+  let penalty = 0
+  const smLean = leanOf(ctx, 'smartMoney'), momLean = leanOf(ctx, 'momentum'), whaleLean = leanOf(ctx, 'whaleFlow')
+  if (smLean !== null && momLean !== null && sign(smLean) !== 0 && sign(momLean) !== 0 && sign(smLean) !== sign(momLean)) penalty += P.smartMoneyVsMomentum
+  if (whaleLean !== null && momLean !== null && sign(whaleLean) !== 0 && sign(momLean) !== 0 && sign(whaleLean) !== sign(momLean)) penalty += P.whaleVsMomentum
+  if (market_state === 'UNCERTAIN' || market_state === 'TRANSITION') penalty += P.regimeInstability
+  if (ctx.raw.volExtreme && participation !== 'BROAD') penalty += P.volSpikeNoParticipation
+  // correlation breakdown: only when the correlation engine is actually available (it's stubbed today)
+
+  // Structural caps preserve the anti-blind-average guarantee from the
+  // earlier net-lean pass (contradictions + missing load-bearing engines).
+  const coverageFactor = Math.max(0.5, directional.length / 6)
+  let confidence01 = Math.max(0, Math.min(1, 1 - penalty)) * coverageFactor
+  if (contradiction) confidence01 = Math.min(confidence01, DECISION_CONFIG.contradictionCeiling / 100)
+  if (missingCritical) confidence01 = Math.min(confidence01, DECISION_CONFIG.criticalMissingCeiling / 100)
+  confidence = Math.max(0, Math.min(100, Math.round(confidence01 * 100)))
+
   // Risk level
   const risk_level = computeRisk(ctx, contradiction, participation)
 
-  // Trade permission (gates + overrides; never a blind average)
+  // Trade permission (gates + overrides + brief gating; never a blind average)
   const trade_permission = computePermission({
     ctx, confidence, contradiction, market_state, momentum_state, risk_level, participation,
+    scores, available,
   })
 
-  // Direction bias
+  // Direction from MDS (0.5 = neutral), gated by permission + confidence.
+  const band = DECISION_CONFIG.strictThresholds.biasBand
   let direction_bias: DirectionBias = 'NEUTRAL'
-  if (trade_permission !== 'AVOID' && confidence >= T.minConfidenceToAllow && Math.abs(netLean) >= T.neutralBand) {
-    direction_bias = netSign > 0 ? 'LONG' : netSign < 0 ? 'SHORT' : 'NEUTRAL'
+  if (trade_permission !== 'AVOID' && confidence >= T.minConfidenceToAllow && Math.abs(mds - 0.5) >= band) {
+    direction_bias = mds > 0.5 ? 'LONG' : 'SHORT'
   }
 
   const time_horizon = computeHorizon(momentum_state, ctx.raw.volExtreme, confidence, trade_permission)
@@ -379,11 +406,74 @@ export function buildMarketDecision(ctx: DecisionContext): DecisionObject {
     trade_permission, market_state, momentum_state, risk_level,
   })
 
+  const strict: StrictDecision = {
+    mds:          Number(mds.toFixed(3)),
+    confidence:   Number(confidence01.toFixed(3)),
+    market_state,
+    trade_bias:   direction_bias === 'NEUTRAL' ? 'NONE' : direction_bias,
+    risk:         risk_level === 'EXTREME' ? 'HIGH' : risk_level,
+    action:       trade_permission,
+  }
+
   return {
     market_state, momentum_state, flow_bias, participation,
     confidence, risk_level, trade_permission, direction_bias, time_horizon,
-    explanation,
+    mds: Number(mds.toFixed(3)), explanation, strict,
   }
+}
+
+// ── Brief-aligned engine_score [0,1] mapping ─────────────────────────────
+
+function leanOf(ctx: DecisionContext, engine: EngineName): number | null {
+  const s = ctx.signals.find((x) => x.engine === engine)
+  return s && s.available ? s.lean : null
+}
+
+/** Map the available signals onto the brief's seven [0,1] engine scores. */
+function briefEngineScores(ctx: DecisionContext): {
+  scores: Partial<Record<BriefEngine, number>>
+  available: Set<BriefEngine>
+} {
+  const scores: Partial<Record<BriefEngine, number>> = {}
+  const available = new Set<BriefEngine>()
+  const to01 = (lean: number) => Math.max(0, Math.min(1, (lean + 1) / 2))
+
+  const sm = leanOf(ctx, 'smartMoney'); if (sm !== null) { scores.smart_money = to01(sm); available.add('smart_money') }
+  const mom = leanOf(ctx, 'momentum');  if (mom !== null) { scores.momentum = to01(mom);   available.add('momentum') }
+  const wh = leanOf(ctx, 'whaleFlow');  if (wh !== null) { scores.whales = to01(wh);        available.add('whales') }
+  const rg = leanOf(ctx, 'regime');     if (rg !== null) { scores.regime = to01(rg);        available.add('regime') }
+
+  // Internals = blend of breadth + dominance (Market Internals).
+  const br = leanOf(ctx, 'breadth'); const dm = leanOf(ctx, 'dominance')
+  const internalsLeans = [br, dm].filter((x): x is number => x !== null)
+  if (internalsLeans.length > 0) {
+    scores.internals = to01(internalsLeans.reduce((s, v) => s + v, 0) / internalsLeans.length)
+    available.add('internals')
+  }
+
+  // Volatility: calm = high score (1 − elevated share). Risk-only engine.
+  const volSig = ctx.signals.find((s) => s.engine === 'volatility')
+  if (volSig && volSig.available) { scores.volatility = Math.max(0, Math.min(1, 1 - volSig.strength)); available.add('volatility') }
+
+  // Correlation is stubbed (unavailable) — excluded honestly.
+  return { scores, available }
+}
+
+/** MDS = Σ(score × weight) renormalised over AVAILABLE engines → 0..1. */
+function weightedMds(
+  scores: Partial<Record<BriefEngine, number>>,
+  available: Set<BriefEngine>,
+  weights: WeightVector,
+): number {
+  let wSum = 0, sSum = 0
+  for (const k of available) {
+    const w = weights[k] ?? 0
+    const sc = scores[k]
+    if (typeof sc !== 'number') continue
+    wSum += w
+    sSum += w * sc
+  }
+  return wSum > 0 ? sSum / wSum : 0.5   // 0.5 = neutral when nothing available
 }
 
 function regimeMomentumFallback(state: MarketState): MomentumState {
@@ -408,13 +498,17 @@ function computePermission(a: {
   ctx: DecisionContext; confidence: number; contradiction: boolean
   market_state: MarketState; momentum_state: MomentumState; risk_level: RiskLevel
   participation: Participation
+  scores: Partial<Record<BriefEngine, number>>; available: Set<BriefEngine>
 }): TradePermission {
   const T = DECISION_CONFIG.thresholds
-  // Hard overrides first.
+  // Hard overrides first (brief's ALWAYS-AVOID rules).
   if (!a.ctx.raw.executionStable) return 'AVOID'                          // execution instability
-  if (a.market_state === 'UNCERTAIN') return 'AVOID'                      // regime uncertain
+  if (a.market_state === 'UNCERTAIN') return 'AVOID'                      // regime uncertain (⊇ "uncertain & momentum<0.5")
   if (a.ctx.raw.volExtreme && a.participation !== 'BROAD') return 'AVOID' // extreme vol + thin participation
   if (a.risk_level === 'EXTREME') return 'AVOID'
+  // Smart money weak AND whale flow distributing → AVOID.
+  if (a.available.has('smart_money') && a.available.has('whales')
+      && (a.scores.smart_money ?? 1) < 0.4 && (a.scores.whales ?? 1) < 0.5) return 'AVOID'
 
   // Soft gates → at most REDUCE.
   let ceiling: TradePermission = 'ALLOW'
@@ -480,5 +574,31 @@ function buildExplanation(a: {
 export async function composeDecision(): Promise<DecisionObject & { generated_at: string }> {
   const ctx = await gatherDecisionContext()
   const decision = buildMarketDecision(ctx)
+
+  // Best-effort logging into the adaptive-intelligence substrate
+  // (intel_decisions). Append-only, dedup'd to one row per identical
+  // decision per 15-min bucket — this is the training data the governed
+  // learning loop will later label + attribute. Abstract states only;
+  // no raw indicators are persisted. Never throws into the request path.
+  void logDecision({
+    surface: 'decision-brain',
+    fingerprint: fingerprint([
+      decision.market_state, decision.momentum_state, decision.flow_bias,
+      decision.participation, decision.trade_permission, decision.direction_bias,
+      decision.risk_level,
+    ]),
+    payload: {
+      strict:     decision.strict,
+      mds:        decision.mds,
+      confidence: decision.confidence,
+      // Engine snapshot for future attribution — abstract leans/strengths
+      // (already abstracted from raw indicators), never the raw features.
+      signals: ctx.signals.map((s) => ({
+        engine: s.engine, available: s.available,
+        lean: Number(s.lean.toFixed(3)), strength: Number(s.strength.toFixed(3)),
+      })),
+    },
+  })
+
   return { ...decision, generated_at: ctx.generated_at }
 }

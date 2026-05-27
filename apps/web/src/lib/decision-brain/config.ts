@@ -59,6 +59,25 @@ export const DECISION_CONFIG = {
   criticalMissingCeiling: 45,
   /** Confidence ceiling when contradictions are present (anti-blind-average). */
   contradictionCeiling: 50,
+
+  /**
+   * Disagreement penalties for the brief's confidence = 1 − Σ(penalty)
+   * model. Each fires at most once. Subtracted from a base of 1.0.
+   */
+  penalties: {
+    smartMoneyVsMomentum: 0.25,
+    whaleVsMomentum:      0.20,
+    regimeInstability:    0.30,
+    volSpikeNoParticipation: 0.15,
+    correlationBreakdown: 0.10,
+  },
+  /** Strict-output confidence ladder (0..1). */
+  strictThresholds: {
+    allowAbove:  0.65,
+    reduceAbove: 0.45,
+    /** |mds − 0.5| above which a directional trade_bias is asserted. */
+    biasBand:    0.06,
+  },
 } as const
 
 export type MarketState     = 'RISK_ON' | 'RISK_OFF' | 'TRANSITION' | 'UNCERTAIN'

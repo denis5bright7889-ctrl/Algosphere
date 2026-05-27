@@ -6,7 +6,13 @@
  * buildMarketDecision(context) for testing/advanced composition.
  */
 export { composeDecision, gatherDecisionContext, buildMarketDecision } from './engine'
-export type { DecisionObject, DecisionContext, NormalizedSignal } from './types'
+export { W0, regimeAdaptedWeights, normalizeWeights } from './weights'
+export type { BriefEngine, WeightVector } from './weights'
+export {
+  attributeEngines, updateWeights, summarizeReadiness, MIN_SAMPLES_TO_LEARN,
+} from './learning'
+export type { TrainingRecord, Outcome, ReadinessReport } from './learning'
+export type { DecisionObject, DecisionContext, NormalizedSignal, StrictDecision } from './types'
 export type {
   MarketState, MomentumState, FlowBias, Participation,
   RiskLevel, TradePermission, DirectionBias, TimeHorizon,
