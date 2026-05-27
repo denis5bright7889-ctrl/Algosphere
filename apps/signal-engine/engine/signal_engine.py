@@ -171,12 +171,18 @@ def ensemble_signal(
     symbol: str,
     features: EngineFeatures,
     regime_result: RegimeResult,
+    data_completeness: float = 1.0,
 ) -> Optional[SignalProposal]:
     """
     Weighted probabilistic ensemble. Produces a SignalProposal when the net
     weighted score clears the regime-adaptive threshold T. No hard consensus
     requirement — aligned weak signals aggregate, and contradictions net out
     rather than forcing rejection.
+
+    `data_completeness` ∈ [0.3, 1.0] dampens the score for symbols served
+    from stale / degraded data (e.g. persisted bars during a provider outage)
+    so the engine doesn't over-rely on whichever asset class happens to have
+    live data. It NEVER blocks — only reduces conviction. Live data = 1.0.
     """
     w = regime_result.strategy_weights
     regime_value = regime_result.regime.value
@@ -188,7 +194,10 @@ def ensemble_signal(
         momentum_breakout(features, w.get('momentum_breakout', 0.34), is_trending),
     ]
 
-    weighted_score = sum(_signed(v) for v in votes)
+    completeness = max(0.3, min(1.0, data_completeness))
+    raw_score = sum(_signed(v) for v in votes)
+    # final_score = Σ(signal × weight) × data_completeness_factor
+    weighted_score = raw_score * completeness
     voted = [v for v in votes if v.direction is not None]
     valid_votes = len(voted)
     # Signal liquidity (FIX 2): how many engines actually voted. Used for
@@ -207,7 +216,8 @@ def ensemble_signal(
         brk = ', '.join(f"{v.strategy}={v.direction}({v.strength:.2f})" for v in voted)
         tag = 'STRATEGY_SIGNAL_ACCEPTED' if direction else 'STRATEGY_SIGNAL_REJECTED'
         logger.info(f"[{symbol}] {tag} regime={regime_value} votes=[{brk}] "
-                    f"score={weighted_score:+.3f} T={T:.2f} liquidity={signal_liquidity}")
+                    f"score={weighted_score:+.3f} T={T:.2f} liquidity={signal_liquidity} "
+                    f"completeness={completeness:.2f}")
 
     if direction is None:
         return None

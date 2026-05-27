@@ -6,7 +6,7 @@ Provider priority: Twelve Data → Polygon → Alpha Vantage
 from __future__ import annotations
 import asyncio
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 import httpx
 from loguru import logger
@@ -47,6 +47,11 @@ TWELVE_SYMBOL_MAP = {
     'USDJPY': 'USD/JPY', 'GBPJPY': 'GBP/JPY', 'AUDUSD': 'AUD/USD',
     'USDCAD': 'USD/CAD', 'XAGUSD': 'XAG/USD', 'US30': 'DJI',
     'NAS100': 'NDX',
+    # Phase-1 FX expansion. Explicit mappings required: the naive
+    # symbol.replace('USD','/USD') fallback breaks USD-first pairs
+    # ('USDCHF' -> '/USDCHF') and crosses ('EURJPY' stays 'EURJPY').
+    'NZDUSD': 'NZD/USD', 'USDCHF': 'USD/CHF',
+    'EURJPY': 'EUR/JPY', 'EURGBP': 'EUR/GBP',
 }
 
 
@@ -382,7 +387,134 @@ class FallbackDataProvider(MarketDataProvider):
         return None
 
 
-def build_provider(settings) -> Optional[FallbackDataProvider]:
+# Bar-interval → seconds, for cache freshness (a fetch is reused until a new
+# candle of this interval should have closed).
+INTERVAL_SECONDS = {
+    '1m': 60, '5m': 300, '15m': 900, '30m': 1800,
+    '1h': 3600, '4h': 14400, '1d': 86400,
+}
+
+
+# Symbol data-availability states (observability + completeness weighting).
+#   ACTIVE   — fresh live bars this cycle, OR hot-cache within half the TTL
+#   DEGRADED — served from the in-memory hot cache (still within TTL, but the
+#              latest upstream attempt was empty / not refreshed this cycle)
+#   STALE    — served from the persistent store on a cold start (real bars,
+#              but old — upstream is currently down/quota-capped)
+#   OFFLINE  — no bars anywhere (live, hot, or persistent)
+# completeness_for() maps these to a [0.3, 1.0] factor the engine multiplies
+# into the weighted score, so a symbol on stale data contributes less —
+# never structurally blocked, just dampened.
+_COMPLETENESS = {'ACTIVE': 1.0, 'DEGRADED': 0.85, 'STALE': 0.5, 'OFFLINE': 0.0}
+
+
+class CachedDataProvider(MarketDataProvider):
+    """Two-tier OHLCV cache wrapping the fallback chain.
+
+      L2 (hot)  — in-memory dict keyed by (symbol, interval); serves closed
+                  candles within their interval TTL (cuts upstream calls and
+                  keeps TwelveData under its 800/day cap).
+      L1 (warm) — OPTIONAL persistent Supabase store (PersistentOHLCVStore).
+                  Survives deploys: on a cold start where every live provider
+                  is empty (e.g. TD quota exhausted right after a restart),
+                  the last-known REAL candles are served from the store
+                  instead of blanking the symbol. The durable fix for the
+                  cold-start partial-universe outage.
+
+    Resolution order on fetch:
+      1. hot cache (fresh within TTL)        → ACTIVE / DEGRADED
+      2. live providers                      → ACTIVE (writes through to L1+L2)
+      3. hot cache (stale, upstream empty)   → DEGRADED
+      4. persistent store (cold start)       → STALE  (NOT written to hot cache,
+                                                so upstream is retried next cycle)
+      5. nothing anywhere                    → OFFLINE → []
+
+    Graceful: if no persistent store is configured, behaviour is identical to
+    the previous in-memory-only cache. Never raises.
+    """
+
+    def __init__(self, inner: MarketDataProvider, store=None):
+        self.inner = inner
+        self._cache: dict[tuple[str, str], tuple[list[OHLCVBar], float]] = {}
+        self._store = store
+        # Per-(symbol, interval) last status for observability + completeness.
+        self._status: dict[tuple[str, str], dict] = {}
+
+    def _mark(self, key, status: str, bar_count: int, last_candle_ts: Optional[str]) -> None:
+        self._status[key] = {
+            'symbol':         key[0],
+            'interval':       key[1],
+            'data_status':    status,
+            'bar_count':      bar_count,
+            'last_candle_ts': last_candle_ts,
+            'last_update':    datetime.now(timezone.utc).isoformat(),
+        }
+
+    async def fetch_ohlcv(self, symbol: str, interval: str, outputsize: int = 300) -> list[OHLCVBar]:
+        key = (symbol, interval)
+        now = datetime.now().timestamp()
+        ttl = INTERVAL_SECONDS.get(interval, 3600)
+
+        # 1. Hot cache, fresh within TTL.
+        cached = self._cache.get(key)
+        if cached and (now - cached[1]) < ttl:
+            fresh = (now - cached[1]) < ttl * 0.5
+            self._mark(key, 'ACTIVE' if fresh else 'DEGRADED', len(cached[0]),
+                       cached[0][-1].timestamp if cached[0] else None)
+            return cached[0]
+
+        # 2. Live providers.
+        bars = await self.inner.fetch_ohlcv(symbol, interval, outputsize)
+        if bars:
+            self._cache[key] = (bars, now)
+            self._mark(key, 'ACTIVE', len(bars), bars[-1].timestamp)
+            if self._store:
+                self._store.save(symbol, interval, bars, provider='live')
+            return bars
+
+        # 3. Hot cache, stale (upstream empty this cycle).
+        if cached:
+            age = int(now - cached[1])
+            logger.warning(f"OHLCV cache: upstream empty for {symbol} — serving hot cache (age {age}s)")
+            self._mark(key, 'DEGRADED', len(cached[0]),
+                       cached[0][-1].timestamp if cached[0] else None)
+            return cached[0]
+
+        # 4. Persistent store (cold start — survives deploys). Do NOT warm the
+        #    hot cache, so upstream is retried every cycle until it recovers.
+        if self._store:
+            loaded = self._store.load(symbol, interval)
+            if loaded:
+                pbars, last_ts = loaded
+                logger.warning(f"OHLCV cold-start: {symbol} upstream empty — serving "
+                               f"{len(pbars)} persisted bars (last {last_ts})")
+                self._mark(key, 'STALE', len(pbars), last_ts)
+                return pbars
+
+        # 5. Nothing anywhere.
+        self._mark(key, 'OFFLINE', 0, None)
+        return []
+
+    def completeness_for(self, symbol: str, interval: str) -> float:
+        """Data-completeness factor ∈ [0.3, 1.0] for the engine's weighted
+        score. Stale/degraded data dampens (never blocks) a symbol's signal."""
+        st = self._status.get((symbol, interval))
+        if not st:
+            return 1.0
+        return max(0.3, _COMPLETENESS.get(st['data_status'], 1.0)) if st['data_status'] != 'OFFLINE' else 0.0
+
+    def symbol_health(self) -> list[dict]:
+        """Snapshot of every symbol's data status (internal observability)."""
+        return list(self._status.values())
+
+    async def fetch_live_price(self, symbol: str) -> Optional[float]:
+        return await self.inner.fetch_live_price(symbol)
+
+    async def get_spread(self, symbol: str) -> float:
+        return await self.inner.get_spread(symbol)
+
+
+def build_provider(settings) -> Optional[MarketDataProvider]:
     """Builds the provider chain.
 
     Order is deliberate, not preference-ordered:
@@ -409,4 +541,20 @@ def build_provider(settings) -> Optional[FallbackDataProvider]:
         providers.append(PolygonProvider(settings.polygon_api_key))
     if settings.alpha_vantage_api_key:
         providers.append(AlphaVantageProvider(settings.alpha_vantage_api_key))
-    return FallbackDataProvider(providers)
+
+    # L1 persistent store (optional) — survives deploys so the hot cache no
+    # longer cold-starts empty. Best-effort: if Supabase isn't configured or
+    # the table is absent, the store no-ops and the cache is in-memory only.
+    store = None
+    if getattr(settings, 'has_supabase', False):
+        try:
+            from supabase import create_client
+            from data.ohlcv_store import PersistentOHLCVStore
+            client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+            store = PersistentOHLCVStore(client)
+            logger.info("OHLCV persistent store (L1) enabled")
+        except Exception as e:
+            logger.warning(f"OHLCV persistent store unavailable — in-memory only: {e}")
+
+    # Wrap the chain: L2 hot cache + optional L1 persistent backing.
+    return CachedDataProvider(FallbackDataProvider(providers), store=store)

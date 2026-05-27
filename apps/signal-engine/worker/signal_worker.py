@@ -236,8 +236,13 @@ class SignalWorker:
             logger.debug(f"[{symbol}] Already {active_count} active signal(s) — skip")
             return
 
-        # 7. Ensemble signal generation
-        proposal = ensemble_signal(symbol, features, regime)
+        # 7. Ensemble signal generation. Pass the data-completeness factor so
+        #    a symbol served from stale/degraded cache contributes a dampened
+        #    (never blocked) signal — prevents over-reliance on whichever asset
+        #    class currently has live data.
+        completeness_fn = getattr(self.provider(), 'completeness_for', None)
+        data_completeness = completeness_fn(symbol, self.settings.timeframe) if completeness_fn else 1.0
+        proposal = ensemble_signal(symbol, features, regime, data_completeness=data_completeness)
         if proposal is None:
             logger.debug(f"[{symbol}] No ensemble consensus — skip")
             return
