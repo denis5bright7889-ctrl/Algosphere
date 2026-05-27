@@ -97,6 +97,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Execution',
     icon: Cpu,
     items: [
+      { href: '/workspace',  label: 'Chart Workspace',icon: CandlestickChart, keywords: 'multi chart tradingview workspace tabs layouts split quad compare overlay favorites recent persistent terminal bloomberg institutional ai rail' },
       { href: '/algo',       label: 'Auto Trading',   icon: Cpu,         keywords: 'algo bot mt5 institutional execution gateway desk activate engine' },
       { href: '/execution',  label: 'Execution Desk', icon: Cpu,         minTier: 'vip',     keywords: 'auto orders fills bot live dashboard' },
       { href: '/brokers',    label: 'Brokers',        icon: Landmark,    keywords: 'binance bybit okx mt5 api keys connect' },
