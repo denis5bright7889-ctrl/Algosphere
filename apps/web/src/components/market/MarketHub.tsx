@@ -7,6 +7,9 @@ import { useCryptoTickerForPair } from './useCryptoTickers'
 import { useInstrumentQuotes } from './useInstrumentQuotes'
 import RegimeBadge from '@/components/algo/RegimeBadge'
 import type { UniverseQuote } from '@/lib/quotes'
+import { OpenChartButton } from '@/components/charts'
+import { isChartable } from '@/lib/tradingview'
+import type { AssetClass } from '@/lib/market-universe'
 
 type RegimeMap = Record<string, { regime: string; score: number | null }>
 
@@ -198,7 +201,12 @@ export default function MarketHub({
                 <p className="truncate text-sm font-semibold">{i.label}</p>
                 <p className="font-mono text-[10px] text-muted-foreground/70">{i.symbol}</p>
               </div>
-              <PriceChip instrument={i} quote={quotes.get(i.symbol)} providers={providers} />
+              <div className="flex items-center gap-2">
+                <PriceChip instrument={i} quote={quotes.get(i.symbol)} providers={providers} />
+                {isChartable(i.symbol, cat.assetClass as AssetClass) && (
+                  <OpenChartButton symbol={i.symbol} assetClass={cat.assetClass as AssetClass} variant="icon" />
+                )}
+              </div>
             </div>
           ))}
         </div>

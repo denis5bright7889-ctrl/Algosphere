@@ -10,6 +10,7 @@ import MobileBottomNav from '@/components/dashboard/MobileBottomNav'
 import DemoBanner from '@/components/demo/DemoBanner'
 import InsightDrawer from '@/components/dashboard/InsightDrawer'
 import MobileCommandFab from '@/components/dashboard/MobileCommandFab'
+import { ChartModalProvider } from '@/components/charts'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -84,6 +85,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       : 'free'
 
   return (
+    <ChartModalProvider>
     <div className="flex min-h-screen bg-background">
       <DesktopSidebar admin={admin} showUpgradePrompt={showUpgradePrompt} tier={navTier} />
 
@@ -113,5 +115,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
       {/* Mobile-only bottom tab bar — fixed, thumb-friendly */}
       <MobileBottomNav />
     </div>
+    </ChartModalProvider>
   )
 }
