@@ -4,14 +4,34 @@ import './globals.css'
 
 const inter = Inter({ subsets: ['latin'] })
 
+const SITE_URL  = 'https://algospherequant.com'
+const SITE_DESC =
+  'Professional trading signals, risk management, and analytics — all in one platform.'
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: {
     default: 'AlgoSphere Quant',
     template: '%s | AlgoSphere Quant',
   },
-  description:
-    'Professional trading signals, risk management, and analytics — all in one platform.',
+  description: SITE_DESC,
   keywords: ['trading signals', 'forex', 'risk management', 'trade journal', 'AI trading'],
+  // Default OG / Twitter — per-page `opengraph-image.tsx` files supply images.
+  // Without this every share rendered a naked URL; this turns every link into
+  // a rich card on X / Telegram / Reddit / iMessage / LinkedIn / Discord.
+  openGraph: {
+    type:        'website',
+    siteName:    'AlgoSphere Quant',
+    title:       'AlgoSphere Quant — Institutional market intelligence',
+    description: SITE_DESC,
+    url:         SITE_URL,
+    locale:      'en_US',
+  },
+  twitter: {
+    card:        'summary_large_image',
+    title:       'AlgoSphere Quant — Institutional market intelligence',
+    description: SITE_DESC,
+  },
   manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,
