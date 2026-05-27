@@ -33,12 +33,14 @@ export const DECISION_CONFIG = {
   } as Record<Extract<EngineName, 'momentum'|'regime'|'breadth'|'smartMoney'|'whaleFlow'|'dominance'>, number>,
 
   thresholds: {
-    /** Net |confidence| above which a directional bias is asserted. */
-    minConfidenceToAllow: 55,
+    // Confidence ladder (0..100) — aligned to the brief's 0.65 / 0.45 gates:
+    // ALLOW ≥ 0.65, REDUCE 0.45–0.65, AVOID < 0.45.
+    /** ≥ this → ALLOW (and the floor for asserting a directional bias). */
+    minConfidenceToAllow: 65,
     /** Below this, trade_permission can be at most REDUCE. */
-    reduceBelow:          55,
+    reduceBelow:          65,
     /** Below this, trade_permission is AVOID. */
-    avoidBelow:           35,
+    avoidBelow:           45,
     /** Confidence points removed per detected major contradiction. */
     contradictionPenalty: 18,
     /** Engine strength below this is treated as NOISE and excluded from the vote. */
