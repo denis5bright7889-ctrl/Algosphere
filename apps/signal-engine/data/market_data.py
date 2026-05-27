@@ -58,7 +58,7 @@ TWELVE_SYMBOL_MAP = {
     # Energy — 5-char tickers need explicit mapping or _serves() skips them.
     # Free-tier coverage of energy is NOT guaranteed; if TD returns empty the
     # symbol is marked OFFLINE in /health/symbols (never fabricated).
-    'USOIL': 'WTI/USD', 'UKOIL': 'BCO/USD',
+    'USOIL': 'WTI/USD', 'UKOIL': 'BZ',   # WTI + Brent (BZ) — verified on TD Grow
 }
 
 
