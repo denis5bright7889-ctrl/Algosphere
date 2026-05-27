@@ -40,14 +40,22 @@ function loadTv(): Promise<void> {
 }
 
 export default function TradingViewEmbed({
-  tvSymbol, interval,
+  tvSymbol, interval, compareSymbols,
 }: {
   tvSymbol: string
   interval: string
+  /** Optional TradingView-formatted symbols to overlay (e.g. BINANCE:ETHUSDT).
+   *  Passed straight to the widget's `compare_symbols` config; the Advanced
+   *  Chart honours it on supported instruments. Silently ignored otherwise —
+   *  the primary chart still renders cleanly. */
+  compareSymbols?: string[]
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const idRef = useRef(`tv_${Math.random().toString(36).slice(2)}`)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+
+  // Stable key for the compare list so the effect re-runs on real changes only.
+  const compareKey = (compareSymbols ?? []).join('|')
 
   useEffect(() => {
     let cancelled = false
@@ -57,7 +65,8 @@ export default function TradingViewEmbed({
       .then(() => {
         if (cancelled || !window.TradingView || !containerRef.current) return
         containerRef.current.innerHTML = ''
-        new window.TradingView.widget({
+        const compareList = (compareSymbols ?? []).filter(Boolean)
+        const cfg: Record<string, unknown> = {
           container_id:       idRef.current,
           symbol:             tvSymbol,
           interval,
@@ -73,7 +82,14 @@ export default function TradingViewEmbed({
           withdateranges:     true,
           details:            false,
           studies:            [],
-        })
+        }
+        if (compareList.length > 0) {
+          // TradingView Advanced Chart supports `compare_symbols`; the simple
+          // embed may silently ignore it on some instruments. Either way the
+          // primary chart renders correctly — no error state to handle.
+          cfg.compare_symbols = compareList.map((s) => ({ symbol: s, position: 'SameScale' }))
+        }
+        new window.TradingView.widget(cfg)
         // The simple embed exposes no ready callback; reveal after a beat.
         const t = setTimeout(() => { if (!cancelled) setStatus('ready') }, 600)
         return () => clearTimeout(t)
@@ -81,7 +97,7 @@ export default function TradingViewEmbed({
       .catch(() => { if (!cancelled) setStatus('error') })
 
     return () => { cancelled = true }
-  }, [tvSymbol, interval])
+  }, [tvSymbol, interval, compareKey, compareSymbols])
 
   if (status === 'error') {
     return (
