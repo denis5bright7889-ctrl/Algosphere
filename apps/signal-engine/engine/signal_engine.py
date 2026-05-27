@@ -120,6 +120,93 @@ def momentum_breakout(f: EngineFeatures, weight: float, is_trending: bool = Fals
     return StrategyVote('momentum_breakout', None, 0.0, "No momentum breakout")
 
 
+# ─── Strategy 4: Volatility Expansion Breakout ──────────────────────────────
+
+def volatility_expansion(f: EngineFeatures, weight: float) -> StrategyVote:
+    """Break of a Bollinger band while volatility is EXPANDING (high ATR
+    percentile) and MACD confirms — a genuine range-break, not chop noise."""
+    if (f.close > f.bb_upper and f.atr_percentile >= 55 and
+            f.macd_histogram > 0 and f.rsi14 < 72):
+        strength = weight * min(0.4 + f.atr_percentile / 140, 1.0) * _rsi_quality(f.rsi14, 'buy')
+        return StrategyVote('volatility_expansion', 'buy', strength,
+                            f"BB upper break, ATR%ile={f.atr_percentile:.0f}")
+    if (f.close < f.bb_lower and f.atr_percentile >= 55 and
+            f.macd_histogram < 0 and f.rsi14 > 28):
+        strength = weight * min(0.4 + f.atr_percentile / 140, 1.0) * _rsi_quality(f.rsi14, 'sell')
+        return StrategyVote('volatility_expansion', 'sell', strength,
+                            f"BB lower break, ATR%ile={f.atr_percentile:.0f}")
+    return StrategyVote('volatility_expansion', None, 0.0, "No volatility expansion break")
+
+
+# ─── Strategy 5: ATR Compression Release ────────────────────────────────────
+
+def atr_compression_release(f: EngineFeatures, weight: float) -> StrategyVote:
+    """Coiled volatility (low ATR percentile) releasing through a band — the
+    classic squeeze breakout. Distinct from expansion: fires FROM compression."""
+    if f.atr_percentile <= 35 and f.der > 0.15:
+        if f.close > f.bb_upper and f.macd_histogram > 0:
+            strength = weight * (0.6 + 0.4 * min(f.der, 1.0))
+            return StrategyVote('atr_compression_release', 'buy', strength,
+                                f"Squeeze release up, ATR%ile={f.atr_percentile:.0f}")
+        if f.close < f.bb_lower and f.macd_histogram < 0:
+            strength = weight * (0.6 + 0.4 * min(f.der, 1.0))
+            return StrategyVote('atr_compression_release', 'sell', strength,
+                                f"Squeeze release down, ATR%ile={f.atr_percentile:.0f}")
+    return StrategyVote('atr_compression_release', None, 0.0, "No squeeze release")
+
+
+# ─── Strategy 6: Mean Reversion Exhaustion ──────────────────────────────────
+
+def mean_reversion_exhaustion(f: EngineFeatures, weight: float) -> StrategyVote:
+    """Band + RSI extreme in a mean-reverting tape (autocorr ≤ 0) → fade the
+    exhausted move. Self-gates to non-trending conditions via autocorr."""
+    if f.autocorr > 0.1:
+        return StrategyVote('mean_reversion_exhaustion', None, 0.0, "Trending tape — no fade")
+    if f.bb_pct_b <= 0.05 and f.rsi14 <= 30:
+        return StrategyVote('mean_reversion_exhaustion', 'buy', weight * 0.8,
+                            f"Oversold exhaustion, RSI={f.rsi14:.1f}")
+    if f.bb_pct_b >= 0.95 and f.rsi14 >= 70:
+        return StrategyVote('mean_reversion_exhaustion', 'sell', weight * 0.8,
+                            f"Overbought exhaustion, RSI={f.rsi14:.1f}")
+    return StrategyVote('mean_reversion_exhaustion', None, 0.0, "No exhaustion")
+
+
+# ─── Strategy 7: Session Open Momentum ──────────────────────────────────────
+
+def session_open_momentum(f: EngineFeatures, weight: float) -> StrategyVote:
+    """Trend-aligned momentum during the London / New York sessions, when
+    institutional flow is heaviest. Quiet in the Asian / off-hours tape."""
+    if not (f.is_london or f.is_new_york or f.is_london_ny):
+        return StrategyVote('session_open_momentum', None, 0.0, "Outside London/NY session")
+    if f.trend_aligned_bull and f.macd_histogram > 0 and f.der > 0.20 and 40 <= f.rsi14 <= 70:
+        strength = weight * min(0.5 + f.der, 1.0)
+        return StrategyVote('session_open_momentum', 'buy', strength,
+                            f"Session momentum up, DER={f.der:.2f}")
+    if f.trend_aligned_bear and f.macd_histogram < 0 and f.der > 0.20 and 30 <= f.rsi14 <= 60:
+        strength = weight * min(0.5 + f.der, 1.0)
+        return StrategyVote('session_open_momentum', 'sell', strength,
+                            f"Session momentum down, DER={f.der:.2f}")
+    return StrategyVote('session_open_momentum', None, 0.0, "No session momentum")
+
+
+# ─── Strategy 8: Displacement Momentum (price-action) ───────────────────────
+
+def displacement_momentum(f: EngineFeatures, weight: float) -> StrategyVote:
+    """Impulsive directional displacement: strong EMA separation + high
+    directional efficiency + MACD impulse. Detects institutional-style
+    displacement via PRICE ACTION (not on-chain wallet data — that feed
+    isn't available to this engine)."""
+    if f.ema_separation > 1.5 and f.der > 0.30 and f.macd_histogram > 0 and f.close > f.ema21:
+        strength = weight * min(f.der, 1.0) * _rsi_quality(f.rsi14, 'buy')
+        return StrategyVote('displacement_momentum', 'buy', strength,
+                            f"Bullish displacement, sep={f.ema_separation:.2f}")
+    if f.ema_separation < -1.5 and f.der > 0.30 and f.macd_histogram < 0 and f.close < f.ema21:
+        strength = weight * min(f.der, 1.0) * _rsi_quality(f.rsi14, 'sell')
+        return StrategyVote('displacement_momentum', 'sell', strength,
+                            f"Bearish displacement, sep={f.ema_separation:.2f}")
+    return StrategyVote('displacement_momentum', None, 0.0, "No displacement")
+
+
 # ─── Ensemble: Weighted Probabilistic Decisioning (institutional v2) ─────────
 #
 # Replaces the old hard 2-of-3 consensus (which starved in ranging / mixed
@@ -153,7 +240,19 @@ _REGIME_THRESHOLD: dict[str, float] = {
     'unknown':      0.24,
 }
 _DEFAULT_THRESHOLD = 0.22
-TOTAL_ENGINES = 3
+TOTAL_ENGINES = 8
+
+# Base weights for the strategies the regime engine doesn't explicitly weight
+# (the 5 added in Phase 2). The regime engine still weights the original 3;
+# these self-gate by regime through their own conditions (session windows,
+# autocorr, ATR percentile), so a modest fixed base weight is appropriate.
+_EXTRA_STRATEGY_WEIGHTS = {
+    'volatility_expansion':     0.25,
+    'atr_compression_release':  0.22,
+    'mean_reversion_exhaustion':0.22,
+    'session_open_momentum':    0.25,
+    'displacement_momentum':    0.28,
+}
 
 
 def _threshold_for(regime_value: str) -> float:
@@ -189,9 +288,16 @@ def ensemble_signal(
     is_trending = regime_value == 'trending'
 
     votes = [
+        # Original 3 — regime-weighted by the regime engine.
         trend_continuation(features, w.get('trend_continuation', 0.33)),
         liquidity_sweep(features, w.get('liquidity_sweep', 0.33)),
         momentum_breakout(features, w.get('momentum_breakout', 0.34), is_trending),
+        # Phase-2 additions — independent voters, self-gating by regime/session.
+        volatility_expansion(features,     w.get('volatility_expansion',     _EXTRA_STRATEGY_WEIGHTS['volatility_expansion'])),
+        atr_compression_release(features,  w.get('atr_compression_release',  _EXTRA_STRATEGY_WEIGHTS['atr_compression_release'])),
+        mean_reversion_exhaustion(features,w.get('mean_reversion_exhaustion',_EXTRA_STRATEGY_WEIGHTS['mean_reversion_exhaustion'])),
+        session_open_momentum(features,    w.get('session_open_momentum',    _EXTRA_STRATEGY_WEIGHTS['session_open_momentum'])),
+        displacement_momentum(features,    w.get('displacement_momentum',    _EXTRA_STRATEGY_WEIGHTS['displacement_momentum'])),
     ]
 
     completeness = max(0.3, min(1.0, data_completeness))
