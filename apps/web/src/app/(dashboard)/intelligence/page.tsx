@@ -45,6 +45,8 @@ const CORE: Tile[] = [
     blurb: 'Social attention velocity — which narratives are surging vs cooling on X.', pill: 'new' },
   { href: '/intelligence/market-pulse',  label: 'Market Pulse',
     blurb: 'Crypto market breadth — total cap, BTC/ETH dominance, top movers, trending.', pill: 'new' },
+  { href: '/intelligence/markets',       label: 'Markets Explorer',
+    blurb: 'The institutional symbol catalog — search, filter, regime + Open Chart per row.', pill: 'new' },
 ]
 
 const ASSET_CLASSES: Tile[] = [

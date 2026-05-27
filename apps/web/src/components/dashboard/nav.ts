@@ -67,6 +67,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/intelligence/liquidity',            label: 'Liquidity',            icon: Waves,      keywords: 'order book imbalance walls voids depth spread sweep risk execution slippage manipulation' },
       { href: '/intelligence/attention',            label: 'Attention',            icon: MessagesSquare, keywords: 'social twitter x mentions narrative hype surging accelerating attention crowd' },
       { href: '/intelligence/market-pulse',         label: 'Market Pulse',         icon: PieChart,   keywords: 'crypto dominance btc eth altcoin total market cap top gainers losers movers trending breadth risk on off coingecko' },
+      { href: '/intelligence/markets',              label: 'Markets Explorer',     icon: Grid3x3,    keywords: 'symbol registry catalog universe forex crypto indices metals commodities stocks search filter liquidity volatility sector tags institutional' },
       { href: '/regime',    label: 'Market Regime', icon: Radar,           keywords: 'volatility trend bias regime' },
       // ── On-chain Intelligence (per-token / per-flow surfaces) ───────
       { href: '/intelligence/smart-money',          label: 'Smart Money',          icon: Sparkles,   keywords: 'wallet accumulation conviction onchain nansen' },
