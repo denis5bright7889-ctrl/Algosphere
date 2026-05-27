@@ -43,6 +43,8 @@ const CORE: Tile[] = [
     blurb: 'Order-book structure — imbalance, walls, voids, sweep risk, execution quality.', pill: 'new' },
   { href: '/intelligence/attention',    label: 'Attention',
     blurb: 'Social attention velocity — which narratives are surging vs cooling on X.', pill: 'new' },
+  { href: '/intelligence/market-pulse',  label: 'Market Pulse',
+    blurb: 'Crypto market breadth — total cap, BTC/ETH dominance, top movers, trending.', pill: 'new' },
 ]
 
 const ASSET_CLASSES: Tile[] = [
