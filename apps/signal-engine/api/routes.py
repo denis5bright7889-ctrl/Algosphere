@@ -44,6 +44,31 @@ async def health():
     }
 
 
+# ─── Data availability (observability — internal ops, no trading impact) ───────
+
+@router.get('/health/symbols')
+async def symbol_health():
+    """Per-symbol data availability: ACTIVE / DEGRADED / STALE / OFFLINE,
+    plus bar count + last candle. Reflects the L1/L2 OHLCV cache state so a
+    quota outage or cold-start fallback is visible. Read-only; no trading
+    impact. Empty until the first scan populates the cache."""
+    try:
+        provider = _worker().provider()
+    except HTTPException:
+        return {'available': False, 'reason': 'worker not initialised', 'symbols': []}
+    fn = getattr(provider, 'symbol_health', None)
+    rows = fn() if fn else []
+    counts: dict[str, int] = {}
+    for r in rows:
+        counts[r['data_status']] = counts.get(r['data_status'], 0) + 1
+    return {
+        'available': True,
+        'counts': counts,
+        'symbols': sorted(rows, key=lambda r: (r['data_status'], r['symbol'])),
+        'time': datetime.now(timezone.utc).isoformat(),
+    }
+
+
 # ─── Engine status ────────────────────────────────────────────────────────────
 
 @router.get('/status')
