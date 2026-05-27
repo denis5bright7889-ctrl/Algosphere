@@ -21,7 +21,24 @@ export interface DecisionObject {
   trade_permission: TradePermission
   direction_bias:   DirectionBias
   time_horizon:     TimeHorizon
+  /** Market Decision Score — weighted Σ(engine_score × adaptive_weight), 0..1 (0.5 = neutral). */
+  mds:              number
   explanation:      string[]         // short institutional reasoning lines
+  /** Anti-copy strict projection — the ONLY shape external consumers get. */
+  strict:           StrictDecision
+}
+
+/**
+ * The strict, anti-copy decision object. No raw indicators, no engine
+ * internals — states + abstract confidence only.
+ */
+export interface StrictDecision {
+  mds:          number               // 0..1
+  confidence:   number               // 0..1
+  market_state: string
+  trade_bias:   'LONG' | 'SHORT' | 'NONE'
+  risk:         'LOW' | 'MEDIUM' | 'HIGH'
+  action:       'ALLOW' | 'REDUCE' | 'AVOID'
 }
 
 /**
