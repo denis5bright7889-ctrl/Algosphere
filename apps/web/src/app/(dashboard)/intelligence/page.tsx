@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/server'
 import CrossAssetNarrative from '@/components/market/CrossAssetNarrative'
 import CorrelationsPanel   from '@/components/market/CorrelationsPanel'
+import DecisionBrainCard   from '@/components/intelligence/DecisionBrainCard'
 import { composeStressView, type StressLabel } from '@/lib/stress-engine'
 
 export const metadata = { title: 'Market Intelligence — AlgoSphere Quant' }
@@ -109,6 +110,10 @@ export default async function IntelligenceLandingPage() {
           One cockpit for cross-asset regime, correlations, on-chain flows, and macro events.
         </p>
       </header>
+
+      {/* Single source of decision truth — consolidates every engine below
+          into one institutional verdict. */}
+      <DecisionBrainCard />
 
       <EnvironmentStrip label={stress.label} score={stress.score} posture={stress.posture}
                         narrative={stress.narrative} />
