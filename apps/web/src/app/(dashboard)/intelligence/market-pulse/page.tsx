@@ -12,6 +12,7 @@
 import { loadIntelContext } from '../_components/guard'
 import { composeMarketOverview, type DominanceView, type MoverRow } from '@/lib/coingecko'
 import { cn } from '@/lib/utils'
+import { OpenChartButton } from '@/components/charts'
 
 export const metadata = { title: 'Market Pulse — AlgoSphere Quant' }
 export const dynamic  = 'force-dynamic'
@@ -138,8 +139,11 @@ function DomCell({ label, value, accent }: { label: string; value: number; accen
 function DominanceBar({ btc, eth, alt }: { btc: number; eth: number; alt: number }) {
   return (
     <div className="mt-4 flex h-2 overflow-hidden rounded-full bg-muted/30">
+      {/* eslint-disable-next-line react/forbid-dom-props */}
       <div className="bg-amber-400/80"  style={{ width: `${btc}%` }} />
+      {/* eslint-disable-next-line react/forbid-dom-props */}
       <div className="bg-sky-400/80"    style={{ width: `${eth}%` }} />
+      {/* eslint-disable-next-line react/forbid-dom-props */}
       <div className="bg-violet-400/70" style={{ width: `${alt}%` }} />
     </div>
   )
@@ -166,6 +170,7 @@ function MoversCard({ title, tone, rows }: { title: string; tone: 'up' | 'down';
               <span className={cn('w-20 shrink-0 text-right font-semibold tabular-nums', color)}>
                 {r.change_24h >= 0 ? '+' : ''}{r.change_24h}%
               </span>
+              <OpenChartButton symbol={r.symbol} assetClass="crypto" variant="icon" />
             </div>
           ))}
         </div>

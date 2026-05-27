@@ -4,6 +4,7 @@ import { Clock, AlertTriangle, ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import RegimeBadge from '@/components/algo/RegimeBadge'
 import { ConfidencePill } from '@/components/algo/ConfidenceGauge'
+import { OpenChartButton } from '@/components/charts'
 import {
   marketState, trendStrength, confidencePct, volatilityLevel,
   momentumConsistency, marketStructure, sessionLabel, stateTone,
@@ -220,6 +221,7 @@ function RegimeCard({ snap, trans }: { snap: RegimeSnapshot; trans?: RegimeTrans
           <span className={cn('inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold', stateTone(state))}>
             {state}
           </span>
+          <OpenChartButton symbol={snap.symbol} variant="icon" />
         </div>
       </div>
 
