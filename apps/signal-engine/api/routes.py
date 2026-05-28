@@ -44,6 +44,31 @@ async def health():
     }
 
 
+# ─── Data availability (observability — internal ops, no trading impact) ───────
+
+@router.get('/health/symbols')
+async def symbol_health():
+    """Per-symbol data availability: ACTIVE / DEGRADED / STALE / OFFLINE,
+    plus bar count + last candle. Reflects the L1/L2 OHLCV cache state so a
+    quota outage or cold-start fallback is visible. Read-only; no trading
+    impact. Empty until the first scan populates the cache."""
+    try:
+        provider = _worker().provider()
+    except HTTPException:
+        return {'available': False, 'reason': 'worker not initialised', 'symbols': []}
+    fn = getattr(provider, 'symbol_health', None)
+    rows = fn() if fn else []
+    counts: dict[str, int] = {}
+    for r in rows:
+        counts[r['data_status']] = counts.get(r['data_status'], 0) + 1
+    return {
+        'available': True,
+        'counts': counts,
+        'symbols': sorted(rows, key=lambda r: (r['data_status'], r['symbol'])),
+        'time': datetime.now(timezone.utc).isoformat(),
+    }
+
+
 # ─── Engine status ────────────────────────────────────────────────────────────
 
 @router.get('/status')
@@ -51,12 +76,19 @@ async def engine_status():
     from config import get_settings
     from websocket.manager import ws_manager
     s = get_settings()
+    # Report the active fallback chain in order — easier to debug than a
+    # single 'provider' string and surfaces the real institutional stack.
+    chain: list[str] = ['coinbase']  # keyless, always available for …USDT
+    if s.twelve_data_api_key:   chain.append('twelvedata')
+    if s.polygon_api_key:       chain.append('polygon')
+    if s.alpha_vantage_api_key: chain.append('alphavantage')
     return {
         'enabled':   s.signal_engine_enabled,
         'symbols':   s.symbol_list,
         'timeframe': s.timeframe,
-        'provider':  'twelvedata' if s.twelve_data_api_key else ('alphavantage' if s.alpha_vantage_api_key else 'none'),
-        'crypto_provider': 'coinbase',  # keyless, always available for …USDT symbols
+        'providers': chain,                 # full chain in priority order
+        'provider':  chain[1] if len(chain) > 1 else chain[0],  # legacy field
+        'crypto_provider': 'coinbase',
         'websocket': ws_manager.stats(),
         'time':      datetime.now(timezone.utc).isoformat(),
     }

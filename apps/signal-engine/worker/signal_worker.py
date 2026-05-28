@@ -236,8 +236,13 @@ class SignalWorker:
             logger.debug(f"[{symbol}] Already {active_count} active signal(s) — skip")
             return
 
-        # 7. Ensemble signal generation
-        proposal = ensemble_signal(symbol, features, regime)
+        # 7. Ensemble signal generation. Pass the data-completeness factor so
+        #    a symbol served from stale/degraded cache contributes a dampened
+        #    (never blocked) signal — prevents over-reliance on whichever asset
+        #    class currently has live data.
+        completeness_fn = getattr(self.provider(), 'completeness_for', None)
+        data_completeness = completeness_fn(symbol, self.settings.timeframe) if completeness_fn else 1.0
+        proposal = ensemble_signal(symbol, features, regime, data_completeness=data_completeness)
         if proposal is None:
             logger.debug(f"[{symbol}] No ensemble consensus — skip")
             return
@@ -289,6 +294,18 @@ class SignalWorker:
             f"[{symbol}] Risk approved: lot={risk_decision.lot_size:.4f} "
             f"risk=${risk_decision.risk_amount:.2f}"
         )
+
+        # 9c. Dry-run gate — verify generation without publishing/executing.
+        # Everything above (ensemble → confidence → gate → risk) has passed;
+        # we log the would-be signal and STOP before any DB write / fan-out.
+        if self.settings.signal_dry_run:
+            logger.warning(
+                f"[{symbol}] DRY_RUN would publish: {proposal.direction.upper()} "
+                f"entry={proposal.entry} SL={proposal.stop_loss} RR={proposal.risk_reward} "
+                f"conf={confidence.score}/100({confidence.tier}) regime={regime.regime.value} "
+                f"lot={risk_decision.lot_size:.4f} — NOT publishing (dry-run)"
+            )
+            return
 
         # 10. Publish to Supabase
         signal_id = await self._publish_signal(symbol, proposal, confidence, regime, features)
