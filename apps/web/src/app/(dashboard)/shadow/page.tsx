@@ -2,6 +2,9 @@ import { redirect } from 'next/navigation'
 import { FlaskConical } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
+import { tierIncludes } from '@/lib/entitlements'
+import { getEffectiveTier } from '@/lib/tier-resolver'
+import TierLock from '@/components/tier/TierLock'
 
 export const metadata = { title: 'Shadow Execution Mode — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'
@@ -28,6 +31,18 @@ export default async function ShadowPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+
+  // Tier gate FIRST — shadow telemetry is a Premium surface. Skip the
+  // shadow_executions query entirely for locked viewers so we don't
+  // hit Supabase just to draw the blurred upgrade card.
+  const { tier } = await getEffectiveTier()
+  if (!tierIncludes(tier, 'premium')) {
+    return (
+      <TierLock minTier="premium" tier={tier} from="/shadow">
+        <ShadowSkeleton />
+      </TierLock>
+    )
+  }
 
   const { data: rows } = await supabase
     .from('shadow_executions')
@@ -301,6 +316,36 @@ function Stat({ label, value, tone = 'plain' }: {
         tone === 'amber' && 'text-amber-300',
         tone === 'red'   && 'text-rose-400',
       )}>{value}</p>
+    </div>
+  )
+}
+
+/**
+ * Lightweight preview rendered behind the lock for free/starter viewers
+ * — same shape as the real surface so the upgrade prompt feels honest,
+ * but no Supabase data and no real numbers. The blur+lock overlay sits
+ * on top, so this is purely chrome for context.
+ */
+function ShadowSkeleton() {
+  return (
+    <div className="mx-auto max-w-5xl px-4 py-6">
+      <header className="mb-4">
+        <h1 className="text-2xl font-bold tracking-tight">
+          Shadow <span className="text-gradient">Execution Mode</span>
+        </h1>
+        <p className="text-xs text-muted-foreground mt-1">
+          Validate broker quality on simulated fills before going live.
+        </p>
+      </header>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <Stat label="Trading Track Record" value="Established" tone="plain" />
+        <Stat label="Execution Quality"    value="Excellent"   tone="green" />
+        <Stat label="Strategy Stability"   value="Stable"      tone="green" />
+        <Stat label="Status"               value="Validated"   tone="green" />
+      </div>
+      <div className="rounded-2xl border border-border/60 bg-muted/10 p-12 text-center text-sm text-muted-foreground">
+        Recent executions appear here once you subscribe to a strategy in full-auto mode.
+      </div>
     </div>
   )
 }

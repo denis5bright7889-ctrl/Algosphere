@@ -7,7 +7,6 @@ import LeadCaptureForm from '@/components/marketing/LeadCaptureForm'
 import PricingCard from '@/components/marketing/PricingCard'
 import FeatureMatrix from '@/components/marketing/FeatureMatrix'
 import Card from '@/components/ui/Card'
-import HeroPreview from './_components/HeroPreview'
 import RegimeStrip from './_components/RegimeStrip'
 import MarketTickerStrip from '@/components/market/MarketTickerStrip'
 import MarketingNav from './_components/MarketingNav'
@@ -17,17 +16,17 @@ import MobileCtaBar from './_components/MobileCtaBar'
 import RefCookieCapture from '@/components/marketing/RefCookieCapture'
 
 export const metadata = {
-  title: 'AlgoSphere Quant — Professional Trading Signals & Analytics',
+  title: 'AlgoSphere Quant — Institutional Market Intelligence & Execution Infrastructure',
   description:
-    'Get daily trading signals, risk management tools, and a trade journal — all in one platform. Start free, upgrade when ready.',
+    'A quantitative trading operating system: market regime, smart-money flow, liquidity and conviction intelligence, AI-assisted execution and a 12-gate risk engine. Built for serious traders, quants and desks.',
 }
 
 const FEATURES: { icon: LucideIcon; title: string; description: string }[] = [
   {
     icon: Radar,
-    title: 'AI Signal Engine',
+    title: 'Market Intelligence Engine',
     description:
-      'Multi-timeframe regime-aware buy/sell signals for Forex, Gold and Crypto with entry, SL and layered TPs.',
+      'Regime, momentum, liquidity, smart-money flow and conviction — institutional market states across FX, metals, equities and crypto. No raw indicators; just intelligence.',
   },
   {
     icon: ShieldCheck,
@@ -128,8 +127,9 @@ export default function HomePage() {
               meet alpha
             </h1>
             <p className="mt-5 max-w-xl text-base text-muted-foreground sm:text-lg mx-auto lg:mx-0">
-              A real-time AI signal engine, a 12-gate risk system, and multi-broker
-              auto-execution — fused into one institutional trading terminal.
+              Market regime, smart-money flow, liquidity and conviction intelligence,
+              AI-assisted execution and a 12-gate risk engine — one quantitative
+              operating system, not a signals feed.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row lg:justify-start">
               <a href="/signup" className="btn-premium w-full sm:w-auto !px-8 !py-3 !text-base">
@@ -144,10 +144,35 @@ export default function HomePage() {
             </p>
           </div>
 
-          {/* RIGHT — product preview */}
-          <div className="relative">
-            <HeroPreview />
-          </div>
+          {/* RIGHT — honest live-engine card (replaces the prior simulated-tape preview;
+              no fake candles, no fabricated AI badge — visitors are routed to /live,
+              which is the actual engine running). */}
+          <aside className="rounded-2xl border border-border bg-card/40 p-6 md:p-8">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2 w-2" aria-hidden>
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/60" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+              </span>
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-emerald-300">
+                Engine live
+              </span>
+            </div>
+            <h3 className="mt-4 text-2xl font-semibold tracking-tight md:text-3xl">
+              30 institutional instruments<br />scanning right now.
+            </h3>
+            <p className="mt-3 text-sm text-muted-foreground">
+              Forex · gold · silver · platinum · palladium · WTI · Brent · 14 crypto.
+              Regime, weighted ensemble, risk-gated signal generation — published
+              only when conviction clears institutional thresholds.
+            </p>
+            <a href="/live"
+               className="mt-6 inline-flex items-center gap-2 rounded-lg border border-amber-500/40 px-4 py-2 text-sm font-bold text-amber-300 hover:bg-amber-500/10">
+              See the engine working →
+            </a>
+            <p className="mt-3 text-[11px] text-muted-foreground">
+              No simulated tape. No fake AI signals. Honest by construction.
+            </p>
+          </aside>
         </div>
       </section>
 

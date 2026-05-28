@@ -1,12 +1,16 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Radio, CircleSlash, BrainCircuit, Sparkles, Waves } from 'lucide-react'
+import { Radio, CircleSlash, BrainCircuit, Sparkles, Waves, Library } from 'lucide-react'
+import CatalogBrowser from './CatalogBrowser'
 import { cn } from '@/lib/utils'
 import { useCryptoTickerForPair } from './useCryptoTickers'
 import { useInstrumentQuotes } from './useInstrumentQuotes'
 import RegimeBadge from '@/components/algo/RegimeBadge'
 import type { UniverseQuote } from '@/lib/quotes'
+import { OpenChartButton } from '@/components/charts'
+import { isChartable } from '@/lib/tradingview'
+import type { AssetClass } from '@/lib/market-universe'
 
 type RegimeMap = Record<string, { regime: string; score: number | null }>
 
@@ -61,7 +65,20 @@ export default function MarketHub({
   regimeBySymbol?: RegimeMap
 }) {
   const [active, setActive] = useState(universe[0]?.assetClass ?? '')
+  const [browseOpen, setBrowseOpen] = useState(false)
   const cat = universe.find((c) => c.assetClass === active) ?? universe[0]
+
+  // Map MarketHub asset class → Twelve Data catalog endpoint. Returns
+  // null for classes Twelve Data doesn't expose (e.g. futures), in
+  // which case the "Browse" button is hidden — better than a 404.
+  const catalogCls: 'forex' | 'commodities' | 'stocks' | 'indices' | 'etf' | 'crypto' | null =
+    active === 'forex'       ? 'forex'
+    : active === 'gold'        ? 'commodities'  // Twelve Data lists XAU under commodities
+    : active === 'commodities' ? 'commodities'
+    : active === 'indices'     ? 'indices'
+    : active === 'stocks'      ? 'stocks'
+    : active === 'crypto'      ? 'crypto'
+    : null
 
   // REST-served symbols for the *active* tab only — keeps polling tight.
   const restSymbols = useMemo(
@@ -94,6 +111,7 @@ export default function MarketHub({
   const isCrypto = cat.assetClass === 'crypto'
 
   return (
+    <>
     <section className="surface overflow-hidden">
       {/* Tab rail — horizontally scrollable, thumb-friendly on mobile */}
       <div className="flex gap-1 overflow-x-auto border-b border-border/60 p-2">
@@ -128,20 +146,33 @@ export default function MarketHub({
             <h2 className="text-base font-bold tracking-tight">{cat.label}</h2>
             <p className="mt-0.5 text-xs text-muted-foreground">{cat.blurb}</p>
           </div>
-          <span
-            className={cn(
-              'shrink-0 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
-              isLive
-                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
-                : 'border-border bg-muted/30 text-muted-foreground',
+          <div className="flex shrink-0 items-center gap-2">
+            {catalogCls && (
+              <button
+                type="button"
+                onClick={() => setBrowseOpen(true)}
+                aria-label={`Browse the full ${cat.label} catalog`}
+                className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-300 transition-colors hover:bg-amber-500/20"
+              >
+                <Library className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden />
+                Browse all
+              </button>
             )}
-          >
-            {isLive ? (
-              <><Radio className="h-2.5 w-2.5 animate-pulse-soft" strokeWidth={2.5} aria-hidden /> Live · {liveCount}/{cat.instruments.length}</>
-            ) : (
-              <><CircleSlash className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden /> Feed not connected</>
-            )}
-          </span>
+            <span
+              className={cn(
+                'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
+                isLive
+                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                  : 'border-border bg-muted/30 text-muted-foreground',
+              )}
+            >
+              {isLive ? (
+                <><Radio className="h-2.5 w-2.5 animate-pulse-soft" strokeWidth={2.5} aria-hidden /> Live · {liveCount}/{cat.instruments.length}</>
+              ) : (
+                <><CircleSlash className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden /> Feed not connected</>
+              )}
+            </span>
+          </div>
         </div>
 
         {/* Intelligence band — computed from real regime snapshots */}
@@ -198,12 +229,26 @@ export default function MarketHub({
                 <p className="truncate text-sm font-semibold">{i.label}</p>
                 <p className="font-mono text-[10px] text-muted-foreground/70">{i.symbol}</p>
               </div>
-              <PriceChip instrument={i} quote={quotes.get(i.symbol)} providers={providers} />
+              <div className="flex items-center gap-2">
+                <PriceChip instrument={i} quote={quotes.get(i.symbol)} providers={providers} />
+                {isChartable(i.symbol, cat.assetClass as AssetClass) && (
+                  <OpenChartButton symbol={i.symbol} assetClass={cat.assetClass as AssetClass} variant="icon" />
+                )}
+              </div>
             </div>
           ))}
         </div>
       </div>
     </section>
+
+    {browseOpen && catalogCls && (
+      <CatalogBrowser
+        cls={catalogCls}
+        title={cat.label}
+        onClose={() => setBrowseOpen(false)}
+      />
+    )}
+    </>
   )
 }
 

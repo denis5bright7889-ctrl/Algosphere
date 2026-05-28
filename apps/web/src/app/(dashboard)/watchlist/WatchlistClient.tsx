@@ -21,9 +21,21 @@ interface UniCategory {
   instruments: UniInstrument[]
 }
 interface WatchItem {
-  symbol:      string
-  asset_class: string
-  added_at:    string
+  symbol:           string
+  asset_class:      string
+  added_at:         string
+  /** Catalog-pinned rows carry their provider metadata; universe-pinned
+   *  rows leave these null and resolve via MARKET_UNIVERSE on render.
+   *  Typed permissively because supabase returns provider as
+   *  string | null; we narrow at render-time with a guard. */
+  provider?:        string | null
+  provider_symbol?: string | null
+  label?:           string | null
+}
+
+const KNOWN_PROVIDERS = new Set(['crypto-stream', 'twelvedata', 'finnhub'])
+function narrowProvider(p: string | null | undefined): ProviderName {
+  return p && KNOWN_PROVIDERS.has(p) ? (p as ProviderName) : null
 }
 
 interface Props {
@@ -177,8 +189,16 @@ export default function WatchlistClient({ initial, universe }: Props) {
       ) : (
         <ul className="space-y-2">
           {items.map((it) => {
+            // Catalog-pinned rows carry their own metadata; universe-pinned
+            // rows still resolve via MARKET_UNIVERSE. Either path is honest.
             const meta = lookup.get(it.symbol)
-            const provider: ProviderName = meta?.provider ?? null
+            const fromCatalog = !!it.provider
+            const provider: ProviderName = narrowProvider(it.provider) ?? meta?.provider ?? null
+            const displayLabel = it.label ?? meta?.label
+            // Live quotes for catalog-pinned symbols are not yet wired
+            // through the universe orchestrator — they render label/symbol
+            // and an honest "Catalog · quote follow-up" chip rather than
+            // a fabricated price.
             // Effective live = provider declared AND configured server-side.
             // For crypto-stream we treat configured as always true (no key
             // required — public WS); for TD/Finnhub we read the meta from
@@ -201,12 +221,19 @@ export default function WatchlistClient({ initial, universe }: Props) {
                       {it.asset_class}
                     </span>
                     <span className="font-mono text-xs font-semibold">{it.symbol}</span>
-                    {meta?.label && meta.label !== it.symbol && (
-                      <span className="truncate text-xs text-muted-foreground">{meta.label}</span>
+                    {displayLabel && displayLabel !== it.symbol && (
+                      <span className="truncate text-xs text-muted-foreground">{displayLabel}</span>
                     )}
                   </div>
                   <div className="flex items-center gap-3">
-                    {provider === 'crypto-stream' ? (
+                    {fromCatalog ? (
+                      <span
+                        title="Catalog-pinned. Live quote via Twelve Data is a follow-up — no fabricated price shown."
+                        className="text-[10px] text-muted-foreground"
+                      >
+                        Catalog · quote follow-up
+                      </span>
+                    ) : provider === 'crypto-stream' ? (
                       <CryptoPrice symbol={it.symbol} />
                     ) : configured ? (
                       <RestPrice quote={quotes.get(it.symbol)} />

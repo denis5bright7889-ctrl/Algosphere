@@ -1,9 +1,21 @@
+/**
+ * /overview — the Command Center, now chart-first (workstation layout).
+ *
+ * Previously a feed of stacked cards. A trading terminal leads with the
+ * chart; the server resolves real KPIs + watchlist + active signals and
+ * hands them to <TerminalWorkspace> (the MT5/TV-class client surface).
+ *
+ * Honesty contract: every number here is computed from real rows or
+ * shown as '—'. Demo accounts keep their synthetic fallback (gated by
+ * isDemo), nothing fabricated for real users.
+ */
 import { createClient } from '@/lib/supabase/server'
-import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import { isDemo } from '@/lib/demo'
 import { generateDemoJournal } from '@/lib/demo-data'
-import IntelligenceOverview from '@/components/dashboard/overview/IntelligenceOverview'
-import GuidedSetup from '@/components/dashboard/overview/GuidedSetup'
+import type { AssetClass } from '@/lib/market-universe'
+import TerminalWorkspace, {
+  type WatchItem, type SignalItem, type TerminalKpis,
+} from './TerminalWorkspace'
 
 export const metadata = { title: 'Command Center' }
 export const dynamic = 'force-dynamic'
@@ -13,7 +25,7 @@ type Sb = Awaited<ReturnType<typeof createClient>>
 async function latestRegimes(sb: Sb) {
   const { data } = await sb
     .from('regime_snapshots')
-    .select('symbol, regime, der_score, scanned_at')
+    .select('symbol, regime, scanned_at')
     .order('scanned_at', { ascending: false })
     .limit(24)
   if (!data) return []
@@ -21,18 +33,40 @@ async function latestRegimes(sb: Sb) {
   return data.filter((r) => (seen.has(r.symbol) ? false : (seen.add(r.symbol), true)))
 }
 
-function sentiment(regimes: { regime: string }[]) {
+function sentiment(regimes: { regime: string }[]): TerminalKpis['bias'] {
   let up = 0, down = 0
   for (const r of regimes) {
     const g = (r.regime ?? '').toLowerCase()
     if (g.includes('up') || g.includes('bull')) up++
     else if (g.includes('down') || g.includes('bear')) down++
   }
-  if (up === 0 && down === 0) return { label: 'Neutral', tone: 'neutral' as const, Icon: Minus }
-  if (up > down)  return { label: 'Risk-On',  tone: 'emerald' as const, Icon: TrendingUp }
-  if (down > up)  return { label: 'Risk-Off', tone: 'rose' as const,    Icon: TrendingDown }
-  return { label: 'Mixed', tone: 'gold' as const, Icon: Minus }
+  if (up === 0 && down === 0) return { label: 'Neutral', tone: 'neutral' }
+  if (up > down) return { label: 'Risk-On',  tone: 'emerald' }
+  if (down > up) return { label: 'Risk-Off', tone: 'rose' }
+  return { label: 'Mixed', tone: 'gold' }
 }
+
+// watchlist_items.asset_class can be 'etf' (not a TradingView AssetClass);
+// coerce to the closest chartable class so the rail never carries a value
+// the chart layer can't map.
+function coerceClass(raw: string | null): AssetClass {
+  const c = (raw ?? '').toLowerCase()
+  if (c === 'etf') return 'stocks'
+  const valid: AssetClass[] = ['forex', 'gold', 'indices', 'stocks', 'commodities', 'futures', 'crypto', 'bonds', 'volatility']
+  return (valid as string[]).includes(c) ? (c as AssetClass) : 'crypto'
+}
+
+// Curated default watchlist for users who haven't pinned their own —
+// the liquid majors a desk watches: BTC/ETH, gold, the EUR major, SOL, NAS.
+const FALLBACK_SYMBOL: WatchItem = { symbol: 'BTCUSDT', assetClass: 'crypto' }
+const DEFAULT_WATCHLIST: WatchItem[] = [
+  { symbol: 'BTCUSDT', assetClass: 'crypto' },
+  { symbol: 'ETHUSDT', assetClass: 'crypto' },
+  { symbol: 'SOLUSDT', assetClass: 'crypto' },
+  { symbol: 'XAUUSD',  assetClass: 'gold'   },
+  { symbol: 'EURUSD',  assetClass: 'forex'  },
+  { symbol: 'NAS100',  assetClass: 'indices'},
+]
 
 export default async function OverviewPage() {
   const supabase = await createClient()
@@ -40,119 +74,60 @@ export default async function OverviewPage() {
 
   const [
     { data: profile }, { data: signals }, { data: journal }, regimes,
-    { data: brokers }, { data: shadow }, { data: notifs },
-    { count: pushCount }, { count: stratSubCount },
+    { data: watch },
   ] = await Promise.all([
-    supabase.from('profiles')
-      .select('full_name, subscription_tier, account_type')
-      .eq('id', user!.id).single(),
+    supabase.from('profiles').select('account_type').eq('id', user!.id).single(),
     supabase.from('signals')
-      .select('id, status, result, pair, direction, published_at')
-      .order('published_at', { ascending: false }).limit(6),
-    supabase.from('journal_entries')
-      .select('pnl, pips, pair, created_at')
-      .eq('user_id', user!.id).order('created_at', { ascending: false }),
+      .select('id, status, pair, direction, published_at')
+      .eq('status', 'active')
+      .order('published_at', { ascending: false }).limit(12),
+    supabase.from('journal_entries').select('pnl').eq('user_id', user!.id),
     latestRegimes(supabase),
-    supabase.from('broker_connections')
-      .select('broker, status, equity_usd, is_testnet')
-      .eq('user_id', user!.id),
-    supabase.from('shadow_executions')
-      .select('symbol, direction, actual_status, slippage_pct, created_at')
-      .eq('user_id', user!.id).order('created_at', { ascending: false }).limit(6),
-    supabase.from('social_notifications')
-      .select('notif_type, message, created_at')
-      .eq('recipient_id', user!.id).order('created_at', { ascending: false }).limit(6),
-    // Onboarding signals — only counts, no rows. Cheap.
-    supabase.from('push_subscriptions')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', user!.id),
-    supabase.from('strategy_subscriptions')
-      .select('id', { count: 'exact', head: true })
-      .eq('subscriber_id', user!.id),
+    supabase.from('watchlist_items')
+      .select('symbol, asset_class, added_at')
+      .eq('user_id', user!.id)
+      .order('added_at', { ascending: false }).limit(20),
   ])
 
-  // Demo accounts keep their established synthetic fallback (gated by isDemo).
-  let jrnl = journal as { pnl: number | null; pips: number | null; pair: string | null; created_at: string }[] | null
-  let sigs = signals
+  // Demo fallback (synthetic, gated) keeps the surface populated for tours.
+  let jrnl = journal as { pnl: number | null }[] | null
+  let sigs = (signals ?? []) as { id: string; status: string; pair: string; direction: string }[]
   if (isDemo(profile?.account_type)) {
-    if (!jrnl?.length) jrnl = generateDemoJournal(user!.id, 20).map((e) => ({
-      pnl: e.pnl ?? null, pips: e.pips ?? null, pair: e.pair ?? null, created_at: new Date().toISOString(),
-    }))
-    if (!sigs?.length) sigs = [
-      { id: 'demo-1', status: 'active', result: null, pair: 'XAUUSD', direction: 'buy',  published_at: new Date().toISOString() },
-      { id: 'demo-2', status: 'closed', result: 'win',  pair: 'EURUSD', direction: 'sell', published_at: new Date().toISOString() },
-      { id: 'demo-3', status: 'closed', result: 'loss', pair: 'BTCUSDT', direction: 'buy', published_at: new Date().toISOString() },
+    if (!jrnl?.length) jrnl = generateDemoJournal(user!.id, 20).map((e) => ({ pnl: e.pnl ?? null }))
+    if (!sigs.length) sigs = [
+      { id: 'demo-1', status: 'active', pair: 'XAUUSD',  direction: 'buy'  },
+      { id: 'demo-2', status: 'active', pair: 'BTCUSDT', direction: 'buy'  },
+      { id: 'demo-3', status: 'active', pair: 'EURUSD',  direction: 'sell' },
     ]
   }
 
-  const totalPnl  = jrnl?.reduce((s, e) => s + (e.pnl ?? 0), 0) ?? 0
-  const trades    = jrnl?.length ?? 0
-  const wins      = jrnl?.filter((e) => (e.pnl ?? 0) > 0).length ?? 0
-  const winRate   = trades ? Math.round((wins / trades) * 100) : 0
-  const active    = sigs?.filter((s) => s.status === 'active').length ?? 0
-  const brokerOk  = brokers?.filter((b) => b.status === 'connected').length ?? 0
-  const brokerCnt = brokers?.length ?? 0
-  const senti     = sentiment(regimes)
+  const netPnl  = jrnl?.reduce((s, e) => s + (e.pnl ?? 0), 0) ?? 0
+  const trades  = jrnl?.length ?? 0
+  const wins    = jrnl?.filter((e) => (e.pnl ?? 0) > 0).length ?? 0
+  const winRate = trades ? Math.round((wins / trades) * 100) : 0
 
-  // Derived risk warnings — honest rules over real data, never invented.
-  const warnings: string[] = []
-  if (brokers?.some((b) => b.status === 'error'))
-    warnings.push('A broker connection is in an error state — check Broker Connections.')
-  if (trades >= 5 && totalPnl < 0)
-    warnings.push(`Net P&L is negative ($${totalPnl.toFixed(2)}) across ${trades} trades.`)
-  if (trades >= 10 && winRate < 40)
-    warnings.push(`Win rate ${winRate}% is below the 40% caution threshold.`)
-  if (brokerCnt > 0 && brokers?.every((b) => b.is_testnet))
-    warnings.push('All broker connections are testnet — no live execution yet.')
-
-  // Derived insights — computed, not fabricated.
-  const insights: string[] = []
-  if (regimes.length)
-    insights.push(`${senti.label} bias across ${regimes.length} instruments in the latest regime pass.`)
-  if (active > 0) insights.push(`${active} active signal${active > 1 ? 's' : ''} currently open.`)
-  if (shadow?.length) {
-    const avgSlip = shadow.reduce((s, x) => s + Math.abs(x.slippage_pct ?? 0), 0) / shadow.length
-    insights.push(`Recent shadow fills average ${(avgSlip * 100).toFixed(3)}% slippage.`)
+  const kpis: TerminalKpis = {
+    netPnl, winRate, trades,
+    active: sigs.filter((s) => s.status === 'active').length,
+    bias: sentiment(regimes),
   }
-  if (!insights.length) insights.push('Connect a broker and follow a strategy to populate live intelligence.')
 
-  const firstName = profile?.full_name ? `, ${profile.full_name.split(' ')[0]}` : ''
+  const watchlist: WatchItem[] = (watch && watch.length)
+    ? watch.map((w) => ({ symbol: w.symbol, assetClass: coerceClass(w.asset_class) }))
+    : DEFAULT_WATCHLIST
 
-  // Onboarding signals — derived from real fetches above. GuidedSetup
-  // self-hides the moment every box is genuinely true. Uses the *raw*
-  // journal data, not the demo-gated `jrnl` override — a demo user
-  // shouldn't tick "Log your first trade" from synthetic data.
-  const brokerConnected = brokers?.some((b) => b.status === 'connected') ?? false
-  const hasJournalEntry = (journal?.length ?? 0) > 0
-  const pushEnabled     = (pushCount ?? 0) > 0
-  const hasStrategySub  = (stratSubCount ?? 0) > 0
+  const signalItems: SignalItem[] = sigs.map((s) => ({
+    id: s.id, pair: s.pair, direction: s.direction, status: s.status,
+  }))
+
+  const defaultSymbol = watchlist[0] ?? FALLBACK_SYMBOL
 
   return (
-    <div className="space-y-5">
-      <GuidedSetup
-        brokerConnected={brokerConnected}
-        hasJournalEntry={hasJournalEntry}
-        pushEnabled={pushEnabled}
-        hasStrategySub={hasStrategySub}
-      />
-      <IntelligenceOverview
-        firstName={firstName}
-        totalPnl={totalPnl}
-        winRate={winRate}
-        trades={trades}
-        active={active}
-        brokerOk={brokerOk}
-        brokerCnt={brokerCnt}
-        senti={senti}
-        regimes={regimes}
-        sigs={sigs}
-        jrnl={jrnl}
-        shadow={shadow}
-        notifs={notifs}
-        brokers={brokers}
-        warnings={warnings}
-        insights={insights}
-      />
-    </div>
+    <TerminalWorkspace
+      kpis={kpis}
+      watchlist={watchlist}
+      signals={signalItems}
+      defaultSymbol={defaultSymbol}
+    />
   )
 }

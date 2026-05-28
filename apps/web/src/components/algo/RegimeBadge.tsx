@@ -1,10 +1,11 @@
 import {
-  TrendingUp, ArrowLeftRight, Zap, HelpCircle,
+  TrendingUp, ArrowLeftRight, Zap, HelpCircle, Rocket, GitBranch,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-type Regime = 'trending' | 'mean_reversion' | 'high_volatility' | 'exhaustion' | 'unknown'
+type Regime = 'trending' | 'mean_reversion' | 'high_volatility'
+            | 'expansion' | 'transitional' | 'exhaustion' | 'unknown'
 
 interface Props {
   regime: string
@@ -19,6 +20,8 @@ const REGIME_META: Record<Regime, { label: string; color: string; bg: string; ic
   trending:        { label: 'Trending',          color: 'text-emerald-400',      bg: 'bg-emerald-500/15 border-emerald-500/30', icon: TrendingUp     },
   mean_reversion:  { label: 'Ranging',           color: 'text-sky-400',          bg: 'bg-sky-500/15 border-sky-500/30',         icon: ArrowLeftRight },
   high_volatility: { label: 'Volatile',          color: 'text-amber-400',        bg: 'bg-amber-500/15 border-amber-500/30',     icon: Zap            },
+  expansion:       { label: 'Expansion',         color: 'text-orange-400',       bg: 'bg-orange-500/15 border-orange-500/30',   icon: Rocket         },
+  transitional:    { label: 'Transitional',      color: 'text-violet-400',       bg: 'bg-violet-500/15 border-violet-500/30',   icon: GitBranch      },
   exhaustion:      { label: 'Mixed Conditions',  color: 'text-muted-foreground', bg: 'bg-muted/20 border-border',               icon: ArrowLeftRight },
   unknown:         { label: 'Awaiting Confirmation', color: 'text-muted-foreground', bg: 'bg-muted/20 border-border',           icon: HelpCircle     },
 }

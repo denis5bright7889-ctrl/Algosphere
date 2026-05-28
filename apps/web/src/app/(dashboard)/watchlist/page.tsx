@@ -10,6 +10,11 @@ interface WatchlistItem {
   symbol:      string
   asset_class: string
   added_at:    string
+  /** Catalog-pinned rows carry their own metadata; universe-pinned
+   *  rows leave these null and resolve via MARKET_UNIVERSE on the client. */
+  provider?:        string | null
+  provider_symbol?: string | null
+  label?:           string | null
 }
 
 export default async function WatchlistPage() {
@@ -19,13 +24,14 @@ export default async function WatchlistPage() {
 
   const { data, error } = await supabase
     .from('watchlist_items')
-    .select('symbol, asset_class, added_at')
+    .select('symbol, asset_class, added_at, provider, provider_symbol, label')
     .eq('user_id', user.id)
     .order('added_at', { ascending: false })
 
-  // Postgres 42P01 = table missing → migration hasn't been pushed.
-  // Surface honestly instead of a 500 / mysterious empty page.
-  const migrationPending = !!error && (error as { code?: string }).code === '42P01'
+  // Postgres 42P01 = table missing, 42703 = column missing — both
+  // mean a migration hasn't been pushed. Surface honestly.
+  const code = (error as { code?: string } | null)?.code
+  const migrationPending = code === '42P01' || code === '42703'
   const items = (data ?? []) as WatchlistItem[]
 
   return (

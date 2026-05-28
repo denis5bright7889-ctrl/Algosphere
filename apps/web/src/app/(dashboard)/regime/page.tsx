@@ -1,13 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { Clock, AlertTriangle } from 'lucide-react'
+import { Clock, AlertTriangle, ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import RegimeBadge from '@/components/algo/RegimeBadge'
 import { ConfidencePill } from '@/components/algo/ConfidenceGauge'
+import { OpenChartButton } from '@/components/charts'
 import {
   marketState, trendStrength, confidencePct, volatilityLevel,
   momentumConsistency, marketStructure, sessionLabel, stateTone,
 } from '@/lib/market-language'
+import { composeRegimeTransition, type RegimeTransitionView } from '@/lib/regime-transition'
 
 export const metadata = { title: 'Market Regime' }
 export const dynamic = 'force-dynamic'
@@ -86,6 +88,13 @@ export default async function RegimePage() {
   if (!user) redirect('/login')
 
   const snapshots = await getLatestRegimes()
+  // Compose the transition view per symbol in parallel — answers
+  // "what the market IS BECOMING" in addition to what it currently is.
+  const transitions = new Map<string, RegimeTransitionView>()
+  if (snapshots.length > 0) {
+    const views = await Promise.all(snapshots.map((s) => composeRegimeTransition(s.symbol)))
+    for (const v of views) transitions.set(v.symbol, v)
+  }
   const newestAgeMs = snapshots.length
     ? Math.min(...snapshots.map((s) => ageMs(s.scanned_at)))
     : Infinity
@@ -125,7 +134,7 @@ export default async function RegimePage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {snapshots.map((snap) => (
-            <RegimeCard key={snap.symbol} snap={snap} />
+            <RegimeCard key={snap.symbol} snap={snap} trans={transitions.get(snap.symbol)} />
           ))}
         </div>
       )}
@@ -137,6 +146,8 @@ export default async function RegimePage() {
             { regime: 'trending',        desc: 'Strong directional momentum — trend setups favoured.' },
             { regime: 'mean_reversion',  desc: 'Price holding a range — counter-trend / range setups.' },
             { regime: 'high_volatility', desc: 'Volatility elevated — wider stops, smaller size.' },
+            { regime: 'expansion',       desc: 'Vol building, breakout setup forming — energy growing.' },
+            { regime: 'transitional',    desc: 'Regime shift in progress — low conviction window.' },
             { regime: 'exhaustion',      desc: 'Structure unclear — low conviction, awaiting confirmation.' },
           ].map(({ regime, desc }) => (
             <div key={regime} className="flex items-start gap-2">
@@ -150,6 +161,23 @@ export default async function RegimePage() {
   )
 }
 
+function stabilityTone(s: RegimeTransitionView['stability']): string {
+  switch (s) {
+    case 'Stable':   return 'text-emerald-400'
+    case 'Drifting': return 'text-amber-400'
+    case 'Unstable': return 'text-rose-400'
+    default:         return 'text-muted-foreground'
+  }
+}
+function transitionTone(t: RegimeTransitionView['transition']): string {
+  switch (t) {
+    case 'Likely':   return 'text-rose-400'
+    case 'Possible': return 'text-amber-400'
+    case 'Unlikely': return 'text-emerald-400/70'
+    default:         return 'text-muted-foreground'
+  }
+}
+
 function IntelRow({ label, value, tone = '' }: { label: string; value: string; tone?: string }) {
   return (
     <div className="flex items-center justify-between">
@@ -159,7 +187,7 @@ function IntelRow({ label, value, tone = '' }: { label: string; value: string; t
   )
 }
 
-function RegimeCard({ snap }: { snap: RegimeSnapshot }) {
+function RegimeCard({ snap, trans }: { snap: RegimeSnapshot; trans?: RegimeTransitionView }) {
   // Readable intelligence — engines run unchanged, this only translates output.
   const state   = marketState(snap.regime)
   const conf    = confidencePct(snap.der_score)
@@ -193,8 +221,33 @@ function RegimeCard({ snap }: { snap: RegimeSnapshot }) {
           <span className={cn('inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold', stateTone(state))}>
             {state}
           </span>
+          <OpenChartButton symbol={snap.symbol} variant="icon" />
         </div>
       </div>
+
+      {/* Transition strip — what the market IS BECOMING. Renders only when
+          the trajectory layer derived a meaningful read; quietly hidden
+          when stability='N/A' so the card doesn't show empty rows. */}
+      {trans && trans.stability !== 'N/A' && (
+        <div className="flex items-center justify-between rounded-md border border-border/60 bg-muted/10 px-2.5 py-1.5">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Stability</span>
+            <span className={cn('text-xs font-semibold', stabilityTone(trans.stability))}>{trans.stability}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {trans.transitioning_to ? (
+              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <ArrowRight className="h-3 w-3" strokeWidth={2} aria-hidden />
+                <span className={cn('font-semibold', stateTone(trans.transitioning_to).split(' ')[0])}>{trans.transitioning_to}</span>
+              </span>
+            ) : (
+              <span className={cn('text-[11px] font-semibold', transitionTone(trans.transition))}>
+                {trans.transition === 'N/A' ? '' : `${trans.transition} transition`}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Readable market intelligence (default view) */}
       <div className="space-y-1.5">
