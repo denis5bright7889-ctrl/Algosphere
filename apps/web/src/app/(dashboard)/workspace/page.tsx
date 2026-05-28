@@ -1,20 +1,24 @@
 /**
- * /workspace — institutional chart workspace (Phase 5).
+ * /workspace — institutional chart workspace.
  *
- * Server shell: auth gate + Premium tier gate. All state + UI is in the
- * client orchestrator (workspaces persist to localStorage). The existing
- * chart modal at any "Open Chart" button is untouched and remains the
- * quick-look path.
+ * Two surfaces under one route:
+ *   • DESKTOP (md+): the premium multi-chart WorkspaceClient, gated by
+ *     <TierLock minTier="premium">. Tier-locked because multi-chart is
+ *     the institutional power feature.
+ *   • MOBILE  (< md): the cockpit (TerminalWorkspace) — same chart-first
+ *     experience as /overview, no extra gate. Multi-chart isn't usable
+ *     on a phone; the cockpit is the right mobile fallback so the
+ *     bottom-nav 'Chart' tab leads somewhere real instead of a blurred
+ *     desktop layout.
  *
- * Tier: wrapped in `<TierLock minTier="premium">` so free/starter see the
- * institutional workspace blurred behind an upgrade prompt — the brief's
- * "make the surface visible to drive upgrades" pattern. Premium+ get the
- * full client unchanged.
+ * Both render server-side from this one file; CSS picks which is visible.
  */
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getEffectiveTier } from '@/lib/tier-resolver'
+import { getOverviewData } from '@/lib/overview-data'
 import TierLock from '@/components/tier/TierLock'
+import TerminalWorkspace from '../overview/TerminalWorkspace'
 import WorkspaceClient from './WorkspaceClient'
 
 export const metadata = { title: 'Chart Workspace — AlgoSphere Quant' }
@@ -25,11 +29,24 @@ export default async function WorkspacePage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { tier } = await getEffectiveTier()
+  const [{ tier }, data] = await Promise.all([
+    getEffectiveTier(),
+    getOverviewData(),
+  ])
 
   return (
-    <TierLock minTier="premium" tier={tier} from="/workspace">
-      <WorkspaceClient />
-    </TierLock>
+    <>
+      {/* Mobile cockpit (< md) — chart-first, unchanged from /overview. */}
+      <div className="md:hidden">
+        <TerminalWorkspace {...data} />
+      </div>
+
+      {/* Desktop multi-chart workspace (md+), tier-gated. */}
+      <div className="hidden md:block">
+        <TierLock minTier="premium" tier={tier} from="/workspace">
+          <WorkspaceClient />
+        </TierLock>
+      </div>
+    </>
   )
 }
