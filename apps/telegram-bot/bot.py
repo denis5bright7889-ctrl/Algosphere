@@ -7,6 +7,7 @@ from telegram.ext import Application, CommandHandler
 from handlers.signals import signals_command
 from handlers.subscription import subscribe_command, status_command
 from handlers.admin import broadcast_command
+from services.signal_broadcaster import poll_and_broadcast
 
 load_dotenv()
 logging.basicConfig(
@@ -39,6 +40,17 @@ def main() -> None:
     app.add_handler(CommandHandler("subscribe", subscribe_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("broadcast", broadcast_command))
+
+    # Auto-broadcaster: poll the signals table and push new signals to the
+    # channel + linked subscribers. Requires the job-queue extra (in
+    # requirements). Interval is env-tunable; default 60s.
+    interval = int(os.environ.get("SIGNAL_POLL_INTERVAL_S", "60"))
+    if app.job_queue is not None:
+        app.job_queue.run_repeating(poll_and_broadcast, interval=interval, first=15)
+        logger.info(f"Signal auto-broadcaster scheduled every {interval}s")
+    else:
+        logger.warning("JobQueue unavailable — auto-broadcaster disabled "
+                       "(install python-telegram-bot[job-queue])")
 
     logger.info("Bot starting...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)

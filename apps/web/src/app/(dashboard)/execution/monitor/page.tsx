@@ -19,6 +19,14 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import type { Database } from '@/lib/supabase/database.types'
+
+type Kill   = Database['public']['Tables']['global_risk_state']['Row']
+type Job    = Database['public']['Tables']['copy_jobs']['Row']
+type Fill   = Database['public']['Tables']['execution_events']['Row']
+type Dlq    = Database['public']['Tables']['copy_jobs_dlq']['Row']
+type Recon  = Database['public']['Tables']['copy_reconciliation']['Row']
+type LatRow = Pick<Job, 'broker' | 'created_at' | 'filled_at' | 'status'>
 
 export const dynamic = 'force-dynamic'
 
@@ -87,18 +95,12 @@ export default async function ExecutionMonitorPage() {
       .limit(500),
   ])
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const kill  = (killRes.data ?? null) as any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const jobs  = (jobsRes.data  ?? []) as any[]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fills = (fillsRes.data ?? []) as any[]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const dlq   = (dlqRes.data   ?? []) as any[]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const recon = (reconRes.data ?? []) as any[]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const lat   = (latencyRes.data ?? []) as any[]
+  const kill  = (killRes.data    ?? null) as Kill | null
+  const jobs  = (jobsRes.data    ?? []) as unknown as Job[]
+  const fills = (fillsRes.data   ?? []) as unknown as Fill[]
+  const dlq   = (dlqRes.data     ?? []) as unknown as Dlq[]
+  const recon = (reconRes.data   ?? []) as unknown as Recon[]
+  const lat   = (latencyRes.data ?? []) as unknown as LatRow[]
 
   // ── Per-broker latency aggregation ───────────────────────────────
   type BrokerStats = {
@@ -107,6 +109,7 @@ export default async function ExecutionMonitorPage() {
   }
   const groups = new Map<string, number[]>()
   for (const r of lat) {
+    if (!r.filled_at) continue              // query filters not-null, but TS doesn't know
     const broker = r.broker || 'unknown'
     const ms = new Date(r.filled_at).getTime() - new Date(r.created_at).getTime()
     if (!Number.isFinite(ms) || ms < 0) continue
@@ -135,10 +138,12 @@ export default async function ExecutionMonitorPage() {
   const closesToday = fills.filter(f => f.event_type === 'POSITION_CLOSED').length
   const retriedJobs = jobs.filter(j => (j.attempts ?? 0) > 1).length
   const failedJobs  = jobs.filter(j => j.status === 'failed').length
-  const overallAvgLatency = lat.length > 0
+  const latFilled = lat.filter((r): r is LatRow & { filled_at: string } => !!r.filled_at)
+  const overallAvgLatency = latFilled.length > 0
     ? Math.round(
-        lat.reduce((a, r) => a + (new Date(r.filled_at).getTime() - new Date(r.created_at).getTime()), 0)
-        / lat.length,
+        latFilled.reduce((a, r) =>
+          a + (new Date(r.filled_at).getTime() - new Date(r.created_at).getTime()), 0)
+        / latFilled.length,
       )
     : null
 

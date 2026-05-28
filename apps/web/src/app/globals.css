@@ -94,6 +94,9 @@
   }
   html {
     -webkit-tap-highlight-color: transparent;
+    /* No iOS text inflation when rotating portrait↔landscape. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   /* iOS auto-zoom defeat — only on viewports that would trigger it
@@ -283,6 +286,22 @@
     transform: translateY(-2px);
     border-color: hsl(var(--primary) / 0.35);
     box-shadow: 0 12px 32px rgb(0 0 0 / 0.28);
+  }
+
+  /* Isolated scroll regions (Phase 9). The body `overflow-x: hidden` guard
+     CLIPS any element wider than the viewport — so wide tables/log panes
+     must own their horizontal scroll or content is cut off and unreachable.
+     `.scroll-x` gives a wide child its own momentum scroll; `.scroll-region`
+     does both axes. `overscroll-behavior: contain` stops the inner scroll
+     from chaining to the page (no rubber-band bleed on touch). Pair with a
+     `min-w-*` child for tables. */
+  .scroll-x {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+  .scroll-region {
+    overflow: auto;
+    overscroll-behavior: contain;
   }
 
   /* No-motion fallback */

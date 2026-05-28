@@ -20,6 +20,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import type { Database } from '@/lib/supabase/database.types'
+
+type Analytics    = Database['public']['Tables']['journal_analytics']['Row']
+type JournalEntry = Database['public']['Tables']['journal_entries']['Row']
 
 export const dynamic = 'force-dynamic'
 
@@ -79,17 +83,19 @@ export default async function JournalAnalyticsPage() {
       .order('created_at', { ascending: false }).limit(20),
   ])
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const a = (analyticsRes.data ?? null) as any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const entries = (entriesRes.data ?? []) as any[]
+  const a       = (analyticsRes.data ?? null) as Analytics | null
+  // The untyped client returns GenericStringError shapes for unknown tables;
+  // step through unknown to land on our typed Row.
+  const entries = (entriesRes.data ?? []) as unknown as JournalEntry[]
 
   const bySession = bucketsFromJson(a?.by_session).sort((x, y) => y[1].pnl - x[1].pnl)
   const byPair    = bucketsFromJson(a?.by_pair).sort((x, y) => y[1].pnl - x[1].pnl).slice(0, 10)
   const byTag     = bucketsFromJson(a?.by_tag).sort((x, y) => y[1].pnl - x[1].pnl).slice(0, 10)
+  // by_hour is typed as Json; cast to a string-keyed shape before indexing.
+  const byHourMap = (a?.by_hour ?? {}) as Record<string, Bucket | undefined>
   const byHour    = Array.from({ length: 24 }, (_, h) => {
     const key = `${h.toString().padStart(2, '0')}`
-    const raw = (a?.by_hour ?? {})[key] as Bucket | undefined
+    const raw = byHourMap[key]
     return [key, raw ?? { trades: 0, win_rate: 0, pnl: 0 }] as [string, Bucket]
   })
   const maxPnl = Math.max(

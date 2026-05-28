@@ -7,6 +7,7 @@ import asyncio
 import os
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import FastAPI, WebSocket, Query
@@ -18,6 +19,7 @@ from websocket.manager import ws_manager
 from api.routes import router as api_router
 from api.execute import router as execute_router
 from api.brokers import router as brokers_router
+from api.webhooks import router as webhooks_router
 from worker.signal_worker import SignalWorker
 from worker.lifecycle_monitor import LifecycleMonitor
 from worker.broker_health import BrokerHealthProbe
@@ -53,6 +55,18 @@ def _build_scheduler(worker: SignalWorker, monitor: LifecycleMonitor):
         misfire_grace_time=30,
     )
 
+    # Inbound webhook consumer: drain webhook_events every minute
+    # (Finnhub news → news_items; tracked-symbol events → re-scan nudge).
+    scheduler.add_job(
+        worker.process_webhook_events,
+        trigger='interval',
+        minutes=1,
+        id='process_webhooks',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=30,
+    )
+
     # Confidence calibration analytics — runs every 6 hours
     scheduler.add_job(
         _run_calibration,
@@ -80,6 +94,11 @@ def _build_scheduler(worker: SignalWorker, monitor: LifecycleMonitor):
         health.probe_all,
         trigger='interval',
         minutes=10,
+        # Run once at boot too, so every deploy immediately re-evaluates
+        # broker state (incl. DISABLED rows whose environment may have
+        # changed, e.g. MT5_BRIDGE_URL just got configured) instead of
+        # waiting out the first 10-minute interval.
+        next_run_time=datetime.now(timezone.utc),
         id='broker_health',
         max_instances=1,
         coalesce=True,
@@ -194,6 +213,7 @@ def create_app() -> FastAPI:
     app.include_router(api_router,    prefix='/api/v1')
     app.include_router(execute_router, prefix='/api/v1')
     app.include_router(brokers_router, prefix='/api/v1')
+    app.include_router(webhooks_router, prefix='/api/v1')
 
     # ─── WebSocket endpoints ──────────────────────────────────────────────────
 

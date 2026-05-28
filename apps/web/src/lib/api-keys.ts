@@ -16,6 +16,7 @@ export const API_PERMISSIONS = [
   { key: 'journal:read', label: 'Read journal', description: 'Read trade journal entries' },
   { key: 'journal:write', label: 'Write journal', description: 'Create and update journal entries' },
   { key: 'analytics:read', label: 'Read analytics', description: 'Access performance metrics' },
+  { key: 'intelligence:read', label: 'Read intelligence', description: 'Consolidated decision intelligence (states only — no raw signals, weights, or formulas)' },
 ] as const
 
 export type ApiPermission = typeof API_PERMISSIONS[number]['key']

@@ -20,6 +20,13 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import ConcentrationHeatmap from '@/components/risk/ConcentrationHeatmap'
+import type { Database } from '@/lib/supabase/database.types'
+
+type Kill          = Database['public']['Tables']['global_risk_state']['Row']
+type Exposure      = Database['public']['Tables']['portfolio_exposure']['Row']
+type Limits        = Database['public']['Tables']['risk_limits']['Row']
+type StrategyRisk  = Database['public']['Tables']['strategy_risk_state']['Row']
 
 export const dynamic = 'force-dynamic'
 
@@ -76,14 +83,11 @@ export default async function RiskExposurePage() {
       .eq('follower_id', user.id).is('resolved_at', null),
   ])
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const kill = (killRes.data ?? null) as any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const exp  = (expRes.data  ?? null) as any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const lim  = (limRes.data  ?? null) as any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const quar = (quarRes.data ?? []) as any[]
+  const kill = (killRes.data ?? null) as Kill | null
+  const exp  = (expRes.data  ?? null) as Exposure | null
+  const lim  = (limRes.data  ?? null) as Limits | null
+  // unknown-step: untyped client returns GenericStringError-shape.
+  const quar = (quarRes.data ?? []) as unknown as StrategyRisk[]
   const openDesyncs = reconRes.count ?? 0
 
   // ── Derived ───────────────────────────────────────────────────────
@@ -268,6 +272,9 @@ export default async function RiskExposurePage() {
           )}
         </section>
       </div>
+
+      {/* ── Concentration heatmap ─────────────────────────────── */}
+      <ConcentrationHeatmap symbols={bySymbol} capPct={capConc} />
 
       {/* ── Quarantined / disabled strategies + Desync reminder ─ */}
       <div className="grid gap-4 md:grid-cols-3">

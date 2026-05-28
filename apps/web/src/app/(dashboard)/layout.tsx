@@ -4,10 +4,13 @@ import { createClient } from '@/lib/supabase/server'
 import { isAdmin } from '@/lib/admin'
 import { isDemo } from '@/lib/demo'
 import { isBetaFreeAccessEnabled } from '@/lib/beta-access'
-import DesktopSidebar from '@/components/dashboard/DesktopSidebar'
+import FullSidebar from '@/components/dashboard/FullSidebar'
 import TopBar from '@/components/dashboard/TopBar'
 import MobileBottomNav from '@/components/dashboard/MobileBottomNav'
 import DemoBanner from '@/components/demo/DemoBanner'
+import LiveStatePanel from '@/components/dashboard/LiveStatePanel'
+import MobileCommandFab from '@/components/dashboard/MobileCommandFab'
+import { ChartModalProvider } from '@/components/charts'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -58,39 +61,22 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   if (isTrialExpired && !trialExempt) redirect('/upgrade?reason=trial_expired')
 
-  // Upgrade prompt: skip for admin, anyone already on Pro/VIP (real or demo),
-  // and skip entirely during open beta (everyone is effectively VIP).
-  const topTier =
-    profile?.subscription_tier === 'premium' || profile?.subscription_tier === 'vip'
-  const topDemo =
-    profile?.account_type === 'demo_premium' || profile?.account_type === 'demo_vip'
-  const showUpgradePrompt = !admin && !betaOpen && !topTier && !topDemo
-
-  // Effective nav tier — admins/beta see everything; demo tiers map to
-  // their real-feature equivalent; otherwise the stored subscription.
-  const navTier: 'free' | 'starter' | 'premium' | 'vip' =
-    admin || betaOpen
-      ? 'vip'
-      : profile?.account_type === 'demo_vip'
-      ? 'vip'
-      : profile?.account_type === 'demo_premium'
-      ? 'premium'
-      : (['free', 'starter', 'premium', 'vip'] as const).includes(
-          (profile?.subscription_tier ?? 'free') as 'free' | 'starter' | 'premium' | 'vip',
-        )
-      ? ((profile?.subscription_tier ?? 'free') as 'free' | 'starter' | 'premium' | 'vip')
-      : 'free'
-
   return (
+    <ChartModalProvider>
     <div className="flex min-h-screen bg-background">
-      <DesktopSidebar admin={admin} showUpgradePrompt={showUpgradePrompt} tier={navTier} />
+      {/* Full always-visible navigation — every system, grouped; long
+          tail + actions behind ⌘K. No modes, nothing hidden. */}
+      <FullSidebar admin={admin} />
 
       <div className="flex flex-1 flex-col min-w-0">
         <TopBar />
         <DemoBanner accountType={profile?.account_type} />
         <main
           className={
-            'flex-1 overflow-y-auto p-4 md:p-6 ' +
+            // Tighter mobile gutters (12px) so dashboard pages that add their
+            // own px-4 wrapper don't double-pad and waste horizontal space
+            // on phones. Desktop unchanged.
+            'flex-1 overflow-y-auto px-3 py-4 md:p-6 ' +
             // Clearance for the floating mobile bottom bar (~60px bar + gap + safe area)
             'pb-[calc(88px+env(safe-area-inset-bottom))] md:pb-6'
           }
@@ -99,8 +85,15 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </main>
       </div>
 
+      {/* Right column — the always-on Live State Panel (xl+ screens) */}
+      <LiveStatePanel />
+
+      {/* Thumb-reachable command palette trigger — mobile */}
+      <MobileCommandFab />
+
       {/* Mobile-only bottom tab bar — fixed, thumb-friendly */}
       <MobileBottomNav />
     </div>
+    </ChartModalProvider>
   )
 }

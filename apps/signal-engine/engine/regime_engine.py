@@ -13,6 +13,8 @@ class Regime(str, Enum):
     MEAN_REVERSION = "ranging"
     RANGING        = "ranging"
     HIGH_VOLATILITY= "volatile"
+    EXPANSION      = "expansion"      # ATR rising into the middle band before peak vol
+    TRANSITIONAL   = "transitional"   # ambiguous features — regime shift in progress
     EXHAUSTION     = "exhaustion"
     UNKNOWN        = "unknown"
 
@@ -45,9 +47,13 @@ def classify_regime(features: EngineFeatures) -> RegimeResult:
     atr_p = features.atr_percentile
 
     # --- Trending: high DER + positive autocorr + moderate entropy ---
-    if der >= 0.45 and ac >= 0.1 and ent < 2.5 and atr_p >= 25:
+    # DER is the Kaufman Efficiency Ratio (0..1). Empirically ~0.30 marks a
+    # genuine trend; the old 0.45 floor was unreachable in practice (live DER
+    # tops out ~0.19 in chop, ~0.30-0.45 in real trends) so 'trending' never
+    # classified — starving the ensemble. Recalibrated to the real ER scale.
+    if der >= 0.30 and ac >= 0.08 and ent < 2.5 and atr_p >= 25:
         regime = Regime.TRENDING
-        conf = min((der - 0.45) / 0.3 + (ac / 0.5) * 0.3, 1.0)
+        conf = min((der - 0.30) / 0.3 + (ac / 0.5) * 0.3, 1.0)
         weights = {'trend_continuation': 0.6, 'liquidity_sweep': 0.3, 'momentum_breakout': 0.1}
         desc = f"Trending — DER={der:.2f}, autocorr={ac:.2f}"
 
@@ -58,8 +64,8 @@ def classify_regime(features: EngineFeatures) -> RegimeResult:
         weights = {'momentum_breakout': 0.5, 'liquidity_sweep': 0.3, 'trend_continuation': 0.2}
         desc = f"High Volatility — ATR_pct={atr_p:.0f}%, entropy={ent:.2f}"
 
-    # --- Exhaustion: very low ATR percentile + low DER ---
-    elif atr_p <= 15 and der <= 0.25:
+    # --- Exhaustion: very low ATR percentile + very low DER (true chop) ---
+    elif atr_p <= 15 and der <= 0.10:
         regime = Regime.EXHAUSTION
         conf = 0.8
         weights = {'trend_continuation': 0.0, 'liquidity_sweep': 0.1, 'momentum_breakout': 0.0}
@@ -71,6 +77,25 @@ def classify_regime(features: EngineFeatures) -> RegimeResult:
         conf = min(abs(ac) / 0.4, 1.0)
         weights = {'liquidity_sweep': 0.6, 'trend_continuation': 0.2, 'momentum_breakout': 0.2}
         desc = f"Mean Reversion/Ranging — autocorr={ac:.2f}"
+
+    # --- Expansion: ATR climbing into the middle band with energy building ---
+    # Carved out of UNKNOWN — vol elevated but not yet HIGH_VOLATILITY, with
+    # enough directional energy to suggest a breakout setup rather than chop.
+    elif 50 <= atr_p < 75 and der >= 0.20 and ent < 3.0:
+        regime = Regime.EXPANSION
+        conf = min((atr_p - 50) / 25 * 0.7 + (der - 0.20) / 0.2 * 0.3, 1.0)
+        weights = {'momentum_breakout': 0.5, 'trend_continuation': 0.35, 'liquidity_sweep': 0.15}
+        desc = f"Expansion — vol building (ATR_pct={atr_p:.0f}%), DER={der:.2f}"
+
+    # --- Transitional: features ambiguous, regime shift in progress ---
+    # Carved out of UNKNOWN — moderate DER without persistence direction
+    # (autocorr near zero), or high entropy with moderate DER. Strategy
+    # mix is balanced and confidence intentionally low.
+    elif 0.12 <= der < 0.30 and abs(ac) < 0.12:
+        regime = Regime.TRANSITIONAL
+        conf = 0.45
+        weights = {'trend_continuation': 0.35, 'liquidity_sweep': 0.35, 'momentum_breakout': 0.3}
+        desc = f"Transitional — regime shift in progress (DER={der:.2f}, autocorr={ac:.2f})"
 
     else:
         regime = Regime.UNKNOWN
@@ -96,11 +121,18 @@ def regime_suppresses_trading(regime: Regime) -> bool:
 
 
 def regime_quality_score(regime: Regime) -> float:
-    """0–1 quality multiplier for confidence scoring."""
+    """0–1 quality multiplier for confidence scoring.
+
+    Expansion = 0.75 (breakout setups have real edge but with wider stops).
+    Transitional = 0.5 (intentionally below UNKNOWN's 0.6 — we KNOW
+    the regime is shifting, which is exactly when signal quality suffers).
+    """
     return {
         Regime.TRENDING:       1.0,
         Regime.MEAN_REVERSION: 0.85,
         Regime.HIGH_VOLATILITY: 0.65,
+        Regime.EXPANSION:      0.75,
+        Regime.TRANSITIONAL:   0.5,
         Regime.EXHAUSTION:     0.0,
         Regime.UNKNOWN:        0.6,
     }.get(regime, 0.5)

@@ -3,6 +3,40 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { encrypt, isVaultAvailable, mask } from '@/lib/vault'
 import { testBrokerConnection } from '@/lib/engine-client'
+import { brokerFingerprint } from '@/lib/broker-fingerprint'
+
+/**
+ * Persist a blocked claim into the broker_contention state table (current
+ * state) alongside the immutable reclaim_blocked history (audit). Best-
+ * effort, read-then-write: a blocked connect is rare so the non-atomic
+ * increment is fine. Status is never downgraded here — an admin's
+ * resolved/dismissed decision is preserved even if the contender retries.
+ */
+async function recordContention(
+  svc: ReturnType<typeof createServiceClient>,
+  fingerprint: string, contenderId: string, ip: string | null, ua: string | null,
+): Promise<void> {
+  try {
+    const { data: ex } = await svc
+      .from('broker_contention')
+      .select('id, attempt_count')
+      .eq('fingerprint', fingerprint).eq('contender_user_id', contenderId)
+      .maybeSingle()
+    if (ex) {
+      const row = ex as { id: string; attempt_count: number }
+      await svc.from('broker_contention').update({
+        attempt_count:   (row.attempt_count ?? 1) + 1,
+        last_attempt_at: new Date().toISOString(),
+        last_ip: ip, last_user_agent: ua,
+      }).eq('id', row.id)
+    } else {
+      await svc.from('broker_contention').insert({
+        fingerprint, contender_user_id: contenderId, status: 'active_contention',
+        attempt_count: 1, last_ip: ip, last_user_agent: ua,
+      })
+    }
+  } catch { /* contention state is best-effort; never blocks a connect */ }
+}
 
 // GET — list my broker connections (secrets never returned in plaintext)
 export async function GET() {
@@ -99,6 +133,80 @@ export async function POST(req: Request) {
 
   const d = parsed.data
   const svc = createServiceClient()
+
+  // ── Anti-sharing gate (institutional broker-ownership registry) ──────
+  // Deterministic non-secret fingerprint of the real-world broker account
+  // (sha256 of broker + public identity tuple; never includes the
+  // password/api_secret). Same real account → same fingerprint regardless
+  // of which AlgoSphere user is connecting. DB enforces uniqueness via
+  // broker_account_ownership.fingerprint; we check first so we can return
+  // the user-facing message instead of a raw 23505. Server-only — never
+  // trust the frontend for this.
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null
+  const ua = req.headers.get('user-agent') ?? null
+  const fingerprint = brokerFingerprint({
+    broker:     d.broker,
+    api_key:    d.api_key,
+    account_id: d.account_id ?? undefined,
+    passphrase: d.passphrase ?? undefined,
+  })
+  // ── Ownership-policy gate (single_owner default / shared / revoked) ──
+  // single_owner: exactly one owner; a DIFFERENT user is always blocked —
+  // ownership transitions only through the admin transfer/revoke endpoints
+  // (no auto-claim, even after an unlink cooldown). shared: explicit admin
+  // opt-in — a different user may connect as a co-user WITHOUT taking
+  // ownership. revoked: blocked at the gate; admin reassigns explicitly.
+  let sharedCoUser = false
+  if (fingerprint) {
+    const { data: existing } = await svc
+      .from('broker_account_ownership')
+      .select('owner_user_id, ownership_status, ownership_mode, shared_enabled')
+      .eq('fingerprint', fingerprint)
+      .maybeSingle()
+
+    if (existing) {
+      const e = existing as {
+        owner_user_id: string; ownership_status: string
+        ownership_mode: string; shared_enabled: boolean
+      }
+      const sameUser      = e.owner_user_id === user.id
+      const sharedAllowed = e.shared_enabled || e.ownership_mode === 'shared'
+
+      // Same user always reconnects. Different user only when shared.
+      if (!sameUser) {
+        if (sharedAllowed) {
+          // SHARED_MODE — allowed as a co-user; ownership is NOT transferred.
+          sharedCoUser = true
+          svc.from('broker_ownership_history').insert({
+            fingerprint, broker: d.broker,
+            previous_owner_user_id: e.owner_user_id,
+            new_owner_user_id:      user.id,
+            action: 'linked', reason: 'shared_mode_co_user',
+            actor_id: user.id, ip_address: ip, user_agent: ua,
+          }).then(() => {}, () => {})
+        } else {
+          // single_owner / revoked — strict block + contention.
+          const reason = e.ownership_mode === 'revoked'   ? 'ownership revoked — admin reassignment required'
+                       : e.ownership_status === 'cooldown' ? 'fingerprint in unlink cooldown'
+                       : 'fingerprint owned by different user'
+          svc.from('broker_ownership_history').insert({
+            fingerprint, broker: d.broker,
+            previous_owner_user_id: e.owner_user_id,
+            new_owner_user_id:      user.id,
+            action: 'reclaim_blocked', reason,
+            actor_id: user.id, ip_address: ip, user_agent: ua,
+          }).then(() => {}, () => {})
+          void recordContention(svc, fingerprint, user.id, ip, ua)
+          return NextResponse.json(
+            { error: 'This trading account is already connected to another AlgoSphere profile.',
+              code: 'BROKER_ALREADY_OWNED' },
+            { status: 409 },
+          )
+        }
+      }
+    }
+  }
+
   const { data, error } = await svc
     .from('broker_connections')
     .insert({
@@ -114,6 +222,8 @@ export async function POST(req: Request) {
       is_live:           !d.is_testnet,
       is_default:        d.is_default,
       status:            'pending',
+      // Denormalized fingerprint for join-free lookups (NULL until migration 041).
+      broker_account_fingerprint: fingerprint,
     })
     .select('id, broker, label, is_testnet, is_default, status, created_at')
     .single()
@@ -128,6 +238,25 @@ export async function POST(req: Request) {
     }
     console.error('broker create error:', error)
     return NextResponse.json({ error: 'Failed to save connection' }, { status: 500 })
+  }
+
+  // Register/refresh ownership for this fingerprint (idempotent upsert).
+  // Skipped for a shared-mode co-user: they get a broker_connections row
+  // but must NOT overwrite the existing owner. Best-effort.
+  if (fingerprint && !sharedCoUser) {
+    svc.from('broker_account_ownership').upsert({
+      fingerprint, broker: d.broker, owner_user_id: user.id,
+      current_connection_id: data.id,
+      last_seen_at: new Date().toISOString(),
+      last_seen_ip: ip,
+      ownership_status: 'active',
+    }, { onConflict: 'fingerprint' }).then(() => {}, () => {})
+    svc.from('broker_ownership_history').insert({
+      fingerprint, broker: d.broker,
+      new_owner_user_id: user.id,
+      action: 'linked',
+      actor_id: user.id, ip_address: ip, user_agent: ua,
+    }).then(() => {}, () => {})
   }
 
   // Immediately handshake against the engine so the user gets a verdict

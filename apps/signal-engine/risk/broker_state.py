@@ -32,8 +32,10 @@ Transitions (probe-driven):
   CONNECTED →  FAILED         (if probe fails)
   FAILED    →  CONNECTED      (if user-triggered retry succeeds)
               FAILED          (if subsequent probes keep failing)
-  DISABLED  →  (no transitions — the underlying environment must change
-                first; on next deploy the startup probe re-evaluates)
+  DISABLED  →  CONNECTED / FAILED  (re-probed every cycle: if the
+                environment now supports the broker — e.g. MT5_BRIDGE_URL
+                got configured — it connects; otherwise the env-guard
+                instantly re-disables it)
 """
 from __future__ import annotations
 from typing import Optional
