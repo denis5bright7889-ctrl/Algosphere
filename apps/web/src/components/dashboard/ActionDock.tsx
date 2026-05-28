@@ -56,7 +56,14 @@ export default function ActionDock() {
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
-    setOpen(localStorage.getItem(LS_OPEN) !== '0')
+    // Honour saved preference; otherwise default OPEN on desktop and
+    // CLOSED on mobile (so the chart breathes — the dock collapses to a
+    // tab strip the user can tap to expand). Desktop default unchanged.
+    const saved = localStorage.getItem(LS_OPEN)
+    if (saved === '1') setOpen(true)
+    else if (saved === '0') setOpen(false)
+    else setOpen(window.matchMedia('(min-width: 768px)').matches)
+
     const t = localStorage.getItem(LS_TAB) as TabKey | null
     if (t && TABS.some((x) => x.key === t)) setTab(t)
     setMounted(true)
