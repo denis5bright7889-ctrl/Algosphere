@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { isAdmin } from '@/lib/admin'
 import { isDemo } from '@/lib/demo'
 import { isBetaFreeAccessEnabled } from '@/lib/beta-access'
-import FullSidebar from '@/components/dashboard/FullSidebar'
+import RailNav from '@/components/dashboard/RailNav'
 import TopBar from '@/components/dashboard/TopBar'
 import MobileBottomNav from '@/components/dashboard/MobileBottomNav'
 import DemoBanner from '@/components/demo/DemoBanner'
@@ -64,9 +64,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
   return (
     <ChartModalProvider>
     <div className="flex min-h-screen bg-background">
-      {/* Full always-visible navigation — every system, grouped; long
-          tail + actions behind ⌘K. No modes, nothing hidden. */}
-      <FullSidebar admin={admin} />
+      {/* Icon rail + hover flyout — compact, max canvas, nothing hidden
+          (every route is one hover away; same NAV_GROUPS registry). */}
+      <RailNav admin={admin} />
 
       <div className="flex flex-1 flex-col min-w-0">
         <TopBar />

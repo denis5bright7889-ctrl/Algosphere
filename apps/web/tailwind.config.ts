@@ -54,8 +54,8 @@ const config: Config = {
         'card-lift':    '0 1px 2px rgb(0 0 0 / 0.20), 0 16px 40px rgb(0 0 0 / 0.40)',
       },
       backgroundImage: {
-        'gradient-primary':  'linear-gradient(135deg, #fde68a 0%, #f5c842 35%, #d4a017 70%, #b8860b 100%)',
-        'gradient-gold':     'linear-gradient(135deg, #fde68a 0%, #f5c842 35%, #d4a017 70%, #b8860b 100%)',
+        'gradient-primary':  'linear-gradient(135deg, #ffcf7a 0%, #f0a500 55%, #c98a00 100%)',
+        'gradient-gold':     'linear-gradient(135deg, #ffcf7a 0%, #f0a500 55%, #c98a00 100%)',
         'gradient-emerald':  'linear-gradient(135deg, #059669 0%, #10b981 100%)',
         'gradient-rose':     'linear-gradient(135deg, #e11d48 0%, #f43f5e 100%)',
         'gradient-amber':    'linear-gradient(135deg, #d97706 0%, #f59e0b 100%)',

@@ -25,8 +25,10 @@ import {
   PanelRightClose, PanelRightOpen,
 } from 'lucide-react'
 import TradingViewEmbed from '@/components/charts/TradingViewEmbed'
+import CryptoStreamChart from '@/components/charts/CryptoStreamChart'
 import SymbolSearch from '@/components/charts/SymbolSearch'
 import TimeframeSwitcher from '@/components/charts/TimeframeSwitcher'
+import { CRYPTO_SYMBOLS } from '@/lib/binance'
 import { toTradingViewSymbol, DEFAULT_INTERVAL } from '@/lib/tradingview'
 import type { AssetClass } from '@/lib/market-universe'
 import { cn } from '@/lib/utils'
@@ -52,6 +54,10 @@ export interface TerminalKpis {
   bias:     { label: string; tone: 'emerald' | 'rose' | 'gold' | 'neutral' }
 }
 
+// Symbols carried by the live market-stream → eligible for the nChart
+// live renderer. Everything else uses the TradingView embed.
+const STREAMABLE = new Set(CRYPTO_SYMBOLS.map((s) => s.symbol))
+
 const TONE_TEXT: Record<TerminalKpis['bias']['tone'], string> = {
   emerald: 'text-emerald-400',
   rose:    'text-rose-400',
@@ -71,8 +77,11 @@ export default function TerminalWorkspace({
   const [assetClass, setAsset]  = useState<AssetClass>(defaultSymbol.assetClass)
   const [interval, setInterval] = useState(DEFAULT_INTERVAL)
   const [railOpen, setRailOpen] = useState(true)
+  const [chartMode, setChartMode] = useState<'live' | 'advanced'>('live')
 
   const tvSymbol = toTradingViewSymbol(symbol, assetClass)
+  const streamable = STREAMABLE.has(symbol)
+  const showLive = streamable && chartMode === 'live'
   const BiasIcon = kpis.bias.tone === 'emerald' ? TrendingUp
     : kpis.bias.tone === 'rose' ? TrendingDown : Minus
 
@@ -95,9 +104,22 @@ export default function TerminalWorkspace({
               tone={kpis.trades === 0 ? 'neutral' : kpis.netPnl >= 0 ? 'emerald' : 'rose'} />
             <KpiChip label="Win" value={kpis.trades > 0 ? `${kpis.winRate}%` : '—'} tone="neutral" />
             <KpiChip label={kpis.bias.label} value="" tone={kpis.bias.tone} Icon={BiasIcon} />
-            <div className="hidden md:block">
-              <TimeframeSwitcher interval={interval} onChange={setInterval} />
-            </div>
+            {streamable && (
+              <div className="flex items-center gap-0.5 rounded-lg border border-border/60 p-0.5">
+                {(['live', 'advanced'] as const).map((m) => (
+                  <button key={m} type="button" onClick={() => setChartMode(m)}
+                    className={cn('rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition-colors',
+                      chartMode === m ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground')}>
+                    {m === 'live' ? 'Live' : 'Adv'}
+                  </button>
+                ))}
+              </div>
+            )}
+            {!showLive && (
+              <div className="hidden md:block">
+                <TimeframeSwitcher interval={interval} onChange={setInterval} />
+              </div>
+            )}
             <button
               type="button"
               onClick={() => setRailOpen((v) => !v)}
@@ -113,7 +135,9 @@ export default function TerminalWorkspace({
 
         {/* Chart */}
         <div className="relative min-h-0 flex-1">
-          {tvSymbol ? (
+          {showLive ? (
+            <CryptoStreamChart symbol={symbol} />
+          ) : tvSymbol ? (
             <TradingViewEmbed tvSymbol={tvSymbol} interval={interval} />
           ) : (
             <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
