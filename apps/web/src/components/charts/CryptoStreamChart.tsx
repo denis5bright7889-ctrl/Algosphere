@@ -26,7 +26,6 @@ interface Candle { time: number; open: number; high: number; low: number; close:
 type TF = '1m' | '5m' | '15m' | '1h'
 
 const TF_MS: Record<TF, number> = { '1m': 60_000, '5m': 300_000, '15m': 900_000, '1h': 3_600_000 }
-const CB_GRAN: Record<TF, number> = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600 }
 const MAX = 150
 
 const UP = '#22c55e', DOWN = '#ef4444', GRID = 'rgba(255,255,255,0.05)', AXIS = 'rgba(255,255,255,0.35)'
@@ -34,29 +33,17 @@ const UP = '#22c55e', DOWN = '#ef4444', GRID = 'rgba(255,255,255,0.05)', AXIS = 
 function bucket(ts: number, tf: TF) { return Math.floor(ts / TF_MS[tf]) * TF_MS[tf] }
 
 async function fetchHistory(symbol: string, tf: TF): Promise<Candle[]> {
-  // 1) Binance public klines
+  // Server proxy (Binance → Coinbase fallback, server-side). Fetching
+  // exchanges directly from the browser is routinely CORS/geo-blocked;
+  // the proxy fixes both. Honest empty on failure → "building live".
   try {
-    const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${tf}&limit=${MAX}`, { cache: 'no-store' })
+    const r = await fetch(`/api/market/klines?symbol=${encodeURIComponent(symbol)}&tf=${tf}`, { cache: 'no-store' })
     if (r.ok) {
-      const rows = (await r.json()) as unknown[][]
-      return rows.map((k) => ({
-        time: Number(k[0]), open: Number(k[1]), high: Number(k[2]), low: Number(k[3]), close: Number(k[4]),
-      }))
+      const json = (await r.json()) as { candles?: Candle[] }
+      const rows = json.candles ?? []
+      if (rows.length) return rows
     }
-  } catch { /* geo-block / network → fall through */ }
-  // 2) Coinbase candles (geo-safer). BTCUSDT → BTC-USD.
-  try {
-    const base = symbol.replace(/USDT$|USD$/, '')
-    const product = `${base}-USD`
-    const r = await fetch(`https://api.exchange.coinbase.com/products/${product}/candles?granularity=${CB_GRAN[tf]}`, { cache: 'no-store' })
-    if (r.ok) {
-      const rows = (await r.json()) as number[][] // [time(s), low, high, open, close, volume] desc
-      return rows
-        .map((c) => ({ time: c[0]! * 1000, open: c[3]!, high: c[2]!, low: c[1]!, close: c[4]! }))
-        .sort((a, b) => a.time - b.time)
-        .slice(-MAX)
-    }
-  } catch { /* both failed */ }
+  } catch { /* network → fall through to empty */ }
   return []
 }
 

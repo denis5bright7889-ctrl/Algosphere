@@ -15,7 +15,7 @@
  * alive as the pointer moves onto it. Desktop only; mobile uses the
  * bottom nav.
  */
-import { useMemo } from 'react'
+import { useMemo, useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LayoutDashboard, ShieldQuestion, LogOut, type LucideIcon } from 'lucide-react'
@@ -42,7 +42,7 @@ function RailIcon({ icon: Icon, active, label, href, onClick }: {
 }) {
   const cls = cn(
     'relative flex h-11 w-11 items-center justify-center rounded-md transition-colors',
-    active ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+    active ? 'bg-amber-500/15 text-amber-300' : 'text-foreground/70 hover:bg-amber-500/10 hover:text-amber-300',
   )
   const inner = (
     <>
@@ -55,21 +55,26 @@ function RailIcon({ icon: Icon, active, label, href, onClick }: {
     : <button type="button" aria-label={label} onClick={onClick} className={cls}>{inner}</button>
 }
 
-function FlyoutRow({ item }: { item: NavItem }) {
+function FlyoutRow({ item, active = false }: { item: NavItem; active?: boolean }) {
   const Icon = item.icon
   if (item.action === 'logout') {
     return (
       <button type="button" onClick={doLogout}
-        className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-rose-300/80 transition-colors hover:bg-rose-500/10 hover:text-rose-300">
-        <LogOut className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
+        className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-semibold text-rose-300 transition-colors hover:bg-rose-500/15 hover:text-rose-200">
+        <LogOut className="h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden />
         <span className="truncate">{item.label}</span>
       </button>
     )
   }
   return (
     <Link href={item.href!}
-      className="flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground">
-      <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
+      className={cn(
+        'flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-semibold transition-colors',
+        active
+          ? 'bg-amber-500/15 text-amber-300'
+          : 'text-foreground/90 hover:bg-amber-500/10 hover:text-amber-300',
+      )}>
+      <Icon className="h-4 w-4 shrink-0" strokeWidth={active ? 2.5 : 2.1} aria-hidden />
       <span className="truncate">{item.label}</span>
     </Link>
   )
@@ -83,8 +88,32 @@ export default function RailNav({ admin = false }: { admin?: boolean }) {
     [active],
   )
 
+  // JS-controlled flyout. A short close grace lets the pointer cross the
+  // 6px gap from the rail icon to the panel without it snapping shut, but
+  // the flyout reliably auto-closes once the cursor leaves both — no more
+  // CSS `:hover`/`focus-within` getting stuck open after a click.
+  const [openGroup, setOpenGroup] = useState<string | null>(null)
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function openFlyout(label: string) {
+    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null }
+    setOpenGroup(label)
+  }
+  function scheduleClose() {
+    if (closeTimer.current) clearTimeout(closeTimer.current)
+    closeTimer.current = setTimeout(() => setOpenGroup(null), 140)
+  }
+  function closeNow() {
+    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null }
+    setOpenGroup(null)
+  }
+
+  // Always close on route change + on unmount.
+  useEffect(() => { closeNow() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [pathname])
+  useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current) }, [])
+
   return (
-    <aside className="hidden md:flex w-16 shrink-0 flex-col items-center border-r border-border/70 bg-card/40 py-3">
+    <aside className="hidden md:flex w-16 shrink-0 flex-col items-center border-r border-border/70 bg-[#08080a] py-3">
       {/* Brand → home */}
       <Link href="/overview" aria-label="AlgoSphere Quant — home" className="mb-2 flex h-11 w-11 items-center justify-center">
         <Logo size="sm" alt="" priority />
@@ -99,22 +128,38 @@ export default function RailNav({ admin = false }: { admin?: boolean }) {
         {NAV_GROUPS.map((group) => {
           const GroupIcon = group.icon
           const isActive = group.label === activeGroup
+          const isOpen = openGroup === group.label
           return (
-            <div key={group.label} className="group relative">
+            <div
+              key={group.label}
+              className="relative"
+              onMouseEnter={() => openFlyout(group.label)}
+              onMouseLeave={scheduleClose}
+              onFocusCapture={() => openFlyout(group.label)}
+              onBlurCapture={(e) => {
+                // Close when focus leaves the whole group (keyboard users).
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) scheduleClose()
+              }}
+            >
               <RailIcon icon={GroupIcon} label={group.label} active={isActive} href={group.items.find((i) => i.href)?.href} />
-              {/* Flyout — touches the rail (left-full), descendant of group so hover persists */}
-              <div className="absolute left-full top-0 z-50 hidden pl-1.5 group-hover:block group-focus-within:block">
-                <div className="min-w-52 rounded-lg border border-border/70 bg-popover p-1.5 shadow-2xl">
-                  <p className="px-2.5 pb-1 pt-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
-                    {group.label}
-                  </p>
-                  <ul className="space-y-0.5">
-                    {group.items.map((item) => (
-                      <li key={item.href ?? item.label}><FlyoutRow item={item} /></li>
-                    ))}
-                  </ul>
+              {/* Flyout — touches the rail (left-full); the pl-1.5 bridge +
+                  the close grace let the pointer reach it without flicker. */}
+              {isOpen && (
+                <div className="absolute left-full top-0 z-50 pl-1.5">
+                  <div className="min-w-56 rounded-lg border border-amber-500/20 bg-[#0b0b0e] p-1.5 shadow-2xl shadow-black/60">
+                    <p className="px-2.5 pb-1.5 pt-1 text-[11px] font-extrabold uppercase tracking-widest text-amber-300">
+                      {group.label}
+                    </p>
+                    <ul className="space-y-0.5">
+                      {group.items.map((item) => (
+                        <li key={item.href ?? item.label}>
+                          <FlyoutRow item={item} active={!!item.href && item.href === active} onNavigate={closeNow} />
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )
         })}

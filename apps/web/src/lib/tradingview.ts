@@ -55,15 +55,19 @@ const INDEX_MAP: Record<string, string> = {
   JPN225: 'CAPITALCOM:J225',
 }
 
-// Commodities (ex-metals, which live in OVERRIDES).
+// Commodities (ex-spot-metals, which live in OVERRIDES).
 const COMMODITY_MAP: Record<string, string> = {
-  USOIL:  'TVC:USOIL',
-  UKOIL:  'TVC:UKOIL',
-  NATGAS: 'CAPITALCOM:NATURALGAS',
-  WHEAT:  'CAPITALCOM:WHEAT',
-  CORN:   'CAPITALCOM:CORN',
-  COFFEE: 'CAPITALCOM:COFFEE',
-  COTTON: 'CAPITALCOM:COTTON',
+  USOIL:   'TVC:USOIL',
+  UKOIL:   'TVC:UKOIL',
+  NATGAS:  'CAPITALCOM:NATURALGAS',
+  XCUUSD:  'CAPITALCOM:COPPER',
+  WHEAT:   'CAPITALCOM:WHEAT',
+  CORN:    'CAPITALCOM:CORN',
+  SOYBEAN: 'CAPITALCOM:SOYBEAN',
+  SUGAR:   'CAPITALCOM:SUGAR',
+  COFFEE:  'CAPITALCOM:COFFEE',
+  COCOA:   'CAPITALCOM:COCOA',
+  COTTON:  'CAPITALCOM:COTTON',
 }
 
 // Futures → TradingView continuous front-month (`1!`).

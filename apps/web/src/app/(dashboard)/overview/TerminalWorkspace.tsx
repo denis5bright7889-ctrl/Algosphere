@@ -18,11 +18,11 @@
  * The right rail collapses under lg. Everything is real data passed from
  * the server page — no fabricated numbers (honesty contract).
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import {
   TrendingUp, TrendingDown, Minus, ChevronRight, Activity,
-  PanelRightClose, PanelRightOpen,
+  PanelRightClose, PanelRightOpen, Maximize2, Minimize2,
 } from 'lucide-react'
 import TradingViewEmbed from '@/components/charts/TradingViewEmbed'
 import CryptoStreamChart from '@/components/charts/CryptoStreamChart'
@@ -78,6 +78,7 @@ export default function TerminalWorkspace({
   const [interval, setInterval] = useState(DEFAULT_INTERVAL)
   const [railOpen, setRailOpen] = useState(true)
   const [chartMode, setChartMode] = useState<'live' | 'advanced'>('live')
+  const [fullscreen, setFullscreen] = useState(false)
 
   const tvSymbol = toTradingViewSymbol(symbol, assetClass)
   const streamable = STREAMABLE.has(symbol)
@@ -87,11 +88,22 @@ export default function TerminalWorkspace({
 
   function pick(s: string, a: AssetClass) { setSymbol(s); setAsset(a) }
 
+  // ESC exits fullscreen (works on desktop + mobile keyboards).
+  useEffect(() => {
+    if (!fullscreen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFullscreen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [fullscreen])
+
   return (
     <div className="flex h-[calc(100vh-3.5rem-2rem)] min-h-[560px] flex-col gap-3">
       <div className="flex min-h-0 flex-1 gap-3">
       {/* ── Main column: toolbar + chart ─────────────────────────── */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-card">
+      <div className={cn(
+        'flex min-w-0 flex-1 flex-col overflow-hidden border border-border/70 bg-card',
+        fullscreen ? 'fixed inset-0 z-[70] rounded-none border-0' : 'rounded-xl',
+      )}>
         {/* Toolbar: symbol · timeframe · KPI chips */}
         <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2">
           <SymbolSearch current={symbol} onSelect={pick} />
@@ -120,6 +132,18 @@ export default function TerminalWorkspace({
                 <TimeframeSwitcher interval={interval} onChange={setInterval} />
               </div>
             )}
+            {/* Fullscreen — all devices */}
+            <button
+              type="button"
+              onClick={() => setFullscreen((v) => !v)}
+              aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen chart'}
+              className="rounded-lg border border-border/60 p-2 text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {fullscreen
+                ? <Minimize2 className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                : <Maximize2 className="h-4 w-4" strokeWidth={1.75} aria-hidden />}
+            </button>
+            {/* Side-panel toggle — desktop only */}
             <button
               type="button"
               onClick={() => setRailOpen((v) => !v)}
@@ -131,6 +155,24 @@ export default function TerminalWorkspace({
                 : <PanelRightOpen className="h-4 w-4" strokeWidth={1.75} aria-hidden />}
             </button>
           </div>
+        </div>
+
+        {/* Mobile watchlist strip — the right rail's symbol switch on phones,
+            so the cockpit works as a stacked split (strip · chart · dock). */}
+        <div className="flex gap-1.5 overflow-x-auto border-b border-border/60 px-2 py-1.5 lg:hidden">
+          {watchlist.map((w) => (
+            <button
+              key={`m-${w.symbol}`} type="button" onClick={() => pick(w.symbol, w.assetClass)}
+              className={cn(
+                'shrink-0 rounded-md border px-2 py-1 font-mono text-[11px] font-semibold transition-colors',
+                w.symbol === symbol
+                  ? 'border-primary/50 bg-primary/15 text-primary'
+                  : 'border-border/60 text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {w.symbol}
+            </button>
+          ))}
         </div>
 
         {/* Chart */}
