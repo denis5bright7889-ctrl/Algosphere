@@ -9,6 +9,7 @@ import TopBar from '@/components/dashboard/TopBar'
 import MobileBottomNav from '@/components/dashboard/MobileBottomNav'
 import DemoBanner from '@/components/demo/DemoBanner'
 import LiveStatePanel from '@/components/dashboard/LiveStatePanel'
+import QuickTradeFAB from '@/components/dashboard/QuickTradeFAB'
 import MobileCommandFab from '@/components/dashboard/MobileCommandFab'
 import { ChartModalProvider } from '@/components/charts'
 
@@ -85,8 +86,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </main>
       </div>
 
-      {/* Right column — the always-on Live State Panel (xl+ screens) */}
+      {/* Right column — the always-on Live State Panel (xl+ screens);
+          on smaller screens it renders a floating trigger + slide-up
+          drawer so the same context is one tap away on mobile. */}
       <LiveStatePanel />
+
+      {/* Always-available 1-click trade ticket (FAB → /execution prefill) */}
+      <QuickTradeFAB />
 
       {/* Thumb-reachable command palette trigger — mobile */}
       <MobileCommandFab />
