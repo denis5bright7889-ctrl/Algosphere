@@ -1,7 +1,10 @@
 import { redirect } from 'next/navigation'
-import { Cpu, FlaskConical } from 'lucide-react'
+import { FlaskConical } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
+import { tierIncludes } from '@/lib/entitlements'
+import { getEffectiveTier } from '@/lib/tier-resolver'
+import TierLock from '@/components/tier/TierLock'
 import ExecutionClient from './ExecutionClient'
 import MirrorChart from './MirrorChart'
 
@@ -13,31 +16,17 @@ export default async function ExecutionPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // VIP gate
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('subscription_tier, account_type')
-    .eq('id', user.id)
-    .single()
-
-  const tier = profile?.subscription_tier ?? 'free'
-  const isVip = tier === 'vip' || (profile?.account_type ?? '').includes('vip')
-
-  if (!isVip) {
+  // VIP gate FIRST — the bespoke upgrade card was hand-rolled; the
+  // standard <TierLock> primitive is now the one pattern across the
+  // app. Gate before the copy_trades / broker_connections queries so
+  // locked viewers don't trigger a 3-way Supabase fan-out just to
+  // render the upgrade prompt.
+  const { tier } = await getEffectiveTier()
+  if (!tierIncludes(tier, 'vip')) {
     return (
-      <div className="mx-auto max-w-3xl px-4 py-16 text-center">
-        <Cpu className="mx-auto h-10 w-10 text-amber-300" strokeWidth={1.5} aria-hidden />
-        <h1 className="text-2xl font-bold tracking-tight mt-4">
-          Automated Execution Dashboard
-        </h1>
-        <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
-          Live bot positions, floating PnL, execution latency, and the
-          institutional risk telemetry stream are part of the VIP / Institutional tier.
-        </p>
-        <a href="/upgrade" className="btn-premium mt-6 inline-block !text-sm">
-          Upgrade to VIP — $299/mo
-        </a>
-      </div>
+      <TierLock minTier="vip" tier={tier} from="/execution">
+        <ExecutionSkeleton />
+      </TierLock>
     )
   }
 
@@ -170,6 +159,41 @@ function Card({ label, value, tone = 'plain' }: {
       )}>
         {value}
       </p>
+    </div>
+  )
+}
+
+/**
+ * Locked preview — same shape as the real dashboard so the upgrade card
+ * sits on a credible institutional surface, but no Supabase round-trip
+ * and no real numbers. Pure chrome; the lock overlay carries the CTA.
+ */
+function ExecutionSkeleton() {
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-6">
+      <header className="mb-6 flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Execution <span className="text-gradient">Dashboard</span>
+          </h1>
+          <p className="text-xs text-muted-foreground mt-1">
+            Live order flow, risk telemetry, and bot health — institutional view.
+          </p>
+        </div>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-[11px] font-bold text-emerald-300">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden />
+          Live · 3 open
+        </span>
+      </header>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <Card label="Open Positions" value="3" />
+        <Card label="Realized PnL"   value="+$2,415.20" tone="green" />
+        <Card label="Win Rate"       value="68%" />
+        <Card label="Closed Trades"  value="41" />
+      </div>
+      <div className="rounded-2xl border border-border/60 bg-muted/10 p-12 text-center text-sm text-muted-foreground">
+        Live order flow + risk telemetry stream renders here in the VIP tier.
+      </div>
     </div>
   )
 }
