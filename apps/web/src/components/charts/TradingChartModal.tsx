@@ -21,10 +21,16 @@ import type { SymbolIntel } from '@/lib/chart-intel'
 import SymbolToolbar       from './SymbolToolbar'
 import TimeframeSwitcher   from './TimeframeSwitcher'
 import TradingViewEmbed    from './TradingViewEmbed'
+import CryptoStreamChart   from './CryptoStreamChart'
 import AIInsightPanel      from './AIInsightPanel'
 import MarketMetricsPanel  from './MarketMetricsPanel'
 import SignalOverlay       from './SignalOverlay'
 import CorrelationPanel    from './CorrelationPanel'
+import { CRYPTO_SYMBOLS } from '@/lib/binance'
+
+// Symbols carried by the live market-stream → eligible for the canvas
+// nChart renderer. Everything else uses the TradingView embed.
+const STREAMABLE = new Set(CRYPTO_SYMBOLS.map((s) => s.symbol))
 
 export default function TradingChartModal({
   target, onClose,
@@ -36,6 +42,7 @@ export default function TradingChartModal({
   const [assetClass, setAssetClass] = useState<AssetClass | undefined>(undefined)
   const [interval, setInterval]     = useState<string>(DEFAULT_INTERVAL)
   const [fullscreen, setFullscreen] = useState(false)
+  const [chartMode, setChartMode]   = useState<'live' | 'advanced'>('live')
   const [intel, setIntel]           = useState<SymbolIntel | null>(null)
   const [intelLoading, setIntelLoading] = useState(false)
   const fetchSeq = useRef(0)
@@ -82,7 +89,9 @@ export default function TradingChartModal({
 
   if (!mounted || !target) return null
 
-  const tfMismatch = interval !== '60' && intel?.engine_timeframe === ENGINE_TIMEFRAME_LABEL
+  const streamable = STREAMABLE.has(symbol)
+  const showLive   = streamable && chartMode === 'live'
+  const tfMismatch = !showLive && interval !== '60' && intel?.engine_timeframe === ENGINE_TIMEFRAME_LABEL
 
   const node = (
     <div
@@ -131,7 +140,22 @@ export default function TradingChartModal({
             )}
 
             <div className="relative h-[55vh] min-h-[320px] md:h-auto md:min-h-0 md:flex-1">
-              {tvSymbol ? (
+              {/* Live / Advanced toggle — only shown for streamed crypto majors */}
+              {streamable && (
+                <div className="absolute left-2 top-2 z-10 flex items-center gap-0.5 rounded-lg border border-border/60 bg-card/80 p-0.5 backdrop-blur">
+                  {(['live', 'advanced'] as const).map((m) => (
+                    <button key={m} type="button" onClick={() => setChartMode(m)}
+                      className={cn('rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition-colors',
+                        chartMode === m ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground')}>
+                      {m === 'live' ? 'Live' : 'Adv'}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {showLive ? (
+                <CryptoStreamChart symbol={symbol} />
+              ) : tvSymbol ? (
                 <TradingViewEmbed tvSymbol={tvSymbol} interval={interval} />
               ) : (
                 <div className="flex h-full w-full items-center justify-center p-6 text-center">
@@ -142,10 +166,13 @@ export default function TradingChartModal({
               )}
             </div>
 
-            {/* Timeframe switcher under the chart on mobile */}
-            <div className="border-t border-border/60 px-3 py-2 md:hidden">
-              <TimeframeSwitcher interval={interval} onChange={setInterval} />
-            </div>
+            {/* Timeframe switcher under the chart on mobile — hidden in Live
+                mode (the nChart carries its own 1m/5m/15m/1h selector). */}
+            {!showLive && (
+              <div className="border-t border-border/60 px-3 py-2 md:hidden">
+                <TimeframeSwitcher interval={interval} onChange={setInterval} />
+              </div>
+            )}
           </div>
 
           {/* Intelligence rail */}
