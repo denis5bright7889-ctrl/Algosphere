@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { isAdmin } from '@/lib/admin'
 import { isDemo } from '@/lib/demo'
 import { isBetaFreeAccessEnabled } from '@/lib/beta-access'
-import DesktopSidebar from '@/components/dashboard/DesktopSidebar'
+import IconRail from '@/components/dashboard/IconRail'
 import TopBar from '@/components/dashboard/TopBar'
 import MobileBottomNav from '@/components/dashboard/MobileBottomNav'
 import DemoBanner from '@/components/demo/DemoBanner'
@@ -58,14 +58,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   if (isTrialExpired && !trialExempt) redirect('/upgrade?reason=trial_expired')
 
-  // Upgrade prompt: skip for admin, anyone already on Pro/VIP (real or demo),
-  // and skip entirely during open beta (everyone is effectively VIP).
-  const topTier =
-    profile?.subscription_tier === 'premium' || profile?.subscription_tier === 'vip'
-  const topDemo =
-    profile?.account_type === 'demo_premium' || profile?.account_type === 'demo_vip'
-  const showUpgradePrompt = !admin && !betaOpen && !topTier && !topDemo
-
   // Effective nav tier — admins/beta see everything; demo tiers map to
   // their real-feature equivalent; otherwise the stored subscription.
   const navTier: 'free' | 'starter' | 'premium' | 'vip' =
@@ -83,7 +75,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="flex min-h-screen bg-background">
-      <DesktopSidebar admin={admin} showUpgradePrompt={showUpgradePrompt} tier={navTier} />
+      {/* Workstation left rail — 12 curated icons; long tail behind ⌘K */}
+      <IconRail admin={admin} tier={navTier} />
 
       <div className="flex flex-1 flex-col min-w-0">
         <TopBar />
