@@ -1,22 +1,31 @@
 'use client'
 
+/**
+ * Mobile bottom nav — the mode system on touch (mandatory per spec).
+ *
+ * Five tabs: Trade · Analyze · Research · Community · Account. The first
+ * four mirror the desktop ModeSwitcher (same `MODES` registry, so they
+ * never drift); Account is the mobile entry to settings/profile. Tapping
+ * a mode routes to its home — the page then renders the mobile workspace
+ * for that intent. Active tab is derived from the URL via `modeForPath`,
+ * so deep links highlight correctly.
+ */
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, CandlestickChart, Activity, Repeat, Users, type LucideIcon } from 'lucide-react'
+import { UserCog, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { MODES, modeForPath, type Mode } from '@/lib/modes'
 
-interface Item { href: string; label: string; icon: LucideIcon }
+interface Tab { key: Mode | 'account'; href: string; label: string; icon: LucideIcon }
 
-// Primary mobile nav per spec: Home · Markets · Signals · Portfolio · Community
-const ITEMS: Item[] = [
-  { href: '/overview',  label: 'Home',      icon: LayoutDashboard },
-  { href: '/market',    label: 'Markets',   icon: CandlestickChart },
-  { href: '/signals',   label: 'Signals',   icon: Activity },
-  { href: '/copy',      label: 'Portfolio', icon: Repeat },
-  { href: '/community', label: 'Community', icon: Users },
+const TABS: Tab[] = [
+  ...MODES.map((m): Tab => ({ key: m.id, href: m.home, label: m.label, icon: m.icon })),
+  { key: 'account', href: '/settings', label: 'Account', icon: UserCog },
 ]
 
 export default function MobileBottomNav() {
-  const pathname = usePathname()
+  const pathname = usePathname() ?? ''
+  const activeMode = modeForPath(pathname)
+  const onAccount = pathname.startsWith('/settings')
 
   return (
     <nav
@@ -26,22 +35,20 @@ export default function MobileBottomNav() {
         'px-3 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-1',
       )}
     >
-      {/* Floating rounded glass bar */}
       <ul className="mx-auto grid max-w-md grid-cols-5 rounded-2xl border border-border/70 glass-strong p-1 shadow-glow">
-        {ITEMS.map((item) => {
-          const active =
-            pathname === item.href || pathname.startsWith(`${item.href}/`)
-          const Icon = item.icon
+        {TABS.map((tab) => {
+          const active = tab.key === 'account' ? onAccount : (!onAccount && tab.key === activeMode)
+          const Icon = tab.icon
           return (
-            <li key={item.href}>
+            <li key={tab.key}>
               <a
-                href={item.href}
+                href={tab.href}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
                   'relative flex min-h-[52px] flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5',
                   'text-[10px] font-medium leading-none touch-manipulation transition-all duration-200',
                   active
-                    ? 'bg-gradient-primary text-white shadow-glow'
+                    ? 'bg-gradient-primary text-black shadow-glow'
                     : 'text-muted-foreground active:scale-95 active:bg-accent/40',
                 )}
               >
@@ -50,7 +57,7 @@ export default function MobileBottomNav() {
                   strokeWidth={active ? 2.25 : 1.75}
                   aria-hidden
                 />
-                <span className="truncate">{item.label}</span>
+                <span className="truncate">{tab.label}</span>
               </a>
             </li>
           )

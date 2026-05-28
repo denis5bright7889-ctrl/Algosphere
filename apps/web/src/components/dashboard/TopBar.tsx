@@ -2,10 +2,10 @@ import { createClient } from '@/lib/supabase/server'
 import { isAdmin } from '@/lib/admin'
 import { isBetaFreeAccessEnabled } from '@/lib/beta-access'
 import { Settings } from 'lucide-react'
-import LiveMarketPill from '@/components/ui/LiveMarketPill'
 import Logo from '@/components/brand/Logo'
 import MobileNav from './MobileNav'
 import UserMenu from './UserMenu'
+import ModeSwitcher from './ModeSwitcher'
 import CommandPalette from './CommandPalette'
 import CommandPaletteTrigger from './CommandPaletteTrigger'
 import NotificationBell from '@/components/social/NotificationBell'
@@ -74,15 +74,12 @@ export default async function TopBar() {
         </div>
       </div>
 
-      {/* CENTER — market status (compact on mobile) */}
-      <div className="flex items-center justify-center min-w-0">
-        <span className="hidden sm:inline">
-          <LiveMarketPill />
-        </span>
-        <span className="sm:hidden">
-          <LiveMarketPill compact />
-        </span>
+      {/* CENTER — global mode switch (Trade / Analyze / Research / Community).
+          Desktop only; mobile carries the same four modes in the bottom nav. */}
+      <div className="hidden md:flex items-center justify-center min-w-0">
+        <ModeSwitcher />
       </div>
+      <div className="md:hidden" aria-hidden />
 
       {/* RIGHT — admin · bell · settings · avatar */}
       <div className="flex items-center justify-end gap-1.5">
