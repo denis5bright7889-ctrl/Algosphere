@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
-import { recomputeTraderScore } from '@/lib/trader-scoring'
 import { reviewTrade } from '@/lib/ai-reviews'
 import { evaluateTrade, EVALUATOR_VERSION } from '@/lib/intelligence/coach-eval'
 import { z } from 'zod'
+// Refocus R7: recomputeTraderScore call removed — lib/trader-scoring
+// deleted alongside trader_scores / trader_follows / strategy_subscriptions.
 
 const journalEntrySchema = z.object({
   pair: z.string().min(1),
@@ -81,11 +82,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  // Recompute this trader's composite score (non-blocking)
-  if (parsed.data.pnl != null) {
-    recomputeTraderScore(createServiceClient(), user.id)
-      .catch(err => console.error('Score recompute failed:', err))
-  }
+  // Refocus R7: trader composite-score recompute removed alongside
+  // the retired leaderboard.
 
   // AI trade review (non-blocking — patches ai_review + ai_score post-insert).
   // Only review trades with enough context to score meaningfully.

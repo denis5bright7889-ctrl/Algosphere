@@ -18,7 +18,10 @@ type Sb = Awaited<ReturnType<typeof createClient>>
 
 /** Merged stream of recent account events from real tables. */
 async function loadActivity(sb: Sb, userId: string): Promise<ActivityItem[]> {
-  const [{ data: payments }, { data: brokers }, { data: notifs }] = await Promise.all([
+  // Refocus R7: social_notifications removed alongside the deleted
+  // notification bell. Activity stream now reads payments + broker
+  // updates only; coach alerts arrive via /intelligence/me.
+  const [{ data: payments }, { data: brokers }] = await Promise.all([
     sb.from('crypto_payments')
       .select('id, plan, amount_usd, status, created_at, reviewed_at')
       .eq('user_id', userId)
@@ -29,11 +32,6 @@ async function loadActivity(sb: Sb, userId: string): Promise<ActivityItem[]> {
       .eq('user_id', userId)
       .order('updated_at', { ascending: false })
       .limit(8),
-    sb.from('social_notifications')
-      .select('notif_type, message, created_at')
-      .eq('recipient_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(15),
   ])
 
   const out: ActivityItem[] = []
@@ -54,14 +52,7 @@ async function loadActivity(sb: Sb, userId: string): Promise<ActivityItem[]> {
       detail: b.is_testnet ? 'Testnet' : 'Live',
     })
   }
-  for (const n of notifs ?? []) {
-    out.push({
-      when:  n.created_at,
-      icon:  Bell,
-      title: 'Notification',
-      detail: n.message?.slice(0, 90) ?? n.notif_type,
-    })
-  }
+  // Refocus R7: social_notifications activity feed removed.
 
   return out
     .sort((a, b) => new Date(b.when).getTime() - new Date(a.when).getTime())

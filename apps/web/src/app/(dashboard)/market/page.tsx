@@ -44,17 +44,10 @@ export default async function MarketTrackerPage() {
     })),
   }))
 
-  // Trending traders: top by 24h rank change
-  const { data: traders } = await supabase
-    .from('trader_scores')
-    .select(`
-      user_id, composite_score, rank_change_24h, win_rate,
-      monthly_return_pct, followers_count, risk_label,
-      profiles!inner ( public_handle, bio )
-    `)
-    .gte('total_trades', 10)
-    .order('rank_change_24h', { ascending: false })
-    .limit(8)
+  // Refocus R7: trader_scores leaderboard removed. The trader-
+  // intelligence dashboard at /intelligence/me is the new self-
+  // tracking surface; public trader ranking is out of scope for the
+  // refocused platform.
 
   // Trending pairs: by signal volume + win rate over last 7d
   const sevenDaysAgo = new Date(Date.now() - 7 * 86400_000).toISOString()
@@ -168,53 +161,8 @@ export default async function MarketTrackerPage() {
         </div>
       </div>
 
-      {/* Trending Traders */}
-      <h2 className="text-xs uppercase tracking-widest text-muted-foreground font-bold mb-3">
-        Trending Traders (24h rank movers)
-      </h2>
-      {!traders || traders.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-          No trending traders yet — log trades and publish your profile to appear here.
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {/* Refocus R1: trader leaderboard cards rendered as
-             non-link tiles. The /traders public profile route was
-             retired; this section will be replaced in R4 by the
-             Trader Intelligence Dashboard's own self-tracking. */}
-          {traders.map((t: any) => (
-            <div
-              key={t.user_id}
-              className="rounded-2xl border border-border bg-card p-4 flex items-center gap-3"
-            >
-              <span className="h-10 w-10 rounded-full bg-gradient-to-br from-amber-400/40 to-amber-700/40 border border-amber-500/30 flex items-center justify-center text-sm font-bold text-amber-300 flex-shrink-0">
-                {(t.profiles?.public_handle ?? '?')[0].toUpperCase()}
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold truncate">
-                  @{t.profiles?.public_handle}
-                </p>
-                <p className="text-[11px] text-muted-foreground">
-                  WR {t.win_rate ?? '—'}% · {t.monthly_return_pct != null
-                    ? `${t.monthly_return_pct >= 0 ? '+' : ''}${t.monthly_return_pct.toFixed(1)}%/mo`
-                    : '—'}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-xs font-bold text-amber-300 tabular-nums">
-                  {Math.round(t.composite_score)}
-                </p>
-                {t.rank_change_24h > 0 && (
-                  <p className="text-[10px] text-emerald-400 tabular-nums">▲ {t.rank_change_24h}</p>
-                )}
-                {t.rank_change_24h < 0 && (
-                  <p className="text-[10px] text-rose-400 tabular-nums">▼ {Math.abs(t.rank_change_24h)}</p>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Refocus R7: Trending Traders section removed — see
+         /intelligence/me for individual self-tracking. */}
 
       <p className="mt-6 text-[10px] text-muted-foreground text-center">
         Live crypto prices stream above from Binance in real time. On-chain

@@ -8,7 +8,9 @@ import MobileNav from './MobileNav'
 import UserMenu from './UserMenu'
 import CommandPalette from './CommandPalette'
 import CommandPaletteTrigger from './CommandPaletteTrigger'
-import NotificationBell from '@/components/social/NotificationBell'
+// Refocus R7: NotificationBell deleted alongside social_notifications.
+// A trader-intelligence notification bell (coach alerts, evaluation
+// landed, etc.) will re-emerge on the new schema in a focused PR.
 
 /**
  * Global command bar (LAYER 1).
@@ -98,7 +100,6 @@ export default async function TopBar() {
             Admin
           </Link>
         )}
-        <NotificationBell />
         <Link
           href="/settings"
           aria-label="Settings"
