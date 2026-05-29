@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 import SectionHeader from '@/components/ui/SectionHeader'
 import EngineLivePanel from '@/components/algo/EngineLivePanel'
+import AutotradeArmCard from '@/components/algo/AutotradeArmCard'
 import WhyNoSignalsPanel from '@/components/algo/WhyNoSignalsPanel'
 
 export const metadata = { title: 'Auto Trading — Institutional Execution Desk' }
@@ -216,9 +217,15 @@ export default async function AlgoTradingPage() {
         )}
       </div>
 
+      {/* Autonomous-execution arming surface — spec sections 2, 10, 11, 14.
+          Renders disabled when no broker, the arming form when disarmed,
+          and the mode badge + Pause + Panic close when armed. */}
+      <div className="mb-6">
+        <AutotradeArmCard />
+      </div>
+
       {/* Live pipeline diagnostics — engine /diagnostics/trading.
-          Tells the user (and ops) WHICH gate is killing signals right now.
-          Read-only observability surface; no execution behavior change. */}
+          Tells the user (and ops) WHICH gate is killing signals right now. */}
       <div className="mb-6">
         <WhyNoSignalsPanel />
       </div>

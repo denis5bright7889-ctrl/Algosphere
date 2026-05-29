@@ -13,9 +13,14 @@ class Regime(str, Enum):
     MEAN_REVERSION = "ranging"
     RANGING        = "ranging"
     HIGH_VOLATILITY= "volatile"
+    BREAKOUT_EXPANSION = "expansion"  # alias preserved below — spec section 4 name
     EXPANSION      = "expansion"      # ATR rising into the middle band before peak vol
     TRANSITIONAL   = "transitional"   # ambiguous features — regime shift in progress
     EXHAUSTION     = "exhaustion"
+    # Spec section 4 additions — both fully suppress trades because they
+    # indicate a price action environment where signal edge collapses:
+    NEWS_SHOCK     = "news_shock"     # vol explosion w/ chaos (event driven)
+    LIQUIDITY_TRAP = "liquidity_trap" # PDH/PDL sweep + immediate reversion (stop-hunt)
     UNKNOWN        = "unknown"
 
 
@@ -45,6 +50,49 @@ def classify_regime(features: EngineFeatures) -> RegimeResult:
     ent   = features.entropy
     ac    = features.autocorr
     atr_p = features.atr_percentile
+    close = features.close
+    pdh   = features.pdh
+    pdl   = features.pdl
+    atr   = features.atr14 or 1.0
+
+    # --- NEWS_SHOCK: vol explosion + chaos (event-driven, suppress) ---
+    # Spec section 4. Signature: ATR in the top percentile band AND
+    # directional efficiency collapsed (price is bouncing chaotically)
+    # AND entropy elevated. Different from HIGH_VOLATILITY because the
+    # latter still has some directional energy.
+    if atr_p >= 90 and der <= 0.15 and ent >= 2.8:
+        regime = Regime.NEWS_SHOCK
+        conf = min((atr_p - 90) / 10 * 0.5 + (0.15 - der) / 0.15 * 0.5, 1.0)
+        weights = {'trend_continuation': 0.0, 'liquidity_sweep': 0.0, 'momentum_breakout': 0.0}
+        desc = f"News shock — ATR_pct={atr_p:.0f}%, DER={der:.2f}, entropy={ent:.2f}"
+        return RegimeResult(
+            regime=regime, confidence=conf,
+            der_score=der, entropy_score=ent, autocorr_score=ac,
+            atr_percentile=atr_p, description=desc, strategy_weights=weights,
+        )
+
+    # --- LIQUIDITY_TRAP: PDH/PDL sweep + immediate reversion (stop-hunt) ---
+    # Spec section 4. Signature: price has very recently swept beyond
+    # PDH or PDL by less than 1 ATR AND closed back through it AND
+    # autocorr is negative (mean-reverting micro-structure) AND DER is
+    # low (no real follow-through). Classic stop hunt — fully suppress.
+    if pdh > 0 and pdl > 0 and ac < -0.1 and der < 0.2:
+        # Sweep + revert: close back inside the prior range by < 0.6 ATR
+        # after an excursion above PDH or below PDL. Autocorr restated
+        # tighter here so the trap only fires on confirmed micro reversal.
+        swept_high = (close < pdh) and ((pdh - close) < atr * 0.6) and ac < -0.15
+        swept_low  = (close > pdl) and ((close - pdl) < atr * 0.6) and ac < -0.15
+        if swept_high or swept_low:
+            regime = Regime.LIQUIDITY_TRAP
+            conf = min(abs(ac) / 0.4 * 0.6 + (0.2 - der) / 0.2 * 0.4, 1.0)
+            weights = {'trend_continuation': 0.0, 'liquidity_sweep': 0.0, 'momentum_breakout': 0.0}
+            level = 'PDH' if swept_high else 'PDL'
+            desc = f"Liquidity trap — {level} swept + reverted, DER={der:.2f}, autocorr={ac:.2f}"
+            return RegimeResult(
+                regime=regime, confidence=conf,
+                der_score=der, entropy_score=ent, autocorr_score=ac,
+                atr_percentile=atr_p, description=desc, strategy_weights=weights,
+            )
 
     # --- Trending: high DER + positive autocorr + moderate entropy ---
     # DER is the Kaufman Efficiency Ratio (0..1). Empirically ~0.30 marks a
@@ -117,7 +165,7 @@ def classify_regime(features: EngineFeatures) -> RegimeResult:
 
 def regime_suppresses_trading(regime: Regime) -> bool:
     """Returns True if the regime should block all signal generation."""
-    return regime == Regime.EXHAUSTION
+    return regime in (Regime.EXHAUSTION, Regime.NEWS_SHOCK, Regime.LIQUIDITY_TRAP)
 
 
 def regime_quality_score(regime: Regime) -> float:
@@ -128,11 +176,13 @@ def regime_quality_score(regime: Regime) -> float:
     the regime is shifting, which is exactly when signal quality suffers).
     """
     return {
-        Regime.TRENDING:       1.0,
-        Regime.MEAN_REVERSION: 0.85,
+        Regime.TRENDING:        1.0,
+        Regime.MEAN_REVERSION:  0.85,
         Regime.HIGH_VOLATILITY: 0.65,
-        Regime.EXPANSION:      0.75,
-        Regime.TRANSITIONAL:   0.5,
-        Regime.EXHAUSTION:     0.0,
-        Regime.UNKNOWN:        0.6,
+        Regime.EXPANSION:       0.75,
+        Regime.TRANSITIONAL:    0.5,
+        Regime.EXHAUSTION:      0.0,
+        Regime.NEWS_SHOCK:      0.0,
+        Regime.LIQUIDITY_TRAP:  0.0,
+        Regime.UNKNOWN:         0.6,
     }.get(regime, 0.5)

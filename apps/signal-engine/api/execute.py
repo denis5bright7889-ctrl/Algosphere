@@ -62,6 +62,67 @@ _kill_cache: dict = {'active': False, 'reason': None, 'checked_at': 0.0}
 _KILL_TTL_S = 5.0
 
 
+# ─── Per-user autotrade arming (cached) ───────────────────────────────
+# Spec section 11: "No execution without FULL_AUTOTRADE enabled". The
+# profiles table owns the arming flag (flipped only via the web
+# /api/trading/arm + /api/trading/disarm routes). We cache the verdict
+# per-user for a brief window so a tight signal stream doesn't add a DB
+# read per submit. Fail-CLOSED on read error: if we cannot verify the
+# user opted in, we refuse the order — the engine NEVER fabricates
+# arming. user_id-less orders (env-singleton paper mode) skip the gate;
+# they only fire in single-tenant deploys, which the operator controls
+# directly.
+_autotrade_cache: dict[str, dict] = {}
+_AUTOTRADE_TTL_S = 10.0
+# Deployed consent doc version — must match api/trading.py.
+import os as _os
+AUTOTRADE_CONSENT_DOC_VERSION = int(_os.getenv('AUTOTRADE_CONSENT_DOC_VERSION', '1'))
+
+
+async def _autotrade_armed(user_id: str) -> tuple[bool, Optional[str]]:
+    """Returns (allowed, block_reason). block_reason is None when allowed."""
+    import time as _t
+    now = _t.monotonic()
+    cached = _autotrade_cache.get(user_id)
+    if cached and (now - cached['checked_at']) < _AUTOTRADE_TTL_S:
+        return cached['allowed'], cached['reason']
+
+    try:
+        from config import get_settings
+        from supabase import create_client
+        s = get_settings()
+        if not s.has_supabase:
+            # Fail-CLOSED — no DB → cannot prove arming.
+            return False, 'supabase_unavailable'
+        db = create_client(s.supabase_url, s.supabase_service_role_key)
+        res = await asyncio.to_thread(
+            lambda: db.table('profiles')
+            .select('full_autotrade_enabled, autotrade_consent_version, trading_mode')
+            .eq('id', user_id)
+            .single()
+            .execute()
+        )
+        row = res.data or {}
+        enabled = bool(row.get('full_autotrade_enabled'))
+        cv      = int(row.get('autotrade_consent_version') or 0)
+
+        if not enabled:
+            allowed, reason = False, 'autotrade_disabled'
+        elif cv < AUTOTRADE_CONSENT_DOC_VERSION:
+            allowed, reason = False, f'consent_stale (have v{cv}, need v{AUTOTRADE_CONSENT_DOC_VERSION})'
+        else:
+            allowed, reason = True, None
+    except Exception as e:
+        logger.warning(f"autotrade check failed for {user_id[:8]} (fail-closed): {e}")
+        # Cache the failure briefly so we don't hammer the DB.
+        allowed, reason = False, 'profile_lookup_failed'
+
+    _autotrade_cache[user_id] = {
+        'allowed': allowed, 'reason': reason, 'checked_at': now,
+    }
+    return allowed, reason
+
+
 async def _kill_switch_active() -> tuple[bool, Optional[str]]:
     import time as _t
     now = _t.monotonic()
@@ -264,6 +325,25 @@ async def execute(payload: ExecuteIn) -> ExecuteOut:
             ok=False, broker=payload.broker, testnet=True,
             error=f'kill_switch_active: {kill_reason or "halted"}',
         )
+
+    # ── Per-user autotrade arming gate ───────────────────────────────
+    # Spec section 11: "No execution without FULL_AUTOTRADE enabled".
+    # Refuses opening orders for users who haven't armed. reduce_only
+    # orders (closes / panic-flatten) bypass the gate — risk-reducing
+    # actions must always be permitted, even after the user disarms.
+    # No user_id → single-tenant paper / dev path; we skip the gate
+    # there because the operator owns the deploy directly.
+    if payload.user_id and not payload.reduce_only:
+        armed, arm_reason = await _autotrade_armed(payload.user_id)
+        if not armed:
+            logger.warning(
+                f"execution blocked — autotrade not armed for "
+                f"{payload.user_id[:8]}: {arm_reason}"
+            )
+            return ExecuteOut(
+                ok=False, broker=payload.broker, testnet=True,
+                error=f'autotrade_not_armed: {arm_reason}',
+            )
 
     # ── Order idempotency: suppress duplicate fills (fail-open) ──────
     coid = payload.client_order_id

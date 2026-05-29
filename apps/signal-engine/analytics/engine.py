@@ -42,9 +42,11 @@ CONFIDENCE_TO_EXPECTED_WIN = {
 
 
 def _confidence_to_tier(score: int) -> str:
-    if score < 50:   return 'blocked'
-    if score < 65:   return 'normal'
-    if score < 80:   return 'aggressive'
+    # Spec section 5 bands (must mirror confidence_engine thresholds):
+    #   <45 reject · 45–69 reduced · 70–84 standard · 85+ aggressive
+    if score < 45:   return 'blocked'
+    if score < 70:   return 'normal'
+    if score < 85:   return 'aggressive'
     return 'exceptional'
 
 

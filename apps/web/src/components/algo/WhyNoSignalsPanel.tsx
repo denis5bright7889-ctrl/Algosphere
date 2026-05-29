@@ -198,6 +198,9 @@ export default function WhyNoSignalsPanel() {
                       <td className={cn('px-2 py-1 text-right tabular-nums',
                         s.starved ? 'text-rose-300 font-semibold' : '')}>
                         {s.active}/{active.max_active_per_symbol}
+                        {s.manual > 0 && (
+                          <span className="ml-1 text-[10px] text-muted-foreground/70">+{s.manual} manual</span>
+                        )}
                       </td>
                       <td className="px-2 py-1">
                         {breaker?.is_open
