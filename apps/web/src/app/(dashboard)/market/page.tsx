@@ -178,17 +178,20 @@ export default async function MarketTrackerPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Refocus R1: trader leaderboard cards rendered as
+             non-link tiles. The /traders public profile route was
+             retired; this section will be replaced in R4 by the
+             Trader Intelligence Dashboard's own self-tracking. */}
           {traders.map((t: any) => (
-            <a
+            <div
               key={t.user_id}
-              href={`/traders/${t.profiles?.public_handle ?? ''}`}
-              className="group rounded-2xl border border-border bg-card p-4 hover:border-amber-500/40 transition-colors flex items-center gap-3"
+              className="rounded-2xl border border-border bg-card p-4 flex items-center gap-3"
             >
               <span className="h-10 w-10 rounded-full bg-gradient-to-br from-amber-400/40 to-amber-700/40 border border-amber-500/30 flex items-center justify-center text-sm font-bold text-amber-300 flex-shrink-0">
                 {(t.profiles?.public_handle ?? '?')[0].toUpperCase()}
               </span>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold group-hover:text-amber-300 transition-colors truncate">
+                <p className="text-sm font-semibold truncate">
                   @{t.profiles?.public_handle}
                 </p>
                 <p className="text-[11px] text-muted-foreground">
@@ -208,15 +211,14 @@ export default async function MarketTrackerPage() {
                   <p className="text-[10px] text-rose-400 tabular-nums">▼ {Math.abs(t.rank_change_24h)}</p>
                 )}
               </div>
-            </a>
+            </div>
           ))}
         </div>
       )}
 
       <p className="mt-6 text-[10px] text-muted-foreground text-center">
         Live crypto prices stream above from Binance in real time. On-chain
-        whale-flow analytics activate when the chain-engine service is deployed.{' '}
-        <a href="/learn" className="text-amber-300 hover:underline">Learn how →</a>
+        whale-flow analytics activate when the chain-engine service is deployed.
       </p>
     </div>
   )

@@ -9,7 +9,9 @@ const LINKS = [
   { href: '#features',     label: 'Features' },
   { href: '#how',          label: 'How it works' },
   { href: '#pricing',      label: 'Pricing' },
-  { href: '/traders',      label: 'Leaderboard' },
+  // Refocus R1: Leaderboard link removed — public leaderboard retired
+  // along with the social surfaces. Will be replaced in R3 by the
+  // Premium Telegram Community Hub link.
   { href: '#faq',          label: 'FAQ' },
 ]
 

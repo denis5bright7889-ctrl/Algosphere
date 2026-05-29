@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { X, EyeOff, ExternalLink, Loader2, CheckCircle2 } from 'lucide-react'
+import { X, EyeOff, Loader2, CheckCircle2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -115,16 +115,10 @@ export default function ReportRow({ r, readOnly = false }: Props) {
                 <EyeOff className="h-3 w-3" strokeWidth={2} aria-hidden />
                 Hide content
               </button>
-              {r.target_type === 'social_post' && (
-                <a
-                  href="/social"
-                  className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-                  target="_blank" rel="noopener noreferrer"
-                >
-                  <ExternalLink className="h-3 w-3" strokeWidth={1.75} aria-hidden />
-                  Open feed
-                </a>
-              )}
+              {/* Refocus R1: /social feed retired — the link no longer
+                 resolves. Admin reports remain queryable until R6
+                 schema cleanup, but the "Open feed" affordance is
+                 dropped. */}
             </>
           )}
           {error && <span className="ml-2 text-xs text-rose-400">{error}</span>}

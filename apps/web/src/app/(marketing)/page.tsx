@@ -91,7 +91,7 @@ const FAQS = [
   },
   {
     q: 'Do I need a specific broker?',
-    a: 'No — signals include entry, SL, and TP levels that you enter manually on any broker. A copy-trading bridge (MT4/MT5) is on the roadmap.',
+    a: 'No — signals include entry, SL, and TP levels that you enter manually on any broker. Connect MT5 (and supported crypto venues) for the optional auto-execution layer when you are away from the screen.',
   },
   {
     q: 'Is there a free plan?',
