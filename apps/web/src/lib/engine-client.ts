@@ -85,9 +85,28 @@ async function getJson<T>(path: string): Promise<Result<T>> {
   }
 }
 
+export interface TelemetryDistributions {
+  generated_at:  string
+  lookback_days: number
+  total_signals: number
+  confidence_distribution: {
+    scored_signals: number
+    buckets: { reject: number; reduced: number; standard: number; aggressive: number }
+  }
+  win_rate_by_regime: Record<string, {
+    wins: number; losses: number; breakeven: number; closed: number; win_rate: number | null
+  }>
+  strategy_contribution: { available: boolean; note?: string; signals_with_strategies?: number; counts?: Record<string, number> }
+  rejection_reasons:     { available: boolean; note?: string }
+  mt5_reconnect_frequency: { available: boolean; note?: string; mt5_accounts?: number; connected?: number; failed?: number; failed_pct?: number }
+}
+
 export function getEngineStatus():   Promise<Result<EngineStatus>>   { return getJson('/status') }
 export function getRiskTelemetry():  Promise<Result<RiskTelemetry>>  { return getJson('/risk/telemetry') }
 export function getCircuitBreakers(): Promise<Result<CircuitBreakers>> { return getJson('/circuit-breaker') }
+export function getTelemetryDistributions(lookbackDays = 30): Promise<Result<TelemetryDistributions>> {
+  return getJson(`/telemetry/distributions?lookback_days=${lookbackDays}`)
+}
 
 
 // ─── Write endpoints (engine key required) ──────────────────────────
@@ -107,9 +126,20 @@ export interface BrokerTestResult {
  * + /api/brokers/[id]/test routes both call this so the user gets an
  * immediate verdict — no 10-minute pending limbo.
  *
- * Longer timeout (20s) than reads: the actual handshake to Binance /
- * Bybit / OKX can take a few seconds, especially on a cold engine.
+ * Per-broker timeout: crypto venues (Binance/Bybit/OKX) handshake in
+ * 1–5s. MT5 routes through the Windows bridge which re-logs the
+ * terminal per call (10–25s cold-start) and serialises via a global
+ * lock, so we give it a much wider window. The engine itself has no
+ * upstream timeout — only the web → engine HTTP edge is bounded.
  */
+const TEST_TIMEOUT_MS: Record<string, number> = {
+  mt5:      45_000,
+  ctrader:  45_000,
+  oanda:    30_000,
+  tradovate:30_000,
+}
+const TEST_TIMEOUT_DEFAULT_MS = 20_000
+
 export async function testBrokerConnection(
   userId: string,
   broker: string,
@@ -119,7 +149,10 @@ export async function testBrokerConnection(
   const key = process.env.ENGINE_API_KEY ?? ''
 
   const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 20_000)
+  const timer = setTimeout(
+    () => ctrl.abort(),
+    TEST_TIMEOUT_MS[broker.toLowerCase()] ?? TEST_TIMEOUT_DEFAULT_MS,
+  )
   try {
     const res = await fetch(`${base}/api/v1/brokers/test`, {
       method:  'POST',

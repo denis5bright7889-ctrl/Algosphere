@@ -32,7 +32,13 @@ class RiskConfig(BaseSettings):
     max_effective_risk_pct:  float = 0.02    # micro-account hard cap (2 %)
 
     # ─── Portfolio exposure ────────────────────────────────────────────────
-    max_open_positions: int = 5
+    max_open_positions:        int = 5
+    # Spec section 6: portfolio-level controls.
+    max_open_per_symbol:       int = 1     # one position per instrument
+    max_correlated_positions:  int = 2     # cap on simultaneous opens in any
+                                            # correlated group (see CORRELATED_GROUPS)
+    max_portfolio_risk_pct:    float = 0.03 # 3 % total risk budget across all open
+                                            # positions (sum of per-trade risk_pct)
 
     # ─── Pre-trade validation ──────────────────────────────────────────────
     max_spread_pips:        float = 5.0

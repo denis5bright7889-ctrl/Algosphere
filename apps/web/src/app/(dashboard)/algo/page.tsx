@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 import SectionHeader from '@/components/ui/SectionHeader'
 import EngineLivePanel from '@/components/algo/EngineLivePanel'
+import AutotradeArmCard from '@/components/algo/AutotradeArmCard'
 
 export const metadata = { title: 'Auto Trading — Institutional Execution Desk' }
 export const dynamic = 'force-dynamic'
@@ -213,6 +214,13 @@ export default async function AlgoTradingPage() {
             <ArrowRight className="h-4 w-4" strokeWidth={2.25} aria-hidden />
           </a>
         )}
+      </div>
+
+      {/* Autonomous-execution arming surface — spec sections 2, 10, 11, 14.
+          Renders disabled when no broker, the arming form when disarmed,
+          and the mode badge + Pause + Panic close when armed. */}
+      <div className="mb-6">
+        <AutotradeArmCard />
       </div>
 
       {/* Telegram preview — real chat-link state, honest CTA when missing */}
