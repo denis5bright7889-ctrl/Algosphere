@@ -111,8 +111,14 @@ def _acquire_single_instance() -> bool:
             return False
         # Stale lock (dead pid or no health) → reclaim it.
         logger.warning(f'start.py: stale lock (pid={existing_pid}) — reclaiming')
-        try: _LOCK_PATH.unlink()
-        except Exception: pass
+        try:
+            _LOCK_PATH.unlink()
+        except Exception:
+            # On Windows, an elevated process owns the file and a
+            # non-elevated session cannot unlink it.  Overwriting
+            # with PID 0 is enough — _pid_alive(0) is always False.
+            try: _LOCK_PATH.write_text('0')
+            except Exception: pass
 
     # 2. Port held by someone else?
     if not _port_is_free(HOST, PORT):
