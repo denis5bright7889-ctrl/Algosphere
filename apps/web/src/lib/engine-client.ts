@@ -158,9 +158,13 @@ export interface TradingDiagnostics {
   active_signals: {
     available?: boolean; note?: string
     max_active_per_symbol?: number
-    starved_symbols?: number; total_active?: number
+    starved_symbols?: number
+    total_active_algo?: number; total_active_manual?: number
     symbols?: Array<{
-      symbol: string; active: number; starved: boolean
+      symbol: string
+      active: number      // engine_version='algo_v1' only — the one that gates
+      manual: number      // engine_version='manual' — surfaced for context, no gating effect
+      starved: boolean
       oldest_open: string | null
     }>
   }
