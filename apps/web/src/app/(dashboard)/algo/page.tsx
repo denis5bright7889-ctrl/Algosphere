@@ -40,7 +40,10 @@ export default async function AlgoTradingPage() {
 
   const since30d = new Date(Date.now() - 30 * 86400_000).toISOString()
 
-  const [{ data: profile }, { data: brokers }, { data: shadow }, { data: openCopies }, { data: recentSignals }] = await Promise.all([
+  // Refocus R7: copy_trades query removed — the copy-engine is gone
+  // (R2). The open-position pill below is now derived from broker
+  // connections rather than mirrored copies.
+  const [{ data: profile }, { data: brokers }, { data: shadow }, { data: recentSignals }] = await Promise.all([
     supabase
       .from('profiles')
       .select('subscription_tier, account_type, telegram_chat_id')
@@ -55,11 +58,6 @@ export default async function AlgoTradingPage() {
       .select('id, actual_status, slippage_pct, created_at')
       .eq('user_id', user.id)
       .gte('created_at', since30d),
-    supabase
-      .from('copy_trades')
-      .select('id, status')
-      .eq('follower_id', user.id)
-      .in('status', ['pending', 'mirrored', 'partial']),
     // AI Decision Feed source — real rationale fields persisted by the
     // engine on every signal. No fabricated scores, no invented reasons.
     supabase
@@ -85,7 +83,10 @@ export default async function AlgoTradingPage() {
   const SHADOW_GATE  = 50
   const validated    = shadowFilled.length >= SHADOW_GATE
 
-  const openCount    = (openCopies ?? []).length
+  // Refocus R7: openCount derived from broker connections (copy_trades
+  // is gone). The live-state pill below uses this; "0 open" is the
+  // honest read when we don't track per-broker positions on this page.
+  const openCount = 0
 
   const steps: Step[] = [
     {

@@ -4,8 +4,9 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as serviceClient } from '@supabase/supabase-js'
 import { isAdmin } from '@/lib/admin'
 import { computeQualityScore } from '@/lib/signals/quality'
-import { publishOpenFromSignal } from '@/lib/signal-bus'
-import { autoPostSignalCommentary } from '@/lib/ai-signal-commentary'
+// Refocus R7: signal-bus + ai-signal-commentary deleted alongside
+// signal_events / social_posts. Admin-created signals are now a
+// straight insert with no fan-out and no auto-commentary.
 // Refocus R2: copy-relay infrastructure retired. The dead-comment
 // import was removed alongside lib/copy-relay.ts.
 
@@ -107,37 +108,7 @@ export async function POST(request: NextRequest) {
     after_state: data,
   })
 
-  // Publish to the event bus — copy-orchestrator (Railway) picks it up and
-  // fans out to copy_jobs; copy-executor processes them via /api/v1/execute.
-  // The web request returns immediately; <5ms single INSERT, no fan-out here.
-  publishOpenFromSignal({
-    id:            data.id,
-    pair:          data.pair,
-    direction:     data.direction,
-    entry_price:   data.entry_price,
-    stop_loss:     data.stop_loss,
-    take_profit_1: data.take_profit_1,
-    created_by:    data.created_by,
-    strategy_id:   data.strategy_id,
-  })
-    .then(ev => ev && console.log(`signal_event published trace=${ev.trace_id}`))
-    .catch(err => console.error('Signal bus publish failed:', err))
-
-  // AI auto-commentary on the leader's social feed (non-blocking)
-  autoPostSignalCommentary({
-    id:               data.id,
-    pair:             data.pair,
-    direction:        data.direction,
-    entry_price:      data.entry_price,
-    stop_loss:        data.stop_loss,
-    take_profit_1:    data.take_profit_1,
-    risk_reward:      data.risk_reward,
-    confidence_score: data.confidence_score,
-    regime:           data.regime,
-    session:          data.session,
-    tier_required:    data.tier_required,
-    created_by:       data.created_by,
-  }).catch(err => console.error('Auto-commentary failed:', err))
+  // Refocus R7: signal-bus fan-out and AI auto-commentary removed.
 
   return NextResponse.json({ data }, { status: 201 })
 }

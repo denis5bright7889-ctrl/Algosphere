@@ -21,7 +21,7 @@ import {
   CandlestickChart, CalendarDays, Newspaper, Brain,
   Network, MessagesSquare, Repeat,
   BookOpen, Calculator, Briefcase, BrainCircuit, KeyRound, Rocket,
-  Settings2, BadgeDollarSign, Handshake, BadgeCheck, LogOut,
+  Settings2, BadgeDollarSign, Handshake, LogOut,
   LineChart, UserCog, Waves, PieChart,
   Building2, Coins, TrendingUp, Grid3x3, Sparkles, Crown,
   type LucideIcon,
@@ -107,7 +107,8 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/workspace',  label: 'Chart Workspace',icon: CandlestickChart, keywords: 'multi chart tradingview workspace tabs layouts split quad compare overlay favorites recent persistent terminal bloomberg institutional ai rail' },
       { href: '/algo',       label: 'Auto Trading',   icon: Cpu,         keywords: 'algo bot mt5 institutional execution gateway desk activate engine' },
-      { href: '/execution',  label: 'Execution Desk', icon: Cpu,         minTier: 'vip',     keywords: 'auto orders fills bot live dashboard' },
+      // Refocus R7: /execution retired — its data source (copy_trades)
+      // is dropped. Autotrade observability will rebuild on PR #59B.
       { href: '/brokers',    label: 'Brokers',        icon: Landmark,    keywords: 'binance bybit okx mt5 api keys connect' },
       { href: '/risk',       label: 'Risk Engine',    icon: ShieldCheck, keywords: 'drawdown limits position size' },
       { href: '/journal',    label: 'Trade Journal',  icon: BookOpen,    keywords: 'trade log diary' },
@@ -162,7 +163,9 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/settings',     label: 'Settings',     icon: UserCog,         keywords: 'account security 2fa devices preferences' },
       { href: '/upgrade',      label: 'Billing & Plan', icon: BadgeDollarSign, keywords: 'subscription billing plan renew upgrade' },
       { href: '/referrals',    label: 'Affiliate',    icon: Handshake,       keywords: 'referral commission' },
-      { href: '/verification', label: 'Verification', icon: BadgeCheck,      keywords: 'verified track record kyc' },
+      // Refocus R7: /verification retired — its data sources are
+      // dropped alongside the leaderboard. Trader self-tracking lives
+      // on /intelligence/me now.
       { action: 'logout',      label: 'Logout',       icon: LogOut,          keywords: 'sign out' },
     ],
   },
