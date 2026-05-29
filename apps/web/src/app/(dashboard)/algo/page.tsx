@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import SectionHeader from '@/components/ui/SectionHeader'
 import EngineLivePanel from '@/components/algo/EngineLivePanel'
 import AutotradeArmCard from '@/components/algo/AutotradeArmCard'
+import WhyNoSignalsPanel from '@/components/algo/WhyNoSignalsPanel'
 
 export const metadata = { title: 'Auto Trading — Institutional Execution Desk' }
 export const dynamic = 'force-dynamic'
@@ -221,6 +222,12 @@ export default async function AlgoTradingPage() {
           and the mode badge + Pause + Panic close when armed. */}
       <div className="mb-6">
         <AutotradeArmCard />
+      </div>
+
+      {/* Live pipeline diagnostics — engine /diagnostics/trading.
+          Tells the user (and ops) WHICH gate is killing signals right now. */}
+      <div className="mb-6">
+        <WhyNoSignalsPanel />
       </div>
 
       {/* Telegram preview — real chat-link state, honest CTA when missing */}

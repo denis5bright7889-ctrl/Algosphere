@@ -20,6 +20,7 @@ from api.routes import router as api_router
 from api.execute import router as execute_router
 from api.brokers import router as brokers_router
 from api.trading import router as trading_router
+from api.diagnostics import router as diagnostics_router
 from api.webhooks import router as webhooks_router
 from worker.signal_worker import SignalWorker
 from worker.lifecycle_monitor import LifecycleMonitor
@@ -104,6 +105,21 @@ def _build_scheduler(worker: SignalWorker, monitor: LifecycleMonitor):
         max_instances=1,
         coalesce=True,
         misfire_grace_time=120,
+    )
+
+    # Data-integrity monitor — every 60s, flags symbols whose feed has
+    # gone dark/stale (reads the engine's own scan output; no extra
+    # provider-quota cost). Surfaced at /api/v1/integrity/status.
+    from core.data_integrity_monitor import run_check as _integrity_check
+    scheduler.add_job(
+        _integrity_check,
+        trigger='interval',
+        seconds=60,
+        next_run_time=datetime.now(timezone.utc),
+        id='data_integrity',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=30,
     )
 
     return scheduler
@@ -215,6 +231,7 @@ def create_app() -> FastAPI:
     app.include_router(execute_router, prefix='/api/v1')
     app.include_router(brokers_router, prefix='/api/v1')
     app.include_router(trading_router, prefix='/api/v1')
+    app.include_router(diagnostics_router, prefix='/api/v1')
     app.include_router(webhooks_router, prefix='/api/v1')
 
     # ─── WebSocket endpoints ──────────────────────────────────────────────────
