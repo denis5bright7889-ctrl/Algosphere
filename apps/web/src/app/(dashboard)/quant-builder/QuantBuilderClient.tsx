@@ -1,321 +1,733 @@
 'use client'
-
-import { useState, useMemo } from 'react'
-import { X } from 'lucide-react'
+/**
+ * /quant-builder client island (Refocus R5b).
+ *
+ * Three modes the user toggles between:
+ *   1. LIST     — saved strategies on the left, picker / details on right
+ *   2. NEW      — template chooser (or blank)
+ *   3. EDIT     — block list with param controls + save / version history
+ *
+ * No drag-and-drop yet — block order is determined by category and the
+ * user reorders by deleting + re-adding from the catalog. Drag/drop
+ * arrives in a follow-up; the data shape supports it (instance ids
+ * are stable).
+ */
+import { useCallback, useMemo, useState } from 'react'
+import {
+  Trash2, Plus, Save, History, RotateCcw, X,
+  Loader2, FilePlus2, FileCode2, AlertOctagon, Sparkles,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
-  runBacktest,
-  syntheticBars,
-  type BacktestConfig,
-  type BacktestResult,
-  type StrategyType,
-} from '@/lib/backtest'
+  BLOCK_CATALOG, BLOCK_BY_KEY, BLOCKS_BY_CATEGORY,
+  validateStrategyConfig, blankConfig,
+  type BlockKey, type BlockInstance, type StrategyConfig,
+  type BlockCategory,
+} from '@/lib/strategies/blocks'
 
-type LogicOp = 'AND' | 'OR'
 
-interface Rule {
-  id:        string
-  indicator: 'ema_fast' | 'ema_slow' | 'rsi' | 'macd_hist' | 'bb_pct' | 'price'
-  op:        '>' | '<' | 'crosses_above' | 'crosses_below'
-  ref:       'ema_slow' | 'ema_fast' | 'value'
-  value?:    number
+export interface StrategyVersionRow {
+  id:              string
+  version_number:  number
+  notes:           string | null
+  config:          StrategyConfig
+  created_at:      string
 }
 
-const INDICATORS: { key: Rule['indicator']; label: string }[] = [
-  { key: 'ema_fast',  label: 'EMA Fast'   },
-  { key: 'ema_slow',  label: 'EMA Slow'   },
-  { key: 'rsi',       label: 'RSI(14)'    },
-  { key: 'macd_hist', label: 'MACD Hist'  },
-  { key: 'bb_pct',    label: 'BB %B'      },
-  { key: 'price',     label: 'Close Price'},
-]
 
-const STRATEGY_PRESETS: { key: StrategyType; label: string; description: string }[] = [
-  { key: 'ema_trend',     label: 'EMA Trend',     description: 'Fast EMA crosses slow EMA → trade the trend' },
-  { key: 'rsi_reversion', label: 'RSI Reversion', description: 'Buy oversold, sell overbought' },
-  { key: 'breakout',      label: 'Channel Break', description: 'Trade close beyond N-bar high/low' },
-]
+export interface StrategyRow {
+  id:              string
+  name:            string
+  description:     string | null
+  template_key:    string | null
+  is_archived:     boolean
+  head_version_id: string | null
+  created_at:      string
+  updated_at:      string
+  head:            StrategyVersionRow | StrategyVersionRow[] | null
+}
 
-// 16px on mobile (text-base) prevents iOS from zooming the viewport
-// when a select / input gains focus; ≥sm drops to the dense desktop size.
-const inputCls =
-  'rounded-lg border border-border bg-background px-2.5 py-2 text-base sm:text-xs sm:py-1.5 focus:outline-none focus:border-amber-500/40'
 
-let nextId = 0
-const mkId = () => `r${++nextId}`
+export interface TemplateCard {
+  key:       string
+  name:      string
+  category:  string
+  summary:   string
+  timeframe: string
+  pair_hint: string
+}
 
-export default function QuantBuilderClient() {
-  // Long-side rule list (visual no-code)
-  const [longRules, setLongRules] = useState<Rule[]>([
-    { id: mkId(), indicator: 'ema_fast', op: 'crosses_above', ref: 'ema_slow' },
-    { id: mkId(), indicator: 'rsi',      op: '<',             ref: 'value', value: 65 },
-  ])
-  const [logicOp, setLogicOp] = useState<LogicOp>('AND')
 
-  // Compiled preset (maps the rules to one of the canonical strategies)
-  const compiledStrategy: StrategyType = useMemo(() => compileToStrategy(longRules), [longRules])
+type Mode =
+  | { name: 'list' }
+  | { name: 'new' }
+  | { name: 'edit'; strategy: StrategyRow; config: StrategyConfig; dirty: boolean; versions: StrategyVersionRow[] }
 
-  const [riskPct, setRiskPct] = useState(1)
-  const [rr, setRr]           = useState(2)
-  const [slAtr, setSlAtr]     = useState(1.5)
-  const [bars, setBars]       = useState(800)
-  const [seed, setSeed]       = useState(42)
-  const [result, setResult]   = useState<BacktestResult | null>(null)
-  const [running, setRunning] = useState(false)
 
-  function addRule() {
-    setLongRules(r => [...r, { id: mkId(), indicator: 'rsi', op: '<', ref: 'value', value: 30 }])
-  }
-  function removeRule(id: string) {
-    setLongRules(r => r.length > 1 ? r.filter(x => x.id !== id) : r)
-  }
-  function updateRule(id: string, patch: Partial<Rule>) {
-    setLongRules(r => r.map(x => x.id === id ? { ...x, ...patch } : x))
-  }
+export default function QuantBuilderClient({
+  initialStrategies, templates,
+}: {
+  initialStrategies: StrategyRow[]
+  templates:         TemplateCard[]
+}) {
+  const [strategies, setStrategies] = useState<StrategyRow[]>(initialStrategies)
+  const [mode, setMode]             = useState<Mode>({ name: 'list' })
+  const [busy, setBusy]             = useState(false)
+  const [error, setError]           = useState<string | null>(null)
 
-  function loadPreset(s: StrategyType) {
-    if (s === 'ema_trend') setLongRules([
-      { id: mkId(), indicator: 'ema_fast', op: 'crosses_above', ref: 'ema_slow' },
-      { id: mkId(), indicator: 'rsi',      op: '<',             ref: 'value', value: 65 },
-    ])
-    else if (s === 'rsi_reversion') setLongRules([
-      { id: mkId(), indicator: 'rsi', op: '<', ref: 'value', value: 30 },
-    ])
-    else setLongRules([
-      { id: mkId(), indicator: 'price', op: '>', ref: 'value', value: 0 },
-    ])
-  }
+  const openStrategy = useCallback(async (s: StrategyRow) => {
+    setBusy(true); setError(null)
+    try {
+      const r  = await fetch(`/api/strategies/${s.id}`, { cache: 'no-store' })
+      const d  = await r.json()
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`)
+      const head = (d.versions ?? []).find((v: StrategyVersionRow) => v.id === d.strategy.head_version_id)
+        ?? d.versions?.[0] ?? null
+      setMode({
+        name:     'edit',
+        strategy: d.strategy,
+        config:   (head?.config as StrategyConfig) ?? blankConfig(),
+        dirty:    false,
+        versions: d.versions ?? [],
+      })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to open')
+    } finally { setBusy(false) }
+  }, [])
 
-  function run() {
-    setRunning(true)
-    setTimeout(() => {
-      const cfg: BacktestConfig = {
-        strategy: compiledStrategy,
-        startingEquity: 10000,
-        riskPct, rrTarget: rr, slAtrMult: slAtr,
-        rsiOversold:   longRules.find(r => r.indicator === 'rsi' && r.op === '<')?.value ?? 30,
-        rsiOverbought: longRules.find(r => r.indicator === 'rsi' && r.op === '>')?.value ?? 70,
-      }
-      setResult(runBacktest(syntheticBars(bars, seed), cfg))
-      setRunning(false)
-    }, 50)
-  }
+  const createNew = useCallback(async (opts: { name: string; template_key?: string }) => {
+    setBusy(true); setError(null)
+    try {
+      const r = await fetch('/api/strategies', {
+        method:  'POST',
+        headers: { 'content-type': 'application/json' },
+        body:    JSON.stringify(opts),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`)
+
+      const fresh = await fetch(`/api/strategies/${d.id}`, { cache: 'no-store' }).then((x) => x.json())
+      setStrategies((arr) => [fresh.strategy, ...arr])
+      const head = fresh.versions?.find((v: StrategyVersionRow) => v.id === fresh.strategy.head_version_id)
+                ?? fresh.versions?.[0]
+      setMode({
+        name:     'edit',
+        strategy: fresh.strategy,
+        config:   (head?.config as StrategyConfig) ?? blankConfig(),
+        dirty:    false,
+        versions: fresh.versions ?? [],
+      })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to create')
+    } finally { setBusy(false) }
+  }, [])
+
+  const saveVersion = useCallback(async (notes: string) => {
+    if (mode.name !== 'edit') return
+    setBusy(true); setError(null)
+    try {
+      const r = await fetch(`/api/strategies/${mode.strategy.id}`, {
+        method:  'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body:    JSON.stringify({ config: mode.config, notes }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`)
+      const fresh = await fetch(`/api/strategies/${mode.strategy.id}`, { cache: 'no-store' }).then((x) => x.json())
+      setMode({
+        name:     'edit',
+        strategy: fresh.strategy,
+        config:   mode.config,
+        dirty:    false,
+        versions: fresh.versions ?? [],
+      })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Save failed')
+    } finally { setBusy(false) }
+  }, [mode])
+
+  const rollback = useCallback(async (versionId: string) => {
+    if (mode.name !== 'edit') return
+    setBusy(true); setError(null)
+    try {
+      const r = await fetch(`/api/strategies/${mode.strategy.id}`, {
+        method:  'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body:    JSON.stringify({ rollback_to_version_id: versionId }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`)
+      const fresh = await fetch(`/api/strategies/${mode.strategy.id}`, { cache: 'no-store' }).then((x) => x.json())
+      const head = fresh.versions?.find((v: StrategyVersionRow) => v.id === fresh.strategy.head_version_id)
+      setMode({
+        name:     'edit',
+        strategy: fresh.strategy,
+        config:   (head?.config as StrategyConfig) ?? mode.config,
+        dirty:    false,
+        versions: fresh.versions ?? [],
+      })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Rollback failed')
+    } finally { setBusy(false) }
+  }, [mode])
+
+  const archive = useCallback(async () => {
+    if (mode.name !== 'edit') return
+    if (!confirm(`Archive "${mode.strategy.name}"? You can recover from version history later.`)) return
+    setBusy(true); setError(null)
+    try {
+      const r = await fetch(`/api/strategies/${mode.strategy.id}`, { method: 'DELETE' })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`)
+      setStrategies((arr) => arr.filter((s) => s.id !== mode.strategy.id))
+      setMode({ name: 'list' })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Archive failed')
+    } finally { setBusy(false) }
+  }, [mode])
+
+  const updateConfig = useCallback((updater: (c: StrategyConfig) => StrategyConfig) => {
+    setMode((m) => m.name === 'edit'
+      ? { ...m, config: updater(m.config), dirty: true }
+      : m)
+  }, [])
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-5">
-      {/* Rule builder */}
-      <div className="space-y-4">
-        <div className="rounded-2xl border border-border bg-card p-5">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground font-bold mb-3">
-            Presets
-          </p>
-          <div className="space-y-1.5">
-            {STRATEGY_PRESETS.map(p => (
-              <button
-                key={p.key}
-                type="button"
-                onClick={() => loadPreset(p.key)}
-                className={cn(
-                  'w-full text-left rounded-lg border px-3 py-2 transition-colors',
-                  compiledStrategy === p.key
-                    ? 'border-amber-500/40 bg-amber-500/[0.06]'
-                    : 'border-border hover:border-border/80',
-                )}
-              >
-                <p className="text-xs font-bold">{p.label}</p>
-                <p className="text-[10px] text-muted-foreground mt-0.5">{p.description}</p>
-              </button>
-            ))}
-          </div>
+    <>
+      {error && (
+        <div className="surface mb-4 border-rose-500/40 bg-rose-500/[0.06] p-3 text-xs text-rose-200 flex items-center gap-2">
+          <AlertOctagon className="h-4 w-4 shrink-0" /> {error}
         </div>
+      )}
 
-        <div className="rounded-2xl border border-border bg-card p-5">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-xs uppercase tracking-widest text-muted-foreground font-bold">
-              Long Entry Rules
-            </p>
-            <select
-              value={logicOp}
-              onChange={e => setLogicOp(e.target.value as LogicOp)}
-              className={inputCls}
-              aria-label="Logic operator"
-            >
-              <option value="AND">ALL (AND)</option>
-              <option value="OR">ANY (OR)</option>
-            </select>
-          </div>
+      {mode.name === 'list' && (
+        <ListView strategies={strategies} onOpen={openStrategy} onNew={() => setMode({ name: 'new' })} busy={busy} />
+      )}
 
-          <div className="space-y-2">
-            {longRules.map((r, i) => (
-              <div key={r.id} className="rounded-lg border border-border/60 bg-background/30 p-2.5">
-                {i > 0 && (
-                  <p className="text-[10px] text-amber-300 font-bold mb-1.5">{logicOp}</p>
-                )}
-                {/* Mobile: 2-row grid (indicator | operator) on top, value spanning + delete bottom.
-                    sm+: single wrap row, dense. */}
-                <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:items-center">
-                  <select
-                    value={r.indicator}
-                    onChange={e => updateRule(r.id, { indicator: e.target.value as Rule['indicator'] })}
-                    className={`${inputCls} min-w-0`}
-                    aria-label="Indicator"
-                  >
-                    {INDICATORS.map(ind => <option key={ind.key} value={ind.key}>{ind.label}</option>)}
-                  </select>
-                  <select
-                    value={r.op}
-                    onChange={e => updateRule(r.id, { op: e.target.value as Rule['op'] })}
-                    className={`${inputCls} min-w-0`}
-                    aria-label="Operator"
-                  >
-                    <option value=">">{'>'}</option>
-                    <option value="<">{'<'}</option>
-                    <option value="crosses_above">crosses ↗</option>
-                    <option value="crosses_below">crosses ↘</option>
-                  </select>
-                  {r.ref === 'value' ? (
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      value={r.value ?? 0}
-                      onChange={e => updateRule(r.id, { value: +e.target.value })}
-                      className={`${inputCls} col-span-1 min-w-0 sm:w-20`}
-                      aria-label="Threshold"
-                    />
-                  ) : (
-                    <span className="col-span-1 self-center text-sm text-muted-foreground italic sm:text-xs">EMA Slow</span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => removeRule(r.id)}
-                    disabled={longRules.length <= 1}
-                    className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-md text-rose-400 transition-colors hover:bg-rose-500/10 disabled:opacity-30 sm:h-auto sm:w-auto sm:p-0 sm:hover:bg-transparent touch-manipulation"
-                    aria-label="Remove rule"
-                  >
-                    <X className="h-4 w-4 sm:h-3.5 sm:w-3.5" strokeWidth={1.75} aria-hidden />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+      {mode.name === 'new' && (
+        <NewView templates={templates} busy={busy} onCancel={() => setMode({ name: 'list' })} onCreate={createNew} />
+      )}
 
-          <button
-            type="button"
-            onClick={addRule}
-            className="mt-3 w-full rounded-lg border border-dashed border-border px-3 py-1.5 text-[11px] text-muted-foreground hover:border-amber-500/40 hover:text-amber-300 transition-colors"
-          >
-            + Add rule
-          </button>
-        </div>
+      {mode.name === 'edit' && (
+        <EditView
+          strategy={mode.strategy}
+          config={mode.config}
+          dirty={mode.dirty}
+          versions={mode.versions}
+          busy={busy}
+          onClose={() => setMode({ name: 'list' })}
+          onMutate={updateConfig}
+          onSave={saveVersion}
+          onRollback={rollback}
+          onArchive={archive}
+        />
+      )}
+    </>
+  )
+}
 
-        <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground font-bold">
-            Risk Sizing
-          </p>
-          <Slider label={`Risk % per trade — ${riskPct}%`} min={0.25} max={3} step={0.25} value={riskPct} onChange={setRiskPct} />
-          <Slider label={`R:R — 1:${rr}`} min={1} max={5} step={0.5} value={rr} onChange={setRr} />
-          <Slider label={`Stop = ${slAtr}× ATR`} min={0.5} max={3} step={0.5} value={slAtr} onChange={setSlAtr} />
-          <Slider label={`Bars — ${bars}`} min={300} max={2000} step={100} value={bars} onChange={setBars} />
-          <Slider label={`Seed — ${seed}`} min={1} max={100} step={1} value={seed} onChange={setSeed} />
-        </div>
 
-        <button
-          type="button"
-          onClick={run}
-          disabled={running}
-          className={cn('btn-premium w-full !text-sm !py-2.5', running && 'opacity-60 cursor-wait')}
-        >
-          {running ? 'Running backtest…' : 'Run Backtest →'}
+// ─── ListView ───────────────────────────────────────────────────────
+
+function ListView({ strategies, onOpen, onNew, busy }: {
+  strategies: StrategyRow[]
+  onOpen:     (s: StrategyRow) => void
+  onNew:      () => void
+  busy:       boolean
+}) {
+  return (
+    <div>
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-bold">
+          Your strategies · {strategies.length}
+        </p>
+        <button type="button" onClick={onNew} className="btn-premium inline-flex !px-4 !py-2 !text-xs" disabled={busy}>
+          <FilePlus2 className="h-3.5 w-3.5" />
+          New strategy
         </button>
       </div>
 
-      {/* Results */}
-      <div>
-        {!result ? (
-          <div className="rounded-2xl border border-dashed border-border p-16 text-center text-sm text-muted-foreground">
-            Compose your rules, then run the backtest. Synthetic GBM data — connect
-            a broker (VIP) for live OHLCV.
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <Stat label="Net P&L"  value={`${result.netPnl >= 0 ? '+' : ''}$${result.netPnl.toLocaleString()}`} tone={result.netPnl >= 0 ? 'green' : 'red'} />
-              <Stat label="Return %" value={`${result.netPnlPct >= 0 ? '+' : ''}${result.netPnlPct}%`} tone={result.netPnlPct >= 0 ? 'green' : 'red'} />
-              <Stat label="Win Rate" value={`${result.winRate}%`} tone="gold" />
-              <Stat label="Sharpe"   value={result.sharpe != null ? String(result.sharpe) : '—'} />
-              <Stat label="Trades"   value={String(result.totalTrades)} />
-              <Stat label="Max DD"   value={`${result.maxDrawdownPct}%`} tone="red" />
-              <Stat label="Profit Factor" value={String(result.profitFactor)} />
-              <Stat label="Avg W / L" value={`$${result.avgWin} / $${result.avgLoss}`} />
-            </div>
-
-            {result.totalTrades > 0 && (
-              <div className="rounded-2xl border border-amber-500/30 bg-amber-500/[0.04] p-5">
-                <p className="text-xs uppercase tracking-widest text-amber-300 font-bold mb-2">
-                  Ready to publish?
-                </p>
-                <p className="text-xs text-muted-foreground mb-3">
-                  Strategies that show a Sharpe ≥ 1 and ≥30 trades become eligible for
-                  publishing to the marketplace.
-                </p>
-                <a
-                  href="/strategies/new"
-                  className={cn(
-                    'btn-premium !text-xs !py-2 !px-4 inline-block',
-                    ((result.sharpe ?? 0) < 1 || result.totalTrades < 30) && 'opacity-50 pointer-events-none',
-                  )}
+      {strategies.length === 0 ? (
+        <div className="surface p-10 text-center">
+          <FileCode2 className="mx-auto h-7 w-7 text-amber-300/80" strokeWidth={1.5} />
+          <p className="mt-2 text-sm font-semibold">No strategies yet</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Clone a battle-tested template or compose your own from the block catalogue.
+          </p>
+          <button type="button" onClick={onNew} className="btn-premium mt-4 inline-flex !px-4 !py-2 !text-xs">
+            <FilePlus2 className="h-3.5 w-3.5" /> Create your first
+          </button>
+        </div>
+      ) : (
+        <ul className="grid gap-2 sm:grid-cols-2">
+          {strategies.map((s) => {
+            const head = Array.isArray(s.head) ? s.head[0] : s.head
+            const blockCount = head?.config?.blocks?.length ?? 0
+            return (
+              <li key={s.id}>
+                <button
+                  type="button"
+                  onClick={() => onOpen(s)}
+                  className="surface w-full text-left p-4 hover:border-amber-500/40 transition-colors"
                 >
-                  Publish Strategy →
-                </a>
-              </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold truncate">{s.name}</h3>
+                    {head && (
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                        v{head.version_number}
+                      </span>
+                    )}
+                  </div>
+                  {s.description && (
+                    <p className="mt-1 text-[11px] text-muted-foreground line-clamp-2">{s.description}</p>
+                  )}
+                  <p className="mt-2 font-mono text-[10px] tabular-nums text-muted-foreground/70">
+                    {blockCount} block{blockCount === 1 ? '' : 's'} · updated {new Date(s.updated_at).toLocaleDateString()}
+                  </p>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+
+// ─── NewView (template picker) ──────────────────────────────────────
+
+function NewView({ templates, busy, onCreate, onCancel }: {
+  templates: TemplateCard[]
+  busy:      boolean
+  onCreate:  (opts: { name: string; template_key?: string }) => void
+  onCancel:  () => void
+}) {
+  const [name, setName]     = useState('')
+  const [chosen, setChosen] = useState<string | null>(null)
+
+  return (
+    <div>
+      <div className="mb-4 flex items-center justify-between">
+        <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-bold">
+          Start from a template — or blank
+        </p>
+        <button type="button" onClick={onCancel} className="text-[12px] text-muted-foreground hover:text-foreground">
+          Cancel
+        </button>
+      </div>
+
+      <div className="surface mb-4 p-4">
+        <label className="block text-[11px] uppercase tracking-wider text-muted-foreground font-bold mb-1.5">
+          Strategy name
+        </label>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. London Breakout v1"
+          maxLength={80}
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+        />
+      </div>
+
+      <ul className="grid gap-2 sm:grid-cols-2">
+        <li>
+          <button
+            type="button"
+            onClick={() => setChosen(null)}
+            className={cn(
+              'surface w-full p-4 text-left transition-colors',
+              chosen === null ? 'border-amber-500/50' : 'hover:border-border/80',
             )}
+          >
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-amber-300" />
+              <span className="text-sm font-semibold">Blank</span>
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Start with just fixed-risk sizing. Add blocks one at a time.
+            </p>
+          </button>
+        </li>
+        {templates.map((t) => (
+          <li key={t.key}>
+            <button
+              type="button"
+              onClick={() => setChosen(t.key)}
+              className={cn(
+                'surface w-full p-4 text-left transition-colors',
+                chosen === t.key ? 'border-amber-500/50' : 'hover:border-border/80',
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold">{t.name}</span>
+                <span className="rounded border border-border bg-background/40 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
+                  {t.category}
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">{t.summary}</p>
+              <p className="mt-1.5 font-mono text-[10px] text-muted-foreground/70">
+                {t.pair_hint} · {t.timeframe}
+              </p>
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      <button
+        type="button"
+        onClick={() => onCreate({ name: name.trim() || 'Untitled strategy', template_key: chosen ?? undefined })}
+        disabled={busy}
+        className="btn-premium mt-5 inline-flex !px-5 !py-2.5 !text-sm"
+      >
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePlus2 className="h-4 w-4" />}
+        Create strategy
+      </button>
+    </div>
+  )
+}
+
+
+// ─── EditView ────────────────────────────────────────────────────────
+
+function EditView({
+  strategy, config, dirty, versions, busy,
+  onClose, onMutate, onSave, onRollback, onArchive,
+}: {
+  strategy:   StrategyRow
+  config:     StrategyConfig
+  dirty:      boolean
+  versions:   StrategyVersionRow[]
+  busy:       boolean
+  onClose:    () => void
+  onMutate:   (updater: (c: StrategyConfig) => StrategyConfig) => void
+  onSave:     (notes: string) => void
+  onRollback: (versionId: string) => void
+  onArchive:  () => void
+}) {
+  const [showHistory, setShowHistory] = useState(false)
+  const [saveNotes,   setSaveNotes]   = useState('')
+  const [showCatalog, setShowCatalog] = useState(false)
+
+  const issues = useMemo(() => validateStrategyConfig(config).issues, [config])
+
+  const addBlock = (key: BlockKey) => {
+    const def = BLOCK_BY_KEY[key]
+    if (!def) return
+    onMutate((c) => ({
+      ...c,
+      blocks: [...c.blocks, {
+        id:    crypto.randomUUID(),
+        key,
+        params: Object.fromEntries(def.params.map((p) => [p.key, p.default])),
+      }],
+    }))
+    setShowCatalog(false)
+  }
+
+  const removeBlock = (id: string) => {
+    onMutate((c) => ({ ...c, blocks: c.blocks.filter((b) => b.id !== id) }))
+  }
+
+  const updateBlockParam = (id: string, paramKey: string, value: number | string | boolean) => {
+    onMutate((c) => ({
+      ...c,
+      blocks: c.blocks.map((b) =>
+        b.id === id ? { ...b, params: { ...b.params, [paramKey]: value } } : b,
+      ),
+    }))
+  }
+
+  const headVersion = Array.isArray(strategy.head) ? strategy.head[0] : strategy.head
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <button type="button" onClick={onClose} className="text-[12px] text-muted-foreground hover:text-foreground">
+          ← All strategies
+        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowHistory((v) => !v)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background/60 px-2.5 py-1 text-[11px] font-semibold text-foreground/85 hover:text-foreground"
+          >
+            <History className="h-3.5 w-3.5" /> {versions.length} version{versions.length === 1 ? '' : 's'}
+          </button>
+          <button
+            type="button"
+            onClick={onArchive}
+            className="inline-flex items-center gap-1.5 rounded-md border border-rose-500/40 bg-rose-500/10 px-2.5 py-1 text-[11px] font-semibold text-rose-200 hover:bg-rose-500/15"
+            disabled={busy}
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Archive
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+        <div className="space-y-3">
+          <div className="surface p-4">
+            <h2 className="text-base font-semibold">{strategy.name}</h2>
+            {strategy.description && (
+              <p className="mt-1 text-[12px] text-muted-foreground">{strategy.description}</p>
+            )}
+            <p className="mt-2 font-mono text-[10px] text-muted-foreground/70">
+              {config.blocks.length} block{config.blocks.length === 1 ? '' : 's'}
+              {headVersion ? ` · head v${headVersion.version_number}` : ''}
+            </p>
           </div>
+
+          {config.blocks.map((b, i) => (
+            <BlockCard
+              key={b.id}
+              instance={b}
+              index={i + 1}
+              onRemove={() => removeBlock(b.id)}
+              onParamChange={(paramKey, value) => updateBlockParam(b.id, paramKey, value)}
+            />
+          ))}
+
+          {!showCatalog ? (
+            <button
+              type="button"
+              onClick={() => setShowCatalog(true)}
+              className="w-full rounded-2xl border-2 border-dashed border-border bg-background/30 p-4 text-center text-xs text-muted-foreground hover:border-amber-500/40 hover:text-foreground"
+            >
+              <Plus className="mx-auto h-4 w-4" /> Add block
+            </button>
+          ) : (
+            <CatalogPicker onPick={addBlock} onCancel={() => setShowCatalog(false)} />
+          )}
+
+          {issues.length > 0 && (
+            <div className="surface border-amber-500/30 bg-amber-500/[0.04] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-amber-300 font-bold">
+                Validation
+              </p>
+              <ul className="mt-1 text-[11px] text-amber-200 space-y-0.5">
+                {issues.slice(0, 5).map((m, i) => <li key={i}>· {m}</li>)}
+              </ul>
+            </div>
+          )}
+
+          <div className="surface p-3 flex flex-wrap items-end gap-2">
+            <label className="flex-1 min-w-[160px]">
+              <span className="block text-[10px] uppercase tracking-wider text-muted-foreground">
+                Save notes (optional)
+              </span>
+              <input
+                type="text"
+                value={saveNotes}
+                onChange={(e) => setSaveNotes(e.target.value)}
+                placeholder="e.g. tightened RSI band"
+                maxLength={120}
+                className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-[12px]"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => { onSave(saveNotes); setSaveNotes('') }}
+              disabled={busy || !dirty}
+              className={cn(
+                'btn-premium inline-flex !px-4 !py-2 !text-xs',
+                (!dirty || busy) && 'opacity-50 cursor-not-allowed',
+              )}
+            >
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              {dirty ? 'Save version' : 'No changes'}
+            </button>
+          </div>
+        </div>
+
+        {showHistory && (
+          <aside className="surface p-3 h-fit lg:sticky lg:top-4">
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground font-bold">History</h3>
+              <button type="button" onClick={() => setShowHistory(false)} aria-label="Close history" className="text-muted-foreground hover:text-foreground">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <ul className="space-y-1.5">
+              {versions.map((v) => {
+                const isHead = v.id === strategy.head_version_id
+                return (
+                  <li key={v.id} className={cn(
+                    'rounded-lg border p-2',
+                    isHead ? 'border-amber-500/50 bg-amber-500/[0.06]' : 'border-border bg-background/40',
+                  )}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-[11px] font-semibold">v{v.version_number}</span>
+                      {!isHead && (
+                        <button
+                          type="button"
+                          onClick={() => onRollback(v.id)}
+                          className="inline-flex items-center gap-1 text-[10px] text-amber-300 hover:underline"
+                          disabled={busy}
+                        >
+                          <RotateCcw className="h-2.5 w-2.5" /> Restore
+                        </button>
+                      )}
+                    </div>
+                    {v.notes && <p className="mt-0.5 text-[10px] text-muted-foreground">{v.notes}</p>}
+                    <p className="mt-0.5 font-mono text-[9px] text-muted-foreground/60">
+                      {v.config.blocks.length} blocks · {new Date(v.created_at).toLocaleString()}
+                    </p>
+                  </li>
+                )
+              })}
+            </ul>
+          </aside>
         )}
       </div>
     </div>
   )
 }
 
-// Map a rule set to one of the canonical compiled strategies.
-function compileToStrategy(rules: Rule[]): StrategyType {
-  if (rules.some(r => r.indicator === 'ema_fast' && r.op.startsWith('crosses'))) return 'ema_trend'
-  if (rules.every(r => r.indicator === 'rsi'))                                    return 'rsi_reversion'
-  if (rules.some(r => r.indicator === 'price' && r.op === '>'))                   return 'breakout'
-  return 'ema_trend'
-}
 
-function Slider({ label, min, max, step, value, onChange }: {
-  label: string; min: number; max: number; step: number
-  value: number; onChange: (v: number) => void
+// ─── BlockCard ──────────────────────────────────────────────────────
+
+function BlockCard({ instance, index, onRemove, onParamChange }: {
+  instance: BlockInstance
+  index:    number
+  onRemove: () => void
+  onParamChange: (paramKey: string, value: number | string | boolean) => void
 }) {
+  const def = BLOCK_BY_KEY[instance.key]
+  if (!def) {
+    return (
+      <div className="surface border-rose-500/40 bg-rose-500/[0.04] p-3 text-xs text-rose-200">
+        Unknown block &quot;{instance.key}&quot; — remove to continue.
+        <button type="button" onClick={onRemove} className="ml-2 text-rose-300 underline">remove</button>
+      </div>
+    )
+  }
   return (
-    <div>
-      <label className="block text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">
-        {label}
-      </label>
-      <input
-        type="range" min={min} max={max} step={step} value={value}
-        onChange={e => onChange(+e.target.value)}
-        className="w-full accent-amber-400" aria-label={label}
-      />
+    <div className="surface p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-[10px] font-bold text-amber-300">
+            {index}
+          </span>
+          <h4 className="text-sm font-semibold truncate">{def.label}</h4>
+          <span className="rounded border border-border bg-background/40 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
+            {def.category}
+          </span>
+        </div>
+        <button type="button" onClick={onRemove} aria-label={`Remove ${def.label}`} className="text-muted-foreground hover:text-rose-300">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <p className="mt-1 text-[11px] text-muted-foreground">{def.summary}</p>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        {def.params.map((p) => (
+          <ParamControl
+            key={p.key}
+            param={p}
+            value={instance.params[p.key] ?? p.default}
+            onChange={(v) => onParamChange(p.key, v)}
+          />
+        ))}
+      </div>
     </div>
   )
 }
 
-function Stat({ label, value, tone = 'plain' }: {
-  label: string; value: string; tone?: 'plain' | 'green' | 'red' | 'gold'
+
+function ParamControl({ param, value, onChange }: {
+  param:  typeof BLOCK_CATALOG[number]['params'][number]
+  value:  number | string | boolean
+  onChange: (v: number | string | boolean) => void
 }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-3">
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className={cn(
-        'mt-1 text-base font-bold tabular-nums',
-        tone === 'green' && 'text-emerald-400',
-        tone === 'red'   && 'text-rose-400',
-        tone === 'gold'  && 'text-amber-300',
-      )}>
-        {value}
-      </p>
+    <label className="block">
+      <span className="block text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+        {param.label}
+      </span>
+      {param.kind === 'enum' && param.options ? (
+        <select
+          value={String(value)}
+          onChange={(e) => onChange(e.target.value)}
+          className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-[12px]"
+        >
+          {param.options.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+        </select>
+      ) : param.kind === 'bool' ? (
+        <button
+          type="button"
+          onClick={() => onChange(!value)}
+          className={cn(
+            'mt-1 inline-flex items-center gap-2 rounded-md border px-2 py-1 text-[12px]',
+            value ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300' : 'border-border text-muted-foreground',
+          )}
+        >
+          {value ? 'On' : 'Off'}
+        </button>
+      ) : (
+        <input
+          type="number"
+          value={Number(value)}
+          step={param.step ?? (param.kind === 'int' ? 1 : 0.1)}
+          min={param.min}
+          max={param.max}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-[12px] tabular-nums"
+        />
+      )}
+    </label>
+  )
+}
+
+
+// ─── CatalogPicker ─────────────────────────────────────────────────
+
+function CatalogPicker({ onPick, onCancel }: {
+  onPick:   (key: BlockKey) => void
+  onCancel: () => void
+}) {
+  const categories: BlockCategory[] = ['indicators','price_action','smart_money','session','volatility','risk','ai']
+  const labels: Record<BlockCategory, string> = {
+    indicators:    'Indicators',
+    price_action:  'Price Action',
+    smart_money:   'Smart Money',
+    session:       'Session',
+    volatility:    'Volatility',
+    risk:          'Risk',
+    ai:            'AI Conditions',
+  }
+
+  return (
+    <div className="surface p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-sm font-semibold">Add block</h3>
+        <button type="button" onClick={onCancel} aria-label="Close catalogue" className="text-muted-foreground hover:text-foreground">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {categories.map((cat) => (
+          BLOCKS_BY_CATEGORY[cat] && BLOCKS_BY_CATEGORY[cat].length > 0 ? (
+            <section key={cat}>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">{labels[cat]}</p>
+              <ul className="mt-1 space-y-1">
+                {BLOCKS_BY_CATEGORY[cat].map((b) => (
+                  <li key={b.key}>
+                    <button
+                      type="button"
+                      onClick={() => onPick(b.key as BlockKey)}
+                      className="w-full rounded-md border border-border bg-background/40 p-2 text-left hover:border-amber-500/40"
+                    >
+                      <p className="text-[12px] font-semibold">{b.label}</p>
+                      <p className="text-[10px] text-muted-foreground">{b.summary}</p>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null
+        ))}
+      </div>
     </div>
   )
 }
