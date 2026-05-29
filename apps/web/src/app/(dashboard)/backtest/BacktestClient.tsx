@@ -1,16 +1,30 @@
 'use client'
 
-import { useState } from 'react'
-import { CheckCircle2, XCircle } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { CheckCircle2, XCircle, Sparkles, FlaskConical } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
-  runBacktest,
-  syntheticBars,
-  type BacktestConfig,
-  type BacktestResult,
-  type StrategyType,
+  runBacktest, syntheticBars,
+  type BacktestConfig, type BacktestResult, type StrategyType,
 } from '@/lib/backtest'
+import {
+  executeStrategy, DEFAULT_COSTS,
+  type CostModel, type ExecuteResult,
+} from '@/lib/strategies/executor'
+import {
+  runMonteCarlo, type MonteCarloResult,
+} from '@/lib/strategies/monte-carlo'
+import type { StrategyConfig } from '@/lib/strategies/blocks'
 import StrategyDiagnosticsPanel from '@/components/backtest/StrategyDiagnosticsPanel'
+
+
+export interface SavedStrategyOption {
+  id:      string
+  name:    string
+  version: number | null
+  config:  StrategyConfig | null
+}
+
 
 const STRATEGIES: { key: StrategyType; label: string }[] = [
   { key: 'ema_trend',     label: 'EMA Trend Crossover' },
@@ -18,69 +32,205 @@ const STRATEGIES: { key: StrategyType; label: string }[] = [
   { key: 'breakout',      label: 'Channel Breakout' },
 ]
 
-export default function BacktestClient() {
+
+type Mode = 'built_in' | 'saved'
+
+
+export default function BacktestClient({
+  savedStrategies, initialStrategyId,
+}: {
+  savedStrategies:    SavedStrategyOption[]
+  initialStrategyId:  string | null
+}) {
+  // Mode: deep link from /quant-builder?strategy_id=… → start in saved mode.
+  const initialMode: Mode = initialStrategyId && savedStrategies.some((s) => s.id === initialStrategyId)
+    ? 'saved' : (savedStrategies.length > 0 ? 'built_in' : 'built_in')
+
+  const [mode, setMode] = useState<Mode>(initialMode)
+  const [selectedId, setSelectedId] = useState<string>(
+    initialStrategyId && savedStrategies.some((s) => s.id === initialStrategyId)
+      ? initialStrategyId
+      : (savedStrategies[0]?.id ?? ''),
+  )
+
+  // Built-in config knobs
   const [strategy, setStrategy] = useState<StrategyType>('ema_trend')
   const [riskPct, setRiskPct]   = useState(1)
   const [rr, setRr]             = useState(2)
   const [slAtr, setSlAtr]       = useState(1.5)
-  const [bars, setBars]         = useState(500)
-  const [seed, setSeed]         = useState(42)
-  const [result, setResult]     = useState<BacktestResult | null>(null)
-  const [running, setRunning]   = useState(false)
+
+  // Bars + seed (shared between modes)
+  const [bars, setBars] = useState(500)
+  const [seed, setSeed] = useState(42)
+
+  // Cost model
+  const [spreadPips,   setSpreadPips]   = useState(DEFAULT_COSTS.spread_pips)
+  const [slipPct,      setSlipPct]      = useState(DEFAULT_COSTS.slippage_pct)
+  const [commPct,      setCommPct]      = useState(DEFAULT_COSTS.commission_per_trade_pct)
+
+  // Monte Carlo runs
+  const [mcRuns, setMcRuns] = useState(1000)
+
+  const [result, setResult]   = useState<BacktestResult | ExecuteResult | null>(null)
+  const [mc, setMc]           = useState<MonteCarloResult | null>(null)
+  const [running, setRunning] = useState(false)
+  const [error,   setError]   = useState<string | null>(null)
+
+  const costs: CostModel = useMemo(() => ({
+    spread_pips:              spreadPips,
+    slippage_pct:             slipPct,
+    commission_per_trade_pct: commPct,
+    pip_value:                DEFAULT_COSTS.pip_value,
+  }), [spreadPips, slipPct, commPct])
 
   function run() {
-    setRunning(true)
-    // Synchronous but yield a tick for the spinner
+    setRunning(true); setError(null); setMc(null)
     setTimeout(() => {
-      const cfg: BacktestConfig = {
-        strategy,
-        startingEquity: 10000,
-        riskPct,
-        rrTarget: rr,
-        slAtrMult: slAtr,
+      try {
+        const data = syntheticBars(bars, seed)
+        let r: BacktestResult | ExecuteResult
+
+        if (mode === 'saved') {
+          const sel = savedStrategies.find((s) => s.id === selectedId)
+          if (!sel?.config) {
+            throw new Error('Pick a saved strategy with at least one version.')
+          }
+          r = executeStrategy(data, sel.config, {
+            startingEquity: 10_000,
+            costs,
+          })
+        } else {
+          const cfg: BacktestConfig = {
+            strategy,
+            startingEquity: 10_000,
+            riskPct,
+            rrTarget: rr,
+            slAtrMult: slAtr,
+          }
+          r = runBacktest(data, cfg)
+        }
+
+        setResult(r)
+
+        // Monte Carlo on the result we just produced
+        const mcResult = runMonteCarlo(r, { runs: mcRuns, startingEquity: 10_000, seed })
+        setMc(mcResult)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Run failed')
+      } finally {
+        setRunning(false)
       }
-      const data = syntheticBars(bars, seed)
-      setResult(runBacktest(data, cfg))
-      setRunning(false)
     }, 50)
   }
+
+  // Re-run automatically if the URL deep-linked to a strategy
+  useEffect(() => {
+    if (initialMode === 'saved' && selectedId && !result) run()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-5">
       {/* Config */}
       <div className="rounded-2xl border border-border bg-card p-5 space-y-4 h-fit">
-        <Field label="Strategy">
-          <select
-            value={strategy}
-            onChange={e => setStrategy(e.target.value as StrategyType)}
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none"
-          >
-            {STRATEGIES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
-          </select>
-        </Field>
-        <Slider label={`Risk per trade — ${riskPct}%`} min={0.25} max={5} step={0.25} value={riskPct} onChange={setRiskPct} />
-        <Slider label={`Reward:Risk — 1:${rr}`} min={1} max={5} step={0.5} value={rr} onChange={setRr} />
-        <Slider label={`Stop = ${slAtr}× ATR`} min={0.5} max={4} step={0.5} value={slAtr} onChange={setSlAtr} />
-        <Slider label={`Bars — ${bars}`} min={200} max={2000} step={100} value={bars} onChange={setBars} />
-        <Field label="Random Seed">
+        <div className="flex gap-1 rounded-lg border border-border p-1">
+          <ModeButton active={mode === 'built_in'} onClick={() => setMode('built_in')} label="Built-in" />
+          <ModeButton active={mode === 'saved'}    onClick={() => setMode('saved')}    label="My strategies" disabled={savedStrategies.length === 0} />
+        </div>
+
+        {mode === 'built_in' ? (
+          <>
+            <Field label="Strategy">
+              <select
+                value={strategy}
+                onChange={(e) => setStrategy(e.target.value as StrategyType)}
+                aria-label="Strategy"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none"
+              >
+                {STRATEGIES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+              </select>
+            </Field>
+            <Slider label={`Risk per trade — ${riskPct}%`} min={0.25} max={5}   step={0.25} value={riskPct} onChange={setRiskPct} />
+            <Slider label={`Reward:Risk — 1:${rr}`}        min={1}    max={5}   step={0.5}  value={rr}      onChange={setRr} />
+            <Slider label={`Stop = ${slAtr}× ATR`}         min={0.5}  max={4}   step={0.5}  value={slAtr}   onChange={setSlAtr} />
+          </>
+        ) : (
+          <>
+            {savedStrategies.length === 0 ? (
+              <p className="rounded-lg border border-amber-500/30 bg-amber-500/[0.04] p-3 text-[11px] text-amber-200">
+                No saved strategies yet. Open <a href="/quant-builder" className="underline">/quant-builder</a> to compose one.
+              </p>
+            ) : (
+              <Field label="Saved strategy">
+                <select
+                  value={selectedId}
+                  onChange={(e) => setSelectedId(e.target.value)}
+                  aria-label="Saved strategy"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none"
+                >
+                  {savedStrategies.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}{s.version != null ? ` · v${s.version}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+            <p className="text-[10px] text-muted-foreground">
+              Risk &amp; sizing come from the strategy&apos;s blocks (fixed_risk_per_trade,
+              daily_loss_cap). Cost model below is applied at entry + exit.
+            </p>
+          </>
+        )}
+
+        <Slider label={`Bars — ${bars}`}            min={200} max={2000} step={100} value={bars} onChange={setBars} />
+        <Field label="Random seed">
           <input
             type="number"
             value={seed}
-            onChange={e => setSeed(+e.target.value)}
+            onChange={(e) => setSeed(+e.target.value)}
             className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none"
           />
         </Field>
+
+        <details className="rounded-lg border border-border bg-background/40">
+          <summary className="cursor-pointer select-none px-3 py-2 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
+            Cost model
+          </summary>
+          <div className="space-y-3 p-3">
+            <Slider label={`Spread — ${spreadPips} pips`}    min={0} max={10} step={0.5} value={spreadPips} onChange={setSpreadPips} />
+            <Slider label={`Slippage — ${(slipPct * 100).toFixed(2)}%`} min={0} max={0.005} step={0.0005} value={slipPct} onChange={setSlipPct} />
+            <Slider label={`Commission — ${(commPct * 100).toFixed(2)}%`} min={0} max={0.005} step={0.0005} value={commPct} onChange={setCommPct} />
+          </div>
+        </details>
+
+        <details className="rounded-lg border border-border bg-background/40">
+          <summary className="cursor-pointer select-none px-3 py-2 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
+            Monte Carlo
+          </summary>
+          <div className="p-3">
+            <Slider label={`Runs — ${mcRuns}`} min={100} max={5000} step={100} value={mcRuns} onChange={setMcRuns} />
+            <p className="mt-2 text-[10px] text-muted-foreground">
+              Shuffles the order of the realised trades to estimate path-dependent risk.
+            </p>
+          </div>
+        </details>
+
         <button
           type="button"
           onClick={run}
           disabled={running}
           className={cn('btn-premium w-full !text-sm !py-2.5', running && 'opacity-60 cursor-wait')}
         >
-          {running ? 'Running…' : 'Run Backtest'}
+          {running ? 'Running…' : 'Run backtest'}
         </button>
+        {error && (
+          <p className="rounded-lg border border-rose-500/30 bg-rose-500/[0.06] p-2 text-[11px] text-rose-200">
+            {error}
+          </p>
+        )}
         <p className="text-[10px] text-muted-foreground">
-          Uses synthetic GBM price series (deterministic by seed). Connect a broker
-          in VIP to backtest on real historical data.
+          Synthetic GBM price series, deterministic by seed. Hooking real historical bars is the next slice.
         </p>
       </div>
 
@@ -88,102 +238,239 @@ export default function BacktestClient() {
       <div>
         {!result ? (
           <div className="rounded-2xl border border-dashed border-border p-16 text-center text-sm text-muted-foreground">
-            Configure a strategy and run the backtest.
+            Pick a strategy and run the backtest.
           </div>
         ) : (
           <div className="space-y-4">
+            {/* Unsupported-blocks warning for user-authored configs */}
+            {'unsupported_blocks' in result && result.unsupported_blocks.length > 0 && (
+              <div className="rounded-2xl border border-amber-500/40 bg-amber-500/[0.04] p-3 text-[11px] text-amber-200">
+                <p className="font-semibold flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5" /> Approximate result
+                </p>
+                <p className="mt-1 leading-relaxed">
+                  These blocks need live data and were skipped in the simulation:{' '}
+                  <span className="font-mono">{result.unsupported_blocks.join(', ')}</span>.
+                  The metrics below assume the blocks would always pass — real performance may differ.
+                </p>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <Stat label="Net P&L" value={`${result.netPnl >= 0 ? '+' : ''}$${result.netPnl.toLocaleString()}`} tone={result.netPnl >= 0 ? 'green' : 'red'} />
-              <Stat label="Return" value={`${result.netPnlPct >= 0 ? '+' : ''}${result.netPnlPct}%`} tone={result.netPnlPct >= 0 ? 'green' : 'red'} />
-              <Stat label="Win Rate" value={`${result.winRate}%`} tone="gold" />
-              <Stat label="Trades" value={String(result.totalTrades)} />
-              <Stat label="Max DD" value={`${result.maxDrawdownPct}%`} tone="red" />
-              <Stat label="Sharpe" value={result.sharpe != null ? String(result.sharpe) : '—'} />
+              <Stat label="Net P&L"       value={`${result.netPnl >= 0 ? '+' : ''}$${result.netPnl.toLocaleString()}`} tone={result.netPnl >= 0 ? 'green' : 'red'} />
+              <Stat label="Return"        value={`${result.netPnlPct >= 0 ? '+' : ''}${result.netPnlPct}%`} tone={result.netPnlPct >= 0 ? 'green' : 'red'} />
+              <Stat label="Win Rate"      value={`${result.winRate}%`} tone="gold" />
+              <Stat label="Trades"        value={String(result.totalTrades)} />
+              <Stat label="Max DD"        value={`${result.maxDrawdownPct}%`} tone="red" />
+              <Stat label="Sharpe"        value={result.sharpe != null ? String(result.sharpe) : '—'} />
               <Stat label="Profit Factor" value={String(result.profitFactor)} />
-              <Stat label="Avg W / L" value={`$${result.avgWin} / $${result.avgLoss}`} />
+              <Stat label="Avg W / L"     value={`$${result.avgWin} / $${result.avgLoss}`} />
             </div>
 
             <EquityChart curve={result.equityCurve} />
 
-            {/* Refocus R5: institutional metrics + ranked strategy
-                diagnostics. Reads the same BacktestResult — no extra
-                computation paths to worry about. */}
             <StrategyDiagnosticsPanel result={result} />
 
-            <div className="rounded-2xl border border-border bg-card overflow-hidden">
-              <p className="px-4 py-2.5 text-xs uppercase tracking-widest text-muted-foreground border-b border-border">
-                Last 12 Trades
-              </p>
+            {mc && mc.trades > 0 && <MonteCarloPanel mc={mc} startingEquity={10_000} />}
 
-              {/* Mobile: card list (no horizontal scroll) */}
-              <ul className="space-y-2 p-3 md:hidden">
-                {result.trades.slice(-12).reverse().map((t, i) => (
-                  <li key={i} className="rounded-lg border border-border/60 bg-background/60 p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="flex items-center gap-2">
-                        <span className={cn(
-                          'rounded px-1.5 py-0.5 text-[9px] font-bold',
-                          t.direction === 'long' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300',
-                        )}>
-                          {t.direction.toUpperCase()}
-                        </span>
-                        {t.result === 'win'
-                          ? <CheckCircle2 className="h-4 w-4 text-emerald-400" strokeWidth={2} aria-label="win" />
-                          : <XCircle      className="h-4 w-4 text-rose-400"    strokeWidth={2} aria-label="loss" />}
-                      </span>
-                      <span className={cn(
-                        'tabular-nums text-sm font-semibold',
-                        t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400',
-                      )}>
-                        {t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="mt-1.5 flex items-center justify-between gap-3 text-[11px] text-muted-foreground tabular-nums">
-                      <span>Entry {t.entry.toFixed(2)}</span>
-                      <span>Exit {t.exit.toFixed(2)}</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-
-              {/* Desktop: table */}
-              <div className="hidden md:block">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-left text-[10px] text-muted-foreground uppercase border-b border-border/40">
-                      <th className="px-4 py-2">Dir</th>
-                      <th className="px-4 py-2">Entry</th>
-                      <th className="px-4 py-2">Exit</th>
-                      <th className="px-4 py-2 text-right">P&L</th>
-                      <th className="px-4 py-2 text-right">Result</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.trades.slice(-12).reverse().map((t, i) => (
-                      <tr key={i} className="border-b border-border/30 last:border-0">
-                        <td className={cn('px-4 py-2 font-bold', t.direction === 'long' ? 'text-emerald-400' : 'text-rose-400')}>
-                          {t.direction.toUpperCase()}
-                        </td>
-                        <td className="px-4 py-2 tabular-nums">{t.entry.toFixed(2)}</td>
-                        <td className="px-4 py-2 tabular-nums">{t.exit.toFixed(2)}</td>
-                        <td className={cn('px-4 py-2 text-right tabular-nums font-semibold', t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
-                          {t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}
-                        </td>
-                        <td className="px-4 py-2 text-right">
-                          {t.result === 'win'
-                            ? <CheckCircle2 className="ml-auto h-4 w-4 text-emerald-400" strokeWidth={2} aria-label="win" />
-                            : <XCircle      className="ml-auto h-4 w-4 text-rose-400"    strokeWidth={2} aria-label="loss" />}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <TradesTable result={result} />
           </div>
         )}
       </div>
     </div>
+  )
+}
+
+
+// ─── MonteCarloPanel ────────────────────────────────────────────────
+
+function MonteCarloPanel({ mc, startingEquity }: {
+  mc:             MonteCarloResult
+  startingEquity: number
+}) {
+  const profitable = mc.profitable_paths_pct
+  const ruin       = mc.ruin_paths_pct
+  return (
+    <div className="rounded-2xl border border-border bg-card p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <FlaskConical className="h-4 w-4 text-amber-300" />
+          <h3 className="text-sm font-semibold">Monte Carlo robustness</h3>
+        </div>
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          {mc.runs} shuffled paths · {mc.trades} trades
+        </span>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 mb-3">
+        <div className={cn(
+          'rounded-lg border p-3',
+          profitable >= 70 ? 'border-emerald-500/40 bg-emerald-500/[0.04] text-emerald-200'
+          : profitable >= 50 ? 'border-amber-500/40 bg-amber-500/[0.04] text-amber-200'
+          : 'border-rose-500/40 bg-rose-500/[0.04] text-rose-200',
+        )}>
+          <p className="text-[10px] uppercase tracking-wider opacity-80">Profitable paths</p>
+          <p className="mt-0.5 text-xl font-bold tabular-nums">{profitable}%</p>
+        </div>
+        <div className={cn(
+          'rounded-lg border p-3',
+          ruin <= 5 ? 'border-emerald-500/40 bg-emerald-500/[0.04] text-emerald-200'
+          : ruin <= 20 ? 'border-amber-500/40 bg-amber-500/[0.04] text-amber-200'
+          : 'border-rose-500/40 bg-rose-500/[0.04] text-rose-200',
+        )}>
+          <p className="text-[10px] uppercase tracking-wider opacity-80">Paths with ≥20% DD</p>
+          <p className="mt-0.5 text-xl font-bold tabular-nums">{ruin}%</p>
+        </div>
+      </div>
+
+      <PctTable
+        label="Final P&L"
+        rows={[
+          ['p05', mc.final_pnl.p05], ['p25', mc.final_pnl.p25],
+          ['median', mc.final_pnl.p50],
+          ['p75', mc.final_pnl.p75], ['p95', mc.final_pnl.p95],
+        ]}
+        format={(v) => `${v >= 0 ? '+' : ''}$${Math.round(v).toLocaleString()}`}
+      />
+      <PctTable
+        label="Max DD (USD)"
+        rows={[
+          ['p05', mc.max_drawdown_usd.p05], ['p25', mc.max_drawdown_usd.p25],
+          ['median', mc.max_drawdown_usd.p50],
+          ['p75', mc.max_drawdown_usd.p75], ['p95', mc.max_drawdown_usd.p95],
+        ]}
+        format={(v) => `-$${Math.round(v).toLocaleString()}`}
+      />
+      <PctTable
+        label="Max DD (%)"
+        rows={[
+          ['p05', mc.max_drawdown_pct.p05], ['p25', mc.max_drawdown_pct.p25],
+          ['median', mc.max_drawdown_pct.p50],
+          ['p75', mc.max_drawdown_pct.p75], ['p95', mc.max_drawdown_pct.p95],
+        ]}
+        format={(v) => `${(v * 100).toFixed(1)}%`}
+      />
+
+      <p className="mt-2 text-[10px] text-muted-foreground/80">
+        Shuffles the realised trade sequence — measures path-dependent risk only. Does NOT perturb the strategy itself.
+        Starting equity: ${startingEquity.toLocaleString()}.
+      </p>
+    </div>
+  )
+}
+
+
+function PctTable({ label, rows, format }: {
+  label: string
+  rows: Array<[string, number]>
+  format: (v: number) => string
+}) {
+  return (
+    <div className="mt-2 grid grid-cols-5 gap-1.5 text-[11px]">
+      <p className="col-span-5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{label}</p>
+      {rows.map(([k, v]) => (
+        <div key={k} className="rounded border border-border/60 bg-background/40 p-1.5 text-center">
+          <p className="text-[9px] text-muted-foreground uppercase tracking-wider">{k}</p>
+          <p className="mt-0.5 tabular-nums font-semibold">{format(v)}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+
+// ─── TradesTable (unchanged from prior version) ─────────────────────
+
+function TradesTable({ result }: { result: BacktestResult }) {
+  return (
+    <div className="rounded-2xl border border-border bg-card overflow-hidden">
+      <p className="px-4 py-2.5 text-xs uppercase tracking-widest text-muted-foreground border-b border-border">
+        Last 12 trades
+      </p>
+      <ul className="space-y-2 p-3 md:hidden">
+        {result.trades.slice(-12).reverse().map((t, i) => (
+          <li key={i} className="rounded-lg border border-border/60 bg-background/60 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2">
+                <span className={cn(
+                  'rounded px-1.5 py-0.5 text-[9px] font-bold',
+                  t.direction === 'long' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300',
+                )}>
+                  {t.direction.toUpperCase()}
+                </span>
+                {t.result === 'win'
+                  ? <CheckCircle2 className="h-4 w-4 text-emerald-400" strokeWidth={2} aria-label="win" />
+                  : <XCircle      className="h-4 w-4 text-rose-400"    strokeWidth={2} aria-label="loss" />}
+              </span>
+              <span className={cn(
+                'tabular-nums text-sm font-semibold',
+                t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400',
+              )}>
+                {t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}
+              </span>
+            </div>
+            <div className="mt-1.5 flex items-center justify-between gap-3 text-[11px] text-muted-foreground tabular-nums">
+              <span>Entry {t.entry.toFixed(2)}</span>
+              <span>Exit {t.exit.toFixed(2)}</span>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <div className="hidden md:block">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-left text-[10px] text-muted-foreground uppercase border-b border-border/40">
+              <th className="px-4 py-2">Dir</th>
+              <th className="px-4 py-2">Entry</th>
+              <th className="px-4 py-2">Exit</th>
+              <th className="px-4 py-2 text-right">P&L</th>
+              <th className="px-4 py-2 text-right">Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            {result.trades.slice(-12).reverse().map((t, i) => (
+              <tr key={i} className="border-b border-border/30 last:border-0">
+                <td className={cn('px-4 py-2 font-bold', t.direction === 'long' ? 'text-emerald-400' : 'text-rose-400')}>
+                  {t.direction.toUpperCase()}
+                </td>
+                <td className="px-4 py-2 tabular-nums">{t.entry.toFixed(2)}</td>
+                <td className="px-4 py-2 tabular-nums">{t.exit.toFixed(2)}</td>
+                <td className={cn('px-4 py-2 text-right tabular-nums font-semibold', t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
+                  {t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}
+                </td>
+                <td className="px-4 py-2 text-right">
+                  {t.result === 'win'
+                    ? <CheckCircle2 className="ml-auto h-4 w-4 text-emerald-400" strokeWidth={2} aria-label="win" />
+                    : <XCircle      className="ml-auto h-4 w-4 text-rose-400"    strokeWidth={2} aria-label="loss" />}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+
+// ─── Small helpers ──────────────────────────────────────────────────
+
+function ModeButton({ active, onClick, label, disabled }: {
+  active: boolean; onClick: () => void; label: string; disabled?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'flex-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors',
+        active ? 'bg-amber-500/15 text-amber-300' : 'text-muted-foreground hover:text-foreground',
+        disabled && 'opacity-40 cursor-not-allowed',
+      )}
+    >
+      {label}
+    </button>
   )
 }
 
@@ -204,7 +491,7 @@ function Slider({ label, min, max, step, value, onChange }: {
     <Field label={label}>
       <input
         type="range" min={min} max={max} step={step} value={value}
-        onChange={e => onChange(+e.target.value)}
+        onChange={(e) => onChange(+e.target.value)}
         className="w-full accent-amber-400" aria-label={label}
       />
     </Field>
@@ -232,7 +519,7 @@ function Stat({ label, value, tone = 'plain' }: {
 function EquityChart({ curve }: { curve: { time: number; equity: number }[] }) {
   if (curve.length < 2) return null
   const w = 600, h = 160, pad = 4
-  const eqs = curve.map(c => c.equity)
+  const eqs = curve.map((c) => c.equity)
   const min = Math.min(...eqs), max = Math.max(...eqs)
   const range = max - min || 1
   const pts = curve.map((c, i) => {
@@ -244,7 +531,7 @@ function EquityChart({ curve }: { curve: { time: number; equity: number }[] }) {
 
   return (
     <div className="rounded-2xl border border-border bg-card p-4">
-      <p className="text-xs uppercase tracking-widest text-muted-foreground mb-3">Equity Curve</p>
+      <p className="text-xs uppercase tracking-widest text-muted-foreground mb-3">Equity curve</p>
       <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-40" preserveAspectRatio="none">
         <polyline
           points={pts}

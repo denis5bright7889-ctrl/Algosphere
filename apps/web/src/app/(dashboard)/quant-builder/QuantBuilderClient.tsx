@@ -15,7 +15,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import {
   Trash2, Plus, Save, History, RotateCcw, X,
-  Loader2, FilePlus2, FileCode2, AlertOctagon, Sparkles,
+  Loader2, FilePlus2, FileCode2, AlertOctagon, Sparkles, FlaskConical,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -448,6 +448,16 @@ function EditView({
           ← All strategies
         </button>
         <div className="flex items-center gap-2">
+          <a
+            href={`/backtest?strategy_id=${strategy.id}`}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-md border border-amber-500/50 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-200 hover:bg-amber-500/15',
+              dirty && 'opacity-60',
+            )}
+            title={dirty ? 'Save first to backtest the latest config' : 'Backtest the head version'}
+          >
+            <FlaskConical className="h-3.5 w-3.5" /> Backtest
+          </a>
           <button
             type="button"
             onClick={() => setShowHistory((v) => !v)}
