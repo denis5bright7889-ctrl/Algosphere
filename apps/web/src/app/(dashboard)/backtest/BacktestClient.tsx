@@ -273,6 +273,8 @@ export default function BacktestClient({
 
             {mc && mc.trades > 0 && <MonteCarloPanel mc={mc} startingEquity={10_000} />}
 
+            <HourHeatmap result={result} />
+
             <TradesTable result={result} />
           </div>
         )}
@@ -374,6 +376,108 @@ function PctTable({ label, rows, format }: {
           <p className="mt-0.5 tabular-nums font-semibold">{format(v)}</p>
         </div>
       ))}
+    </div>
+  )
+}
+
+
+// ─── HourHeatmap ────────────────────────────────────────────────────
+// 24-hour UTC heatmap of cumulative P&L per entry hour. Surfaces the
+// session-quality axis from the existing strategy-grader without needing
+// a separate computation path — reads `result.trades` directly.
+
+function HourHeatmap({ result }: { result: BacktestResult }) {
+  if (result.trades.length < 4) return null
+
+  // Bucket trades by entry-hour (UTC).
+  const buckets: Array<{ pnl: number; count: number; wins: number }> = Array.from(
+    { length: 24 }, () => ({ pnl: 0, count: 0, wins: 0 }),
+  )
+  for (const t of result.trades) {
+    const h = new Date(t.entryTime * 1000).getUTCHours()
+    const b = buckets[h]
+    if (!b) continue
+    b.pnl += t.pnl
+    b.count += 1
+    if (t.pnl > 0) b.wins += 1
+  }
+
+  const maxAbs = Math.max(1, ...buckets.map((b) => Math.abs(b.pnl)))
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">P&L by entry hour (UTC)</h3>
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          {result.trades.length} trades · 24h buckets
+        </span>
+      </div>
+      <div className="grid grid-cols-12 gap-1.5">
+        {buckets.map((b, h) => (
+          <HeatmapCell
+            key={h}
+            hour={h}
+            pnl={b.pnl}
+            count={b.count}
+            wins={b.wins}
+            maxAbs={maxAbs}
+          />
+        ))}
+      </div>
+      <p className="mt-2 text-[10px] text-muted-foreground/80">
+        Each cell: P&L · trade count · win rate. Hours with no trades render as &quot;—&quot;.
+      </p>
+    </div>
+  )
+}
+
+
+/**
+ * One cell of the hour-of-day heatmap. Encapsulates the dynamic
+ * background style so the lint disable lives in exactly one place —
+ * the rest of the file stays inline-style-free.
+ */
+function HeatmapCell({ hour, pnl, count, wins, maxAbs }: {
+  hour: number; pnl: number; count: number; wins: number; maxAbs: number
+}) {
+  const empty     = count === 0
+  const positive  = pnl >= 0
+  const intensity = Math.min(1, Math.abs(pnl) / maxAbs)
+  const tone = empty
+    ? 'border-border bg-background/30 text-muted-foreground/40'
+    : positive
+      ? 'border-emerald-500/40 text-emerald-200'
+      : 'border-rose-500/40 text-rose-200'
+
+  // Tailwind can't express dynamic rgba opacity — inline style is the
+  // only honest path. Mirrors the ProgressBar pattern used elsewhere.
+  /* stylelint-disable-next-line declaration-property-value-disallowed-list */
+  // eslint-disable-next-line react/forbid-dom-props
+  const fillStyle: React.CSSProperties | undefined = empty
+    ? undefined
+    : {
+        backgroundColor: positive
+          ? `rgba(52, 211, 153, ${0.06 + intensity * 0.32})`
+          : `rgba(251, 113, 133, ${0.06 + intensity * 0.32})`,
+      }
+
+  return (
+    <div
+      className={cn('rounded border p-1.5 text-center', tone)}
+      // eslint-disable-next-line react/forbid-dom-props
+      style={fillStyle}
+    >
+      <p className="text-[9px] uppercase tracking-wider opacity-70">
+        {hour.toString().padStart(2, '0')}h
+      </p>
+      <p className="mt-0.5 text-[10px] font-semibold tabular-nums">
+        {empty ? '—' : `${pnl >= 0 ? '+' : ''}$${Math.round(pnl)}`}
+      </p>
+      {!empty && (
+        <p className="text-[9px] opacity-70 tabular-nums">
+          {count} · {Math.round((wins / count) * 100)}%
+        </p>
+      )}
     </div>
   )
 }

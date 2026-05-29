@@ -16,6 +16,7 @@ import { useCallback, useMemo, useState } from 'react'
 import {
   Trash2, Plus, Save, History, RotateCcw, X,
   Loader2, FilePlus2, FileCode2, AlertOctagon, Sparkles, FlaskConical,
+  GripVertical, Pencil, Check,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -192,6 +193,40 @@ export default function QuantBuilderClient({
       : m)
   }, [])
 
+  /** Rename + redescribe (R5d). Sends a meta-only PATCH; doesn't create
+   *  a new version. Optimistically updates the in-memory strategy and
+   *  the list so the UI feels instant. */
+  const renameStrategy = useCallback(async (next: { name?: string; description?: string }) => {
+    if (mode.name !== 'edit') return
+    const trimmedName = next.name?.trim()
+    if (next.name != null && !trimmedName) {
+      setError('Strategy name cannot be empty.')
+      return
+    }
+    setBusy(true); setError(null)
+    try {
+      const r = await fetch(`/api/strategies/${mode.strategy.id}`, {
+        method:  'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body:    JSON.stringify({
+          ...(trimmedName != null    ? { name: trimmedName } : {}),
+          ...(next.description != null ? { description: next.description } : {}),
+        }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`)
+      const merged: StrategyRow = {
+        ...mode.strategy,
+        ...(trimmedName != null      ? { name: trimmedName } : {}),
+        ...(next.description != null ? { description: next.description } : {}),
+      }
+      setMode({ ...mode, strategy: merged })
+      setStrategies((arr) => arr.map((s) => s.id === merged.id ? merged : s))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Rename failed')
+    } finally { setBusy(false) }
+  }, [mode])
+
   return (
     <>
       {error && (
@@ -220,6 +255,7 @@ export default function QuantBuilderClient({
           onSave={saveVersion}
           onRollback={rollback}
           onArchive={archive}
+          onRename={renameStrategy}
         />
       )}
     </>
@@ -393,7 +429,7 @@ function NewView({ templates, busy, onCreate, onCancel }: {
 
 function EditView({
   strategy, config, dirty, versions, busy,
-  onClose, onMutate, onSave, onRollback, onArchive,
+  onClose, onMutate, onSave, onRollback, onArchive, onRename,
 }: {
   strategy:   StrategyRow
   config:     StrategyConfig
@@ -405,10 +441,14 @@ function EditView({
   onSave:     (notes: string) => void
   onRollback: (versionId: string) => void
   onArchive:  () => void
+  onRename:   (next: { name?: string; description?: string }) => void
 }) {
   const [showHistory, setShowHistory] = useState(false)
   const [saveNotes,   setSaveNotes]   = useState('')
   const [showCatalog, setShowCatalog] = useState(false)
+  const [editingMeta, setEditingMeta] = useState(false)
+  const [draftName,        setDraftName]        = useState(strategy.name)
+  const [draftDescription, setDraftDescription] = useState(strategy.description ?? '')
 
   const issues = useMemo(() => validateStrategyConfig(config).issues, [config])
 
@@ -437,6 +477,24 @@ function EditView({
         b.id === id ? { ...b, params: { ...b.params, [paramKey]: value } } : b,
       ),
     }))
+  }
+
+  // Drag-and-drop reorder. Plain HTML5 drag API — no library needed for
+  // a vertical list with stable instance ids. Source id is carried in
+  // dataTransfer; drop target re-orders the array by computing the
+  // source/target indices.
+  const moveBlock = (sourceId: string, targetId: string) => {
+    if (sourceId === targetId) return
+    onMutate((c) => {
+      const arr = [...c.blocks]
+      const from = arr.findIndex((b) => b.id === sourceId)
+      const to   = arr.findIndex((b) => b.id === targetId)
+      if (from < 0 || to < 0) return c
+      const [moved] = arr.splice(from, 1)
+      if (!moved) return c
+      arr.splice(to, 0, moved)
+      return { ...c, blocks: arr }
+    })
   }
 
   const headVersion = Array.isArray(strategy.head) ? strategy.head[0] : strategy.head
@@ -479,9 +537,74 @@ function EditView({
       <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
         <div className="space-y-3">
           <div className="surface p-4">
-            <h2 className="text-base font-semibold">{strategy.name}</h2>
-            {strategy.description && (
-              <p className="mt-1 text-[12px] text-muted-foreground">{strategy.description}</p>
+            {editingMeta ? (
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  value={draftName}
+                  onChange={(e) => setDraftName(e.target.value)}
+                  maxLength={80}
+                  aria-label="Strategy name"
+                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-base font-semibold"
+                />
+                <textarea
+                  value={draftDescription}
+                  onChange={(e) => setDraftDescription(e.target.value)}
+                  maxLength={500}
+                  placeholder="One-line description (optional)"
+                  aria-label="Strategy description"
+                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] resize-none"
+                  rows={2}
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onRename({ name: draftName, description: draftDescription })
+                      setEditingMeta(false)
+                    }}
+                    disabled={busy || !draftName.trim()}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-md border border-emerald-500/50 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-500/15',
+                      (busy || !draftName.trim()) && 'opacity-50 cursor-not-allowed',
+                    )}
+                  >
+                    <Check className="h-3.5 w-3.5" /> Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraftName(strategy.name)
+                      setDraftDescription(strategy.description ?? '')
+                      setEditingMeta(false)
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background/60 px-2.5 py-1 text-[11px] font-semibold text-foreground/85 hover:text-foreground"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-start justify-between gap-2">
+                  <h2 className="text-base font-semibold">{strategy.name}</h2>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraftName(strategy.name)
+                      setDraftDescription(strategy.description ?? '')
+                      setEditingMeta(true)
+                    }}
+                    aria-label="Edit strategy name and description"
+                    className="text-muted-foreground/70 hover:text-foreground"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                {strategy.description && (
+                  <p className="mt-1 text-[12px] text-muted-foreground">{strategy.description}</p>
+                )}
+              </>
             )}
             <p className="mt-2 font-mono text-[10px] text-muted-foreground/70">
               {config.blocks.length} block{config.blocks.length === 1 ? '' : 's'}
@@ -496,6 +619,7 @@ function EditView({
               index={i + 1}
               onRemove={() => removeBlock(b.id)}
               onParamChange={(paramKey, value) => updateBlockParam(b.id, paramKey, value)}
+              onMove={moveBlock}
             />
           ))}
 
@@ -598,13 +722,16 @@ function EditView({
 
 // ─── BlockCard ──────────────────────────────────────────────────────
 
-function BlockCard({ instance, index, onRemove, onParamChange }: {
+function BlockCard({ instance, index, onRemove, onParamChange, onMove }: {
   instance: BlockInstance
   index:    number
   onRemove: () => void
   onParamChange: (paramKey: string, value: number | string | boolean) => void
+  onMove:   (sourceId: string, targetId: string) => void
 }) {
   const def = BLOCK_BY_KEY[instance.key]
+  const [dragOver, setDragOver] = useState(false)
+
   if (!def) {
     return (
       <div className="surface border-rose-500/40 bg-rose-500/[0.04] p-3 text-xs text-rose-200">
@@ -614,9 +741,28 @@ function BlockCard({ instance, index, onRemove, onParamChange }: {
     )
   }
   return (
-    <div className="surface p-3">
+    <div
+      className={cn('surface p-3 transition-colors', dragOver && 'border-amber-500/60 bg-amber-500/[0.04]')}
+      onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault()
+        setDragOver(false)
+        const src = e.dataTransfer.getData('text/block-id')
+        if (src && src !== instance.id) onMove(src, instance.id)
+      }}
+    >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
+          <span
+            className="cursor-grab active:cursor-grabbing text-muted-foreground/60 hover:text-foreground"
+            draggable
+            onDragStart={(e) => { e.dataTransfer.setData('text/block-id', instance.id) }}
+            aria-label={`Drag ${def.label}`}
+            title="Drag to reorder"
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </span>
           <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-[10px] font-bold text-amber-300">
             {index}
           </span>
