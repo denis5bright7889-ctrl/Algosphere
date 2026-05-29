@@ -10,6 +10,7 @@ import {
   type BacktestResult,
   type StrategyType,
 } from '@/lib/backtest'
+import StrategyDiagnosticsPanel from '@/components/backtest/StrategyDiagnosticsPanel'
 
 const STRATEGIES: { key: StrategyType; label: string }[] = [
   { key: 'ema_trend',     label: 'EMA Trend Crossover' },
@@ -103,6 +104,11 @@ export default function BacktestClient() {
             </div>
 
             <EquityChart curve={result.equityCurve} />
+
+            {/* Refocus R5: institutional metrics + ranked strategy
+                diagnostics. Reads the same BacktestResult — no extra
+                computation paths to worry about. */}
+            <StrategyDiagnosticsPanel result={result} />
 
             <div className="rounded-2xl border border-border bg-card overflow-hidden">
               <p className="px-4 py-2.5 text-xs uppercase tracking-widest text-muted-foreground border-b border-border">
