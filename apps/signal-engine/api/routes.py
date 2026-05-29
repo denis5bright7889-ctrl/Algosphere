@@ -295,6 +295,22 @@ async def get_calibration(lookback_days: int = Query(default=30, ge=7, le=90)):
     }
 
 
+@router.get('/telemetry/distributions')
+async def get_telemetry_distributions(lookback_days: int = Query(default=30, ge=1, le=90)):
+    """Spec section 13 observability aggregates: confidence distribution,
+    win-rate-by-regime, strategy contribution, rejection reasons, and MT5
+    reconnect health. Read-only; degrades to explicit empty sections
+    rather than fabricating data."""
+    from config import get_settings
+    from supabase import create_client
+    from analytics.telemetry import compute_telemetry
+    s = get_settings()
+    if not s.has_supabase:
+        return {'error': 'supabase_unavailable', 'lookback_days': lookback_days}
+    db = create_client(s.supabase_url, s.supabase_service_role_key)
+    return await compute_telemetry(db, lookback_days=lookback_days)
+
+
 # ─── Institutional risk engine ───────────────────────────────────────────────
 
 @router.get('/risk/telemetry')

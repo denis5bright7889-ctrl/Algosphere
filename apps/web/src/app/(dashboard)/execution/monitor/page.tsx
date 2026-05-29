@@ -20,6 +20,8 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import type { Database } from '@/lib/supabase/database.types'
+import { getTelemetryDistributions, type TelemetryDistributions } from '@/lib/engine-client'
+import ProgressBar from '@/components/ui/ProgressBar'
 
 type Kill   = Database['public']['Tables']['global_risk_state']['Row']
 type Job    = Database['public']['Tables']['copy_jobs']['Row']
@@ -101,6 +103,13 @@ export default async function ExecutionMonitorPage() {
   const dlq   = (dlqRes.data     ?? []) as unknown as Dlq[]
   const recon = (reconRes.data   ?? []) as unknown as Recon[]
   const lat   = (latencyRes.data ?? []) as unknown as LatRow[]
+
+  // Engine-wide telemetry aggregates (spec section 13). Service-role
+  // read on the engine; server-only fetch here. Degrades to an honest
+  // "engine unreachable" panel when the engine is down.
+  const telemetryRes = await getTelemetryDistributions(30)
+  const telemetry = telemetryRes.ok ? telemetryRes.data : null
+  const telemetryError = telemetryRes.ok ? null : telemetryRes.error
 
   // ── Per-broker latency aggregation ───────────────────────────────
   type BrokerStats = {
@@ -402,7 +411,121 @@ export default async function ExecutionMonitorPage() {
           )}
         </section>
       </div>
+
+      {/* ── Engine telemetry distributions (spec section 13) ────── */}
+      <TelemetrySection data={telemetry} error={telemetryError} />
     </main>
+  )
+}
+
+function TelemetrySection({ data, error }: {
+  data: TelemetryDistributions | null; error: string | null;
+}) {
+  return (
+    <section className="rounded-xl border bg-card p-4">
+      <div className="mb-2 flex items-baseline justify-between">
+        <h2 className="text-base font-medium">Engine telemetry</h2>
+        <span className="text-[11px] text-muted-foreground">
+          {data ? `confidence · regime · strategy · MT5 · ${data.lookback_days}d` : 'signal-engine aggregates'}
+        </span>
+      </div>
+
+      {!data ? (
+        <p className="text-xs text-amber-500">
+          Engine telemetry unavailable{error ? ` — ${error}` : ''}. The aggregates render once
+          SIGNAL_ENGINE_URL is reachable.
+        </p>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2">
+          {/* Confidence distribution */}
+          <div>
+            <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">
+              Confidence distribution · {data.confidence_distribution.scored_signals} scored
+            </h3>
+            <div className="space-y-1">
+              {(['reject', 'reduced', 'standard', 'aggressive'] as const).map((k) => {
+                const v = data.confidence_distribution.buckets[k]
+                const total = data.confidence_distribution.scored_signals || 1
+                const pct = Math.round((v / total) * 100)
+                const cls = k === 'reject' ? 'bg-red-500/60'
+                  : k === 'reduced' ? 'bg-amber-500/60'
+                  : k === 'standard' ? 'bg-blue-500/60' : 'bg-emerald-500/60'
+                return (
+                  <div key={k} className="flex items-center gap-2 text-[11px]">
+                    <span className="w-20 text-muted-foreground">{k}</span>
+                    <ProgressBar value={pct} className="h-2 flex-1 bg-background" barClassName={cls} />
+                    <span className="w-12 text-right tabular-nums">{v} · {pct}%</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Win rate by regime */}
+          <div>
+            <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">Win rate by regime</h3>
+            {Object.keys(data.win_rate_by_regime).length === 0 ? (
+              <p className="text-[11px] text-muted-foreground">No closed signals in window.</p>
+            ) : (
+              <table className="w-full text-[11px]">
+                <thead className="text-left text-muted-foreground">
+                  <tr><th className="py-0.5">Regime</th><th className="py-0.5 text-right">Closed</th><th className="py-0.5 text-right">Win rate</th></tr>
+                </thead>
+                <tbody>
+                  {Object.entries(data.win_rate_by_regime).map(([regime, s]) => (
+                    <tr key={regime} className="border-t border-border/40">
+                      <td className="py-0.5 font-mono">{regime}</td>
+                      <td className="py-0.5 text-right tabular-nums">{s.closed}</td>
+                      <td className="py-0.5 text-right tabular-nums">
+                        {s.win_rate !== null ? `${Math.round(s.win_rate * 100)}%` : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Strategy contribution */}
+          <div>
+            <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">Strategy contribution</h3>
+            {data.strategy_contribution.available && data.strategy_contribution.counts ? (
+              <ul className="space-y-0.5 text-[11px]">
+                {Object.entries(data.strategy_contribution.counts).map(([name, n]) => (
+                  <li key={name} className="flex justify-between">
+                    <span className="font-mono">{name}</span>
+                    <span className="tabular-nums text-muted-foreground">{n}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">
+                {data.strategy_contribution.note ?? 'Not available.'}
+              </p>
+            )}
+          </div>
+
+          {/* MT5 reconnect health */}
+          <div>
+            <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">MT5 connection health</h3>
+            {data.mt5_reconnect_frequency.available ? (
+              <div className="text-[11px] tabular-nums">
+                <div className="flex justify-between"><span className="text-muted-foreground">Accounts</span><span>{data.mt5_reconnect_frequency.mt5_accounts}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Connected</span><span className="text-emerald-500">{data.mt5_reconnect_frequency.connected}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Failed</span><span className={data.mt5_reconnect_frequency.failed ? 'text-red-500' : ''}>{data.mt5_reconnect_frequency.failed}</span></div>
+              </div>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">{data.mt5_reconnect_frequency.note ?? 'No MT5 accounts.'}</p>
+            )}
+            {!data.rejection_reasons.available && (
+              <p className="mt-2 text-[10px] text-muted-foreground/70">
+                Rejection-reason aggregation pending a persisted gate-decision table.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
   )
 }
 
