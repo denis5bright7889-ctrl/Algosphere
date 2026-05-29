@@ -854,6 +854,37 @@ async def _ensure_login(login: int, password: str, server: str) -> tuple[bool, O
     return await asyncio.to_thread(_do)
 
 
+@asynccontextmanager
+async def _mt5_session(login: int, password: str, server: str):
+    """Acquire _MT5_LOCK (15 s) and log in (45 s) for one HTTP request.
+
+    Raises:
+        503  bridge busy  — lock held longer than 15 s
+        504  MT5 timeout  — initialize/login did not return within 45 s
+        400  login failed — MT5 rejected the credentials
+    """
+    try:
+        await asyncio.wait_for(_MT5_LOCK.acquire(), timeout=15.0)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=503, detail='bridge busy — MT5 lock held too long')
+    try:
+        try:
+            ok, err = await asyncio.wait_for(
+                _ensure_login(login, password, server), timeout=45.0
+            )
+        except asyncio.TimeoutError:
+            try:
+                _load_mt5().shutdown()
+            except Exception:
+                pass
+            raise HTTPException(status_code=504, detail='MT5 unresponsive — login timed out')
+        if not ok:
+            raise HTTPException(status_code=400, detail=err)
+        yield
+    finally:
+        _MT5_LOCK.release()
+
+
 # ─── Endpoints ─────────────────────────────────────────────────────────
 
 @app.get('/health')
@@ -1006,10 +1037,7 @@ async def health_ready():
 async def connect(req: ConnectRequest):
     """Handshake — used by the engine's /brokers/test endpoint to
     verify credentials before the user sees a 'connected' badge."""
-    async with _MT5_LOCK:
-        ok, err = await _ensure_login(req.login, req.password, req.server)
-        if not ok:
-            raise HTTPException(status_code=400, detail=err)
+    async with _mt5_session(req.login, req.password, req.server):
         mt5 = _load_mt5()
         info = await asyncio.to_thread(mt5.account_info)
         if info is None:
@@ -1031,10 +1059,7 @@ async def connect(req: ConnectRequest):
 async def account(req: AccountRequest):
     """Refresh equity / balance / open position count for the engine's
     risk-engine + dashboard equity widgets."""
-    async with _MT5_LOCK:
-        ok, err = await _ensure_login(req.login, req.password, req.server)
-        if not ok:
-            raise HTTPException(status_code=400, detail=err)
+    async with _mt5_session(req.login, req.password, req.server):
         mt5 = _load_mt5()
         info = await asyncio.to_thread(mt5.account_info)
         positions = await asyncio.to_thread(mt5.positions_get) or []
@@ -1074,10 +1099,7 @@ async def submit_order(req: OrderRequest):
         req.login, req.password, req.server, req.symbol, req.quantity,
     )
 
-    async with _MT5_LOCK:
-        ok, err = await _ensure_login(req.login, req.password, req.server)
-        if not ok:
-            raise HTTPException(status_code=400, detail=err)
+    async with _mt5_session(req.login, req.password, req.server):
         mt5 = _load_mt5()
 
         tick = await asyncio.to_thread(mt5.symbol_info_tick, req.symbol)
@@ -1152,10 +1174,7 @@ async def submit_order(req: OrderRequest):
 async def cancel_order(req: CancelRequest):
     """Cancel a pending limit order. For market positions, use /close."""
     require_mt5_ready()
-    async with _MT5_LOCK:
-        ok, err = await _ensure_login(req.login, req.password, req.server)
-        if not ok:
-            raise HTTPException(status_code=400, detail=err)
+    async with _mt5_session(req.login, req.password, req.server):
         mt5 = _load_mt5()
         request = {'action': mt5.TRADE_ACTION_REMOVE, 'order': int(req.order_id)}
         result = await asyncio.to_thread(mt5.order_send, request)
@@ -1164,10 +1183,7 @@ async def cancel_order(req: CancelRequest):
 
 @app.post('/positions', dependencies=[Depends(_verify_bridge_key)])
 async def positions(req: AccountRequest):
-    async with _MT5_LOCK:
-        ok, err = await _ensure_login(req.login, req.password, req.server)
-        if not ok:
-            raise HTTPException(status_code=400, detail=err)
+    async with _mt5_session(req.login, req.password, req.server):
         mt5 = _load_mt5()
         rows = await asyncio.to_thread(mt5.positions_get) or []
         out = []
@@ -1189,10 +1205,7 @@ async def positions(req: AccountRequest):
 async def close_all(req: AccountRequest):
     """Emergency flatten — kill-switch path."""
     require_mt5_ready()
-    async with _MT5_LOCK:
-        ok, err = await _ensure_login(req.login, req.password, req.server)
-        if not ok:
-            raise HTTPException(status_code=400, detail=err)
+    async with _mt5_session(req.login, req.password, req.server):
         mt5 = _load_mt5()
         rows = await asyncio.to_thread(mt5.positions_get) or []
         closed = 0
@@ -1225,10 +1238,7 @@ class SymbolRequest(AccountRequest):
 
 @app.post('/symbol_spec', dependencies=[Depends(_verify_bridge_key)])
 async def symbol_spec(req: SymbolRequest):
-    async with _MT5_LOCK:
-        ok, err = await _ensure_login(req.login, req.password, req.server)
-        if not ok:
-            raise HTTPException(status_code=400, detail=err)
+    async with _mt5_session(req.login, req.password, req.server):
         mt5 = _load_mt5()
         info = await asyncio.to_thread(mt5.symbol_info, req.symbol)
         if info is None:
@@ -1248,10 +1258,7 @@ async def symbol_spec(req: SymbolRequest):
 
 @app.post('/quote', dependencies=[Depends(_verify_bridge_key)])
 async def quote(req: SymbolRequest):
-    async with _MT5_LOCK:
-        ok, err = await _ensure_login(req.login, req.password, req.server)
-        if not ok:
-            raise HTTPException(status_code=400, detail=err)
+    async with _mt5_session(req.login, req.password, req.server):
         mt5 = _load_mt5()
         tick = await asyncio.to_thread(mt5.symbol_info_tick, req.symbol)
         if tick is None:
@@ -1432,10 +1439,7 @@ async def trade_close(req: TradeCloseRequest):
     from /cancel (which removes pending orders) and /close_all (which
     flattens everything)."""
     login, password, server = _require_default_creds()
-    async with _MT5_LOCK:
-        ok, err = await _ensure_login(login, password, server)
-        if not ok:
-            raise HTTPException(status_code=400, detail=err)
+    async with _mt5_session(login, password, server):
         mt5 = _load_mt5()
         positions = await asyncio.to_thread(mt5.positions_get, ticket=req.ticket)
         if not positions:
@@ -1511,10 +1515,7 @@ async def get_account():
     equity / balance / open-position count + the watchdog's freshness
     indicator so a single curl tells you whether the bridge is healthy."""
     login, password, server = _require_default_creds()
-    async with _MT5_LOCK:
-        ok, err = await _ensure_login(login, password, server)
-        if not ok:
-            raise HTTPException(status_code=400, detail=err)
+    async with _mt5_session(login, password, server):
         mt5 = _load_mt5()
         info = await asyncio.to_thread(mt5.account_info)
         positions = await asyncio.to_thread(mt5.positions_get) or []
@@ -1544,10 +1545,7 @@ async def get_account():
 async def get_positions():
     """Stateless GET — uses .env creds. Returns all open positions."""
     login, password, server = _require_default_creds()
-    async with _MT5_LOCK:
-        ok, err = await _ensure_login(login, password, server)
-        if not ok:
-            raise HTTPException(status_code=400, detail=err)
+    async with _mt5_session(login, password, server):
         mt5 = _load_mt5()
         rows = await asyncio.to_thread(mt5.positions_get) or []
         out = []
