@@ -23,7 +23,7 @@ import {
   BookOpen, Calculator, Briefcase, BrainCircuit, KeyRound, Rocket,
   Settings2, BadgeDollarSign, Handshake, BadgeCheck, LogOut,
   LineChart, UserCog, Waves, PieChart,
-  Building2, Coins, TrendingUp, Grid3x3, Sparkles,
+  Building2, Coins, TrendingUp, Grid3x3, Sparkles, Crown,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -135,10 +135,18 @@ export const NAV_GROUPS: NavGroup[] = [
       // behavioral coaching, not curated lessons.
     ],
   },
-  // Refocus R1: the entire Community group is removed.
-  //   /community, /strategies, /social, /traders, /rooms, /communities
-  // were public social/leaderboard/marketplace surfaces. They will be
-  // replaced in R3 by an admin-curated Premium Telegram Community Hub.
+  // Refocus R3: the public Community group is gone (forums, leaderboard,
+  // marketplace, etc. retired in R1+R2). A single curated entry remains
+  // — admin-managed Telegram destinations, browsed at /communities. No
+  // posting, no follows; AlgoSphere is a directory, not a forum.
+  {
+    label: 'Community',
+    icon: Crown,
+    items: [
+      { href: '/communities', label: 'Telegram Hub', icon: Crown,
+        keywords: 'telegram channel group vip signals education premium directory' },
+    ],
+  },
   {
     // Platform & account chrome — notifications, developer access,
     // billing, identity. Operational, not a feature surface.
