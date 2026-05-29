@@ -22,14 +22,32 @@ import { redirect } from 'next/navigation'
 import {
   Brain, Activity, BarChart3, ShieldCheck, TrendingUp, TrendingDown,
   AlertOctagon, CheckCircle2, Info, BookOpen, Sparkles, Zap,
-  Calendar, type LucideIcon,
+  Calendar, Radar, Target, MinusCircle, type LucideIcon,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 import { analyzeBehavior, type BehavioralReport } from '@/lib/intelligence/behavioral'
 import { analyzePerformance, type PerformanceReport, type SegmentRow } from '@/lib/intelligence/performance'
 import { generateInsights, type CoachInsight } from '@/lib/intelligence/coach'
+import { generateTiming, type RegimeSnapshot, type TimingRecommendation } from '@/lib/intelligence/timing'
 import type { JournalEntry } from '@/lib/types'
+
+interface CoachEvalRow {
+  id:                string
+  journal_entry_id:  string
+  quality_score:     number
+  strategy_grade:    'A' | 'B' | 'C' | 'D' | 'F'
+  emotional_flag:    boolean
+  emotional_reason:  string | null
+  what_worked:       string[]
+  what_to_fix:       string[]
+  advancement:       string | null
+  created_at:        string
+  /** Joined journal context */
+  pair:              string | null
+  direction:         string | null
+  pnl:               number | null
+}
 
 export const metadata = { title: 'Trader Intelligence — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'
@@ -42,23 +60,68 @@ export default async function TraderIntelligencePage() {
   if (!user) redirect('/login')
 
   const cutoff = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString()
-  const { data: entriesRaw } = await supabase
-    .from('journal_entries')
-    .select('*')
-    .eq('user_id', user.id)
-    .gte('created_at', cutoff)
-    .order('created_at', { ascending: false })
-    .limit(500)
 
-  const entries = (entriesRaw ?? []) as unknown as JournalEntry[]
+  const [entriesRes, evalsRes, snapshotsRes] = await Promise.all([
+    supabase.from('journal_entries')
+      .select('*')
+      .eq('user_id', user.id)
+      .gte('created_at', cutoff)
+      .order('created_at', { ascending: false })
+      .limit(500),
+    // R4b: latest 8 deterministic coach evaluations, joined with the
+    // journal entry's pair/direction/pnl for context-rich rendering.
+    supabase.from('journal_coach_evaluations')
+      .select(`
+        id, journal_entry_id, quality_score, strategy_grade,
+        emotional_flag, emotional_reason, what_worked, what_to_fix,
+        advancement, created_at,
+        journal_entries!inner(pair, direction, pnl)
+      `)
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(8),
+    // R4b: latest regime per symbol for the timing panel. RLS-public
+    // table (read by every authenticated user).
+    supabase.from('regime_snapshots')
+      .select('symbol, regime, scanned_at')
+      .order('scanned_at', { ascending: false })
+      .limit(120),
+  ])
+
+  const entries = (entriesRes.data ?? []) as unknown as JournalEntry[]
 
   if (entries.length === 0) {
     return <EmptyState />
   }
 
+  // Flatten the joined coach-eval rows (Supabase returns the join under
+  // the table name, which TS doesn't know about; cast carefully).
+  type RawEval = Omit<CoachEvalRow, 'pair' | 'direction' | 'pnl'> & {
+    journal_entries?: { pair: string | null; direction: string | null; pnl: number | null } | null
+  }
+  const evals: CoachEvalRow[] = ((evalsRes.data ?? []) as unknown as RawEval[]).map((row) => ({
+    id:                row.id,
+    journal_entry_id:  row.journal_entry_id,
+    quality_score:     row.quality_score,
+    strategy_grade:    row.strategy_grade,
+    emotional_flag:    row.emotional_flag,
+    emotional_reason:  row.emotional_reason,
+    what_worked:       row.what_worked ?? [],
+    what_to_fix:       row.what_to_fix ?? [],
+    advancement:       row.advancement,
+    created_at:        row.created_at,
+    pair:              row.journal_entries?.pair      ?? null,
+    direction:         row.journal_entries?.direction ?? null,
+    pnl:               row.journal_entries?.pnl       ?? null,
+  }))
+
   const behavior   = analyzeBehavior(entries, WINDOW_DAYS)
   const performance = analyzePerformance(entries)
   const insights   = generateInsights(behavior, performance)
+  const timing     = generateTiming(
+    (snapshotsRes.data ?? []) as RegimeSnapshot[],
+    performance.by_pair,
+  )
 
   return (
     <div className="mx-auto max-w-6xl px-1 py-4 sm:px-4 sm:py-6">
@@ -82,6 +145,19 @@ export default async function TraderIntelligencePage() {
         </a>
       </header>
 
+      {/* ── Market timing (R4b) ──────────────────────────────────── */}
+      <section className="surface mb-5 p-5">
+        <SectionHeader icon={Radar} title="Market timing" subtitle={`Live regime × your edge · ${timing.recommendations.length} pair${timing.recommendations.length === 1 ? '' : 's'}`} />
+        <p className="mt-1 text-[12px] text-foreground/85">{timing.headline}</p>
+        {timing.recommendations.length > 0 && (
+          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+            {timing.recommendations.slice(0, 6).map((r) => (
+              <TimingCard key={r.symbol} r={r} />
+            ))}
+          </ul>
+        )}
+      </section>
+
       {/* ── Coach feed (the main read) ───────────────────────────── */}
       <section className="surface mb-5 p-5">
         <SectionHeader icon={Brain} title="Coach feed" subtitle="Ranked observations from your data" />
@@ -95,6 +171,20 @@ export default async function TraderIntelligencePage() {
               <CoachLine key={idx} i={i} idx={idx + 1} />
             ))}
           </ol>
+        )}
+      </section>
+
+      {/* ── Recent per-trade coach evaluations (R4b) ─────────────── */}
+      <section className="surface mb-5 p-5">
+        <SectionHeader icon={ShieldCheck} title="Recent trade evaluations" subtitle="Deterministic · runs on every trade" />
+        {evals.length === 0 ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Coach evaluations start landing on your next logged trade — the journal write path runs the evaluator automatically.
+          </p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {evals.map((e) => <EvalCard key={e.id} e={e} />)}
+          </ul>
         )}
       </section>
 
@@ -355,6 +445,132 @@ function Stat({ label, value, positive, hint }: {
       </div>
       {hint && <p className="mt-0.5 text-[10px] text-muted-foreground/70">{hint}</p>}
     </div>
+  )
+}
+
+
+function TimingCard({ r }: { r: TimingRecommendation }) {
+  const tone =
+    r.verdict === 'favorable' ? 'border-emerald-500/40 bg-emerald-500/[0.04] text-emerald-200'
+    : r.verdict === 'avoid'    ? 'border-rose-500/40 bg-rose-500/[0.04] text-rose-200'
+    : 'border-amber-500/40 bg-amber-500/[0.04] text-amber-200'
+  const Icon =
+    r.verdict === 'favorable' ? Target
+    : r.verdict === 'avoid'    ? MinusCircle
+    : Info
+  const label =
+    r.verdict === 'favorable' ? 'Trade'
+    : r.verdict === 'avoid'    ? 'Skip'
+    : 'Wait'
+
+  return (
+    <li className={cn('rounded-lg border p-3', tone)}>
+      <div className="flex items-start gap-2">
+        <Icon className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className="font-mono text-sm font-semibold">{r.symbol}</span>
+            <span className="rounded border border-current/30 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+              {label}
+            </span>
+            {r.regime && (
+              <span className="text-[10px] uppercase tracking-wider opacity-70">{r.regime}</span>
+            )}
+          </div>
+          <ul className="mt-1 space-y-0.5 text-[11px] opacity-90">
+            {r.reasons.slice(0, 2).map((reason, i) => (
+              <li key={i}>· {reason}</li>
+            ))}
+          </ul>
+          {r.user_trades > 0 && (
+            <p className="mt-1 font-mono text-[10px] tabular-nums opacity-60">
+              {r.user_trades} trades · WR {r.user_win_rate != null ? `${Math.round(r.user_win_rate * 100)}%` : '—'} · E {r.user_expectancy != null ? r.user_expectancy.toFixed(2) : '—'}
+            </p>
+          )}
+        </div>
+      </div>
+    </li>
+  )
+}
+
+
+function EvalCard({ e }: { e: CoachEvalRow }) {
+  const gradeTone =
+    e.strategy_grade === 'A' ? 'text-emerald-300 border-emerald-500/50 bg-emerald-500/10'
+    : e.strategy_grade === 'B' ? 'text-blue-300 border-blue-500/40 bg-blue-500/10'
+    : e.strategy_grade === 'C' ? 'text-amber-300 border-amber-500/40 bg-amber-500/10'
+    : e.strategy_grade === 'D' ? 'text-orange-300 border-orange-500/40 bg-orange-500/10'
+    : 'text-rose-300 border-rose-500/50 bg-rose-500/10'
+
+  return (
+    <li className="rounded-lg border border-border/60 bg-background/40 p-3">
+      <div className="flex items-start gap-3">
+        <span className={cn(
+          'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border text-base font-bold',
+          gradeTone,
+        )}>
+          {e.strategy_grade}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-2">
+            {e.pair && <span className="font-mono text-sm font-semibold">{e.pair}</span>}
+            {e.direction && (
+              <span className={cn(
+                'rounded px-1 py-0.5 text-[9px] font-bold uppercase tracking-wider',
+                e.direction === 'buy' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300',
+              )}>
+                {e.direction}
+              </span>
+            )}
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              {e.quality_score}/100
+            </span>
+            {e.emotional_flag && (
+              <span className="inline-flex items-center gap-1 rounded border border-rose-500/40 bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-300">
+                <AlertOctagon className="h-2.5 w-2.5" />
+                {e.emotional_reason ?? 'Emotional'}
+              </span>
+            )}
+            {e.pnl != null && (
+              <span className={cn(
+                'text-[10px] font-bold tabular-nums',
+                e.pnl >= 0 ? 'text-emerald-300' : 'text-rose-300',
+              )}>
+                {e.pnl >= 0 ? '+' : ''}{fmtCurrency(e.pnl)}
+              </span>
+            )}
+            <span className="ml-auto text-[10px] text-muted-foreground/70">
+              {new Date(e.created_at).toLocaleDateString()}
+            </span>
+          </div>
+          {e.advancement && (
+            <p className="mt-1.5 text-[12px] leading-relaxed text-foreground/85">{e.advancement}</p>
+          )}
+          {(e.what_worked.length > 0 || e.what_to_fix.length > 0) && (
+            <div className="mt-2 grid gap-1.5 sm:grid-cols-2 text-[11px]">
+              {e.what_worked.length > 0 && (
+                <ul className="space-y-0.5 text-emerald-300/85">
+                  {e.what_worked.slice(0, 3).map((w, i) => (
+                    <li key={i} className="flex gap-1">
+                      <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0" />{w}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {e.what_to_fix.length > 0 && (
+                <ul className="space-y-0.5 text-amber-300/85">
+                  {e.what_to_fix.slice(0, 3).map((w, i) => (
+                    <li key={i} className="flex gap-1">
+                      <AlertOctagon className="mt-0.5 h-3 w-3 shrink-0" />{w}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </li>
   )
 }
 

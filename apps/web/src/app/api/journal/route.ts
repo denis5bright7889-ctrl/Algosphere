@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { recomputeTraderScore } from '@/lib/trader-scoring'
 import { reviewTrade } from '@/lib/ai-reviews'
+import { evaluateTrade, EVALUATOR_VERSION } from '@/lib/intelligence/coach-eval'
 import { z } from 'zod'
 
 const journalEntrySchema = z.object({
@@ -109,6 +110,31 @@ export async function POST(request: NextRequest) {
       }
     })()
   }
+
+  // Refocus R4b: deterministic coach evaluation. Always runs; never
+  // touches an external service. Persists structured fields the
+  // Trader Intelligence dashboard renders without LLM dependency.
+  // Non-blocking — never delay the 201.
+  void (async () => {
+    try {
+      const evalRow = evaluateTrade(parsed.data)
+      const svc = createServiceClient()
+      await svc.from('journal_coach_evaluations').insert({
+        journal_entry_id:  data.id,
+        user_id:           user.id,
+        quality_score:     evalRow.quality_score,
+        strategy_grade:    evalRow.strategy_grade,
+        emotional_flag:    evalRow.emotional_flag,
+        emotional_reason:  evalRow.emotional_reason,
+        what_worked:       evalRow.what_worked,
+        what_to_fix:       evalRow.what_to_fix,
+        advancement:       evalRow.advancement,
+        evaluator_version: EVALUATOR_VERSION,
+      })
+    } catch (err) {
+      console.error('Coach evaluation insert failed:', err)
+    }
+  })()
 
   return NextResponse.json({ data }, { status: 201 })
 }
