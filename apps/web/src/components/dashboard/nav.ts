@@ -18,11 +18,11 @@
 import {
   LayoutDashboard, Activity, Radar, BarChart3, Bell,
   Cpu, ShieldCheck, ShieldAlert, Landmark, FlaskConical, Ghost, Target,
-  CandlestickChart, CalendarDays, Newspaper, Brain, Trophy,
-  Users, Network, Crown, MessagesSquare, Repeat,
-  BookOpen, Calculator, Briefcase, BrainCircuit, KeyRound, Rocket, GraduationCap,
+  CandlestickChart, CalendarDays, Newspaper, Brain,
+  Network, MessagesSquare, Repeat,
+  BookOpen, Calculator, Briefcase, BrainCircuit, KeyRound, Rocket,
   Settings2, BadgeDollarSign, Handshake, BadgeCheck, LogOut,
-  LineChart, MessageSquare, UserCog, Waves, PieChart,
+  LineChart, UserCog, Waves, PieChart,
   Building2, Coins, TrendingUp, Grid3x3, Sparkles,
   type LucideIcon,
 } from 'lucide-react'
@@ -118,7 +118,8 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/watchlist', label: 'Watchlists',     icon: Bell,      keywords: 'pin instruments universe symbols favourites' },
       { href: '/analytics', label: 'Performance',    icon: BarChart3, keywords: 'pnl stats win rate analytics equity curve' },
-      { href: '/copy',      label: 'Copy Trading',   icon: Repeat,    keywords: 'mirror auto follow allocation portfolio' },
+      // Refocus R1: Copy Trading removed — platform pivots to trader
+      // intelligence; mirror execution is out of scope.
     ],
   },
   {
@@ -130,21 +131,14 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/quant-builder', label: 'Quant Builder', icon: BrainCircuit,  minTier: 'premium', keywords: 'strategy algo no-code lab builder' },
       { href: '/backtest',      label: 'Backtester',    icon: FlaskConical,  keywords: 'historical simulation strategy lab' },
       { href: '/calculators',   label: 'Calculators',   icon: Calculator,    keywords: 'position size lot pip risk' },
-      { href: '/learn',         label: 'Academy',       icon: GraduationCap, keywords: 'education learn course lessons training data lab' },
+      // Refocus R1: Academy removed — focus shifts to AI-driven
+      // behavioral coaching, not curated lessons.
     ],
   },
-  {
-    label: 'Community',
-    icon: MessageSquare,
-    items: [
-      { href: '/community',   label: 'Community Feed',       icon: Users,         keywords: 'discussion forum threads' },
-      { href: '/strategies',  label: 'Strategy Marketplace', icon: Target,        keywords: 'published strategies marketplace subscribe' },
-      { href: '/social',      label: 'Social Feed',          icon: MessagesSquare,keywords: 'posts ideas' },
-      { href: '/traders',     label: 'Leaderboards',         icon: Trophy,        keywords: 'ranking top traders verified' },
-      { href: '/rooms',       label: 'Trader Rooms',         icon: Network,       keywords: 'voice telegram' },
-      { href: '/communities', label: 'Premium Groups',       icon: Crown,         minTier: 'premium', keywords: 'vip exclusive' },
-    ],
-  },
+  // Refocus R1: the entire Community group is removed.
+  //   /community, /strategies, /social, /traders, /rooms, /communities
+  // were public social/leaderboard/marketplace surfaces. They will be
+  // replaced in R3 by an admin-curated Premium Telegram Community Hub.
   {
     // Platform & account chrome — notifications, developer access,
     // billing, identity. Operational, not a feature surface.
@@ -153,7 +147,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/api-keys',     label: 'API Access',   icon: KeyRound,        minTier: 'premium', keywords: 'developer token rest webhook' },
       { href: '/prop',         label: 'Prop Toolkit', icon: Briefcase,       minTier: 'premium', keywords: 'ftmo challenge funded' },
-      { href: '/launchpad',    label: 'Token Launchpad', icon: Rocket,       minTier: 'vip',     keywords: 'ico presale' },
+      // Refocus R1: Token Launchpad removed — out of refocused scope.
       { href: '/settings',     label: 'Settings',     icon: UserCog,         keywords: 'account security 2fa devices preferences' },
       { href: '/upgrade',      label: 'Billing & Plan', icon: BadgeDollarSign, keywords: 'subscription billing plan renew upgrade' },
       { href: '/referrals',    label: 'Affiliate',    icon: Handshake,       keywords: 'referral commission' },

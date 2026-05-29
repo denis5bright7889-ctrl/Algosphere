@@ -1,45 +1,10 @@
-import { createClient } from '@/lib/supabase/server'
-import { notFound, redirect } from 'next/navigation'
-import EditStrategyForm from './EditStrategyForm'
-import type { PublishedStrategy } from '@/lib/strategies'
+import { notFound } from 'next/navigation'
 
-export const metadata = { title: 'Edit Strategy — AlgoSphere Quant' }
+/**
+ * Phase R1: route removed during platform refocus to trader
+ * intelligence. Returns 404. The supporting components in this folder
+ * are kept temporarily and will be deleted in Phase R2 (backend
+ * shutdown), at which point the page directory itself is removed.
+ */
 export const dynamic = 'force-dynamic'
-
-export default async function EditStrategyPage({
-  params,
-}: {
-  params: Promise<{ slug: string }>
-}) {
-  const { slug } = await params
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  const { data: strategy } = await supabase
-    .from('published_strategies')
-    .select('*')
-    .eq('slug', slug)
-    .eq('creator_id', user.id)
-    .single()
-
-  if (!strategy) notFound()
-
-  return (
-    <div className="mx-auto max-w-2xl px-4 py-6">
-      <header className="mb-6">
-        <a
-          href={`/strategies/${slug}`}
-          className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mb-3"
-        >
-          ← Back to strategy
-        </a>
-        <h1 className="text-2xl font-bold tracking-tight">
-          Edit <span className="text-gradient">Strategy</span>
-        </h1>
-      </header>
-
-      <EditStrategyForm strategy={strategy as PublishedStrategy} />
-    </div>
-  )
-}
+export default function Page() { notFound() }
