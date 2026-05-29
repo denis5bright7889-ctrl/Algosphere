@@ -4,7 +4,6 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as serviceClient } from '@supabase/supabase-js'
 import { isAdmin } from '@/lib/admin'
 import { canTransition, LIFECYCLE_TO_RESULT } from '@/lib/signals/lifecycle'
-import { settleCopyTradesForSignal } from '@/lib/copy-settlement'
 import type { SignalLifecycleState } from '@/lib/types'
 
 const TERMINAL_STATES = [
@@ -101,15 +100,9 @@ export async function PATCH(
     after_state: update,
   })
 
-  // If the signal just went terminal, settle all linked copy trades
-  if (
-    parsed.data.lifecycle_state &&
-    TERMINAL_STATES.includes(parsed.data.lifecycle_state) &&
-    existing.status !== 'closed'
-  ) {
-    settleCopyTradesForSignal(svc, id)
-      .catch(err => console.error('Copy settlement failed:', err))
-  }
+  // Refocus R2: copy-trade settlement removed alongside the copy
+  // engine. Admin signal lifecycle transitions still work; they just
+  // no longer fan out to follower portfolios.
 
   return NextResponse.json({ data })
 }

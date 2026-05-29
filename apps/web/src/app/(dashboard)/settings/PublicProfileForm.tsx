@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { normalizeHandle, isValidHandle } from '@/lib/leaderboard'
+import { normalizeHandle, isValidHandle } from '@/lib/profile-utils'
 import { cn } from '@/lib/utils'
 
 interface Props {

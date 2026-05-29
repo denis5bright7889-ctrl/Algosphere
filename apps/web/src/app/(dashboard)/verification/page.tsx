@@ -2,7 +2,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { CheckSquare, BadgeCheck, Trophy, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { verificationBadge, type VerificationTier } from '@/lib/leaderboard'
+import { verificationBadge, type VerificationTier } from '@/lib/profile-utils'
 import VerificationApplyForm from './VerificationApplyForm'
 
 export const metadata = { title: 'Verification — AlgoSphere Quant' }
