@@ -1742,13 +1742,27 @@ async def system_validate():
     bridge_port = int(os.environ.get('BRIDGE_PORT', '8000'))
 
     # ── Single-instance check ───────────────────────────────────────────
-    lock_path = pathlib.Path(__file__).resolve().parent / 'runtime' / 'bridge.lock'
+    # Primary lock is runtime/bridge.lock; start_runtime.py falls back to
+    # %TEMP%/algosphere_bridge.lock when the primary is ACL-locked by a
+    # previous elevated session.  Check both so the single_instance flag
+    # stays True regardless of which lock path was actually used.
+    _lock_candidates = [
+        pathlib.Path(__file__).resolve().parent / 'runtime' / 'bridge.lock',
+        pathlib.Path(os.environ.get('TEMP', os.environ.get('TMP', 'C:\\Temp')))
+        / 'algosphere_bridge.lock',
+    ]
     lock_pid:   Optional[int] = None
     single_instance = False
     try:
-        if lock_path.exists():
-            lock_pid = int(lock_path.read_text().strip() or '0')
-            single_instance = (lock_pid == pid)
+        for _lp in _lock_candidates:
+            if _lp.exists():
+                _lpid = int(_lp.read_text().strip() or '0')
+                if _lpid == pid:
+                    lock_pid = _lpid
+                    single_instance = True
+                    break
+                if lock_pid is None:
+                    lock_pid = _lpid  # keep first found for reporting
     except Exception:
         pass
 
