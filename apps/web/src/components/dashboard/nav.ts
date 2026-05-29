@@ -56,6 +56,9 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: BrainCircuit,
     items: [
       { href: '/overview',  label: 'Dashboard',     icon: LayoutDashboard, keywords: 'home command center feed' },
+      // ── Trader Intelligence (Refocus R4) — about YOU, not the market ──
+      { href: '/intelligence/me', label: 'Trader Intelligence', icon: Brain,
+        keywords: 'coach behavior performance revenge overtrade consistency emotion analytics ai me self' },
       { href: '/signals',   label: 'Market Feed',   icon: Activity,        keywords: 'signals intelligence feed' },
       // ── Intelligence Core (universe-level institutional engines) ────
       { href: '/intelligence/conviction',           label: 'Conviction',           icon: Target,     keywords: 'multi layer agreement bias bullish bearish high moderate confidence' },
