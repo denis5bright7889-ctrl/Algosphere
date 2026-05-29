@@ -207,50 +207,60 @@ def _circuit_breakers_section() -> dict:
 
 
 async def _active_signals_section(db) -> dict:
-    """Per-symbol count of lifecycle_state='active'. If any symbol
-    shows >= max_active_per_symbol the worker is silently skipping it
-    every cycle. Top-suspected cause of full-day starvation."""
+    """Per-symbol active counts split by engine_version. Only
+    engine_version='algo_v1' counts toward the worker's slot cap —
+    manual admin-curated signals (engine_version='manual') are not
+    auto-closed by the lifecycle monitor and the worker correctly
+    ignores them. We surface both so operators can see the full
+    picture without misreading 'manual exists' as 'engine starved'."""
     s = get_settings()
     if db is None:
         return {'available': False, 'note': 'supabase unavailable'}
     try:
         res = await asyncio.to_thread(
             lambda: db.table('signals')
-            .select('pair, lifecycle_state, published_at')
+            .select('pair, lifecycle_state, published_at, engine_version')
             .eq('lifecycle_state', 'active')
             .order('published_at', desc=True)
             .limit(500)
             .execute()
         )
-        counts: Counter[str] = Counter()
-        oldest: dict[str, str] = {}
+        algo_counts: Counter[str] = Counter()
+        manual_counts: Counter[str] = Counter()
+        oldest_algo: dict[str, str] = {}
         for row in res.data or []:
             pair = (row.get('pair') or '').upper()
             if not pair:
                 continue
-            counts[pair] += 1
-            # capture oldest active per pair so we can spot stuck signals
-            ts = row.get('published_at')
-            if ts and (pair not in oldest or ts < oldest[pair]):
-                oldest[pair] = ts
+            ev = row.get('engine_version') or 'manual'
+            if ev == 'algo_v1':
+                algo_counts[pair] += 1
+                ts = row.get('published_at')
+                if ts and (pair not in oldest_algo or ts < oldest_algo[pair]):
+                    oldest_algo[pair] = ts
+            else:
+                manual_counts[pair] += 1
         rows = []
         starved = 0
         for sym in s.symbol_list:
-            c = counts.get(sym, 0)
-            is_starved = c >= s.max_active_per_symbol
+            algo_n = algo_counts.get(sym, 0)
+            man_n  = manual_counts.get(sym, 0)
+            is_starved = algo_n >= s.max_active_per_symbol
             if is_starved:
                 starved += 1
             rows.append({
                 'symbol':      sym,
-                'active':      c,
+                'active':      algo_n,        # engine-relevant count
+                'manual':      man_n,
                 'starved':     is_starved,
-                'oldest_open': oldest.get(sym),
+                'oldest_open': oldest_algo.get(sym),
             })
         return {
             'available':            True,
             'max_active_per_symbol': s.max_active_per_symbol,
             'starved_symbols':      starved,
-            'total_active':         sum(counts.values()),
+            'total_active_algo':    sum(algo_counts.values()),
+            'total_active_manual':  sum(manual_counts.values()),
             'symbols':              rows,
         }
     except Exception as e:

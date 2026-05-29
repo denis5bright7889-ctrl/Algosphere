@@ -16,28 +16,36 @@ Tier = Literal['blocked', 'normal', 'aggressive', 'exceptional']
 
 @dataclass
 class ConfidenceBreakdown:
-    ema_alignment: float        # 0–15 pts — all EMAs pointing same way
-    ema_separation: float       # 0–10 pts — EMAs well spaced
-    price_vs_ema200: float      # 0–10 pts — price on correct side of EMA200
-    atr_percentile: float       # 0–10 pts — adequate but not extreme volatility
-    rsi_momentum: float         # 0–15 pts — RSI in ideal zone
-    macd_alignment: float       # 0–15 pts — MACD histogram matches direction
-    session_quality: float      # 0–10 pts — premium trading session
-    regime_quality: float       # 0–10 pts — regime favours strategy type
-    spread_quality: float       # 0–5  pts  — spread within norms
+    """11-factor breakdown (spec section 5: 8 named factors; we expand the
+    trend-alignment factor into three EMA-derived sub-factors for legibility,
+    plus the two spec-required portfolio_concentration + macro_alignment
+    factors). Total max = 110; we normalise to a 0–100 score."""
+    ema_alignment: float           # 0–15 pts — all EMAs pointing same way
+    ema_separation: float          # 0–10 pts — EMAs well spaced
+    price_vs_ema200: float         # 0–10 pts — price on correct side of EMA200
+    atr_percentile: float          # 0–10 pts — adequate but not extreme volatility
+    rsi_momentum: float            # 0–15 pts — RSI in ideal zone
+    macd_alignment: float          # 0–15 pts — MACD histogram matches direction
+    session_quality: float         # 0–10 pts — premium trading session
+    regime_quality: float          # 0–10 pts — regime favours strategy type
+    spread_quality: float          # 0–5  pts — spread within norms
+    portfolio_concentration: float # 0–5  pts — fewer correlated open trades = higher
+    macro_alignment: float         # 0–5  pts — signal direction agrees w/ macro backdrop
     total: float
-    raw_100: float              # total / max_total * 100
+    raw_100: float                 # min(total / max_total, 1) * 100
 
     FACTOR_WEIGHTS: dict = field(default_factory=lambda: {
-        'ema_alignment':    15,
-        'ema_separation':   10,
-        'price_vs_ema200':  10,
-        'atr_percentile':   10,
-        'rsi_momentum':     15,
-        'macd_alignment':   15,
-        'session_quality':  10,
-        'regime_quality':   10,
-        'spread_quality':    5,
+        'ema_alignment':            15,
+        'ema_separation':           10,
+        'price_vs_ema200':          10,
+        'atr_percentile':           10,
+        'rsi_momentum':             15,
+        'macd_alignment':           15,
+        'session_quality':          10,
+        'regime_quality':           10,
+        'spread_quality':            5,
+        'portfolio_concentration':   5,
+        'macro_alignment':           5,
     })
 
 
@@ -50,7 +58,18 @@ class ConfidenceResult:
     block_reason: Optional[str] = None
 
 
-MAX_SCORE = 100.0
+MAX_SCORE     = 100.0
+MAX_TOTAL_PTS = 110.0   # sum of FACTOR_WEIGHTS values
+
+# Spec section 5 publish bands:
+#   < 45  reject
+#   45–69 reduced size
+#   70–84 standard
+#   85+   aggressive
+# These bands also pick the Tier label below.
+THRESHOLD_REJECT     = 45
+THRESHOLD_STANDARD   = 70
+THRESHOLD_AGGRESSIVE = 85
 
 
 def score_confidence(
@@ -59,9 +78,24 @@ def score_confidence(
     proposal: SignalProposal,
     spread_pips: float = 2.0,
     avg_spread_pips: float = 2.0,
+    *,
+    same_class_open_positions: int = 0,
+    macro_alignment_score: float = 0.5,
 ) -> ConfidenceResult:
     """
-    Computes 9-factor institutional confidence score.
+    11-factor institutional confidence (spec section 5).
+
+    Optional kwargs (neutral defaults so live callers continue to work
+    without rewiring):
+
+      same_class_open_positions
+          Count of currently-open positions in the same asset class as
+          the proposed trade. Higher count → lower concentration score.
+
+      macro_alignment_score
+          0–1 score indicating how well the proposed direction agrees
+          with the macro backdrop (e.g. DXY trend for FX, BTC dominance
+          for crypto). 0.5 is the neutral "no signal" baseline.
     """
     d = proposal.direction
 
@@ -143,16 +177,35 @@ def score_confidence(
     else:
         spread_score = 0.0
 
-    total = (ema_align + ema_sep + price_ema200 + atr_score + rsi_score +
-             macd_score + sess_score + regime_score + spread_score)
-    raw = min(total, MAX_SCORE)
+    # 10. Portfolio concentration (0–5) — penalise correlated stack-up.
+    # 0 same-class opens → full 5; each additional same-class open
+    # subtracts 1.5 pts. The institutional asks: don't fight your own
+    # book.
+    conc_penalty = max(0, same_class_open_positions) * 1.5
+    portfolio_concentration = max(0.0, 5.0 - conc_penalty)
+
+    # 11. Macro alignment (0–5) — caller passes a 0–1 score. Neutral 0.5
+    # yields 2.5 pts (no opinion).
+    macro_score = max(0.0, min(1.0, macro_alignment_score)) * 5.0
+
+    total = (
+        ema_align + ema_sep + price_ema200 + atr_score + rsi_score +
+        macd_score + sess_score + regime_score + spread_score +
+        portfolio_concentration + macro_score
+    )
+    # Normalise to 0–100. Total can exceed MAX_TOTAL_PTS only if a
+    # weighting bug is introduced; clamp defensively.
+    raw = min(total / MAX_TOTAL_PTS * MAX_SCORE, MAX_SCORE)
     score = int(round(raw))
 
+    # Spec section 5 bands. We keep Tier names backwards-compatible with
+    # signals.signal_lifecycle + tier_to_subscription; the underlying
+    # cutoffs now match the spec.
     tier: Tier
-    if score >= 80:    tier = 'exceptional'
-    elif score >= 65:  tier = 'aggressive'
-    elif score >= 50:  tier = 'normal'
-    else:              tier = 'blocked'
+    if   score >= THRESHOLD_AGGRESSIVE: tier = 'exceptional'   # spec: aggressive
+    elif score >= THRESHOLD_STANDARD:   tier = 'aggressive'    # spec: standard
+    elif score >= THRESHOLD_REJECT:     tier = 'normal'        # spec: reduced size
+    else:                                tier = 'blocked'       # spec: reject
 
     block_reason = None
     should_publish = tier != 'blocked'
@@ -174,6 +227,8 @@ def score_confidence(
         session_quality=sess_score,
         regime_quality=regime_score,
         spread_quality=spread_score,
+        portfolio_concentration=portfolio_concentration,
+        macro_alignment=macro_score,
         total=total,
         raw_100=raw,
     )

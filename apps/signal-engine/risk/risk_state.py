@@ -53,6 +53,10 @@ class RiskState:
 
     # ─── Exposure ──────────────────────────────────────────────────────────
     open_positions: int = 0
+    # Per-symbol open counts, mutated by register_open/register_close. The
+    # gate consults this so we can enforce a max-per-symbol cap and a
+    # correlation block (see CORRELATED_GROUPS). Keys are uppercase symbols.
+    open_positions_by_symbol: dict[str, int] = field(default_factory=dict)
 
     # ─── Audit timestamps ──────────────────────────────────────────────────
     last_refreshed_iso:         str = ''

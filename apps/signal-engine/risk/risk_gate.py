@@ -17,7 +17,9 @@ from .risk_engine import RiskEngine
 from .sizing import price_to_pips
 
 
-# ─── 12 named gates (audit-friendly constants) ───────────────────────────────
+# ─── 15 named gates (audit-friendly constants) ───────────────────────────────
+# Spec section 6 additions are appended; ordering of the original 12 is
+# preserved so existing audit logs continue to deserialise.
 
 GATE_KILL_SWITCH          = '01_kill_switch'
 GATE_DAILY_HALT           = '02_daily_halt'
@@ -31,11 +33,16 @@ GATE_SYMBOL_SPEC          = '09_symbol_spec'
 GATE_SL_DISTANCE          = '10_sl_distance'
 GATE_SPREAD               = '11_spread'
 GATE_RISK_PER_TRADE       = '12_risk_per_trade'
+# Spec section 6 additions
+GATE_PER_SYMBOL_CAP       = '13_per_symbol_cap'
+GATE_CORRELATION_BLOCK    = '14_correlation_block'
+GATE_PORTFOLIO_BUDGET     = '15_portfolio_budget'
 
 ALL_GATES = [
     GATE_KILL_SWITCH, GATE_DAILY_HALT, GATE_COOLDOWN, GATE_CONSECUTIVE_LOSSES,
     GATE_DAILY_DD, GATE_WEEKLY_DD, GATE_TOTAL_DD, GATE_PORTFOLIO_EXPOSURE,
     GATE_SYMBOL_SPEC, GATE_SL_DISTANCE, GATE_SPREAD, GATE_RISK_PER_TRADE,
+    GATE_PER_SYMBOL_CAP, GATE_CORRELATION_BLOCK, GATE_PORTFOLIO_BUDGET,
 ]
 
 
@@ -225,10 +232,43 @@ class RiskGate:
             return
         decision.gates_passed.append(GATE_RISK_PER_TRADE)
 
+        # ── GATE 13: Per-symbol cap ───────────────────────────────────────
+        sym_open = state.open_positions_by_symbol.get(symbol.upper(), 0)
+        if sym_open >= self.config.max_open_per_symbol:
+            self._reject(decision, GATE_PER_SYMBOL_CAP,
+                         f"{sym_open} open on {symbol} >= max {self.config.max_open_per_symbol}")
+            return
+        decision.gates_passed.append(GATE_PER_SYMBOL_CAP)
+
+        # ── GATE 14: Correlation block ────────────────────────────────────
+        corr_open = engine.correlated_open_count(symbol)
+        if corr_open >= self.config.max_correlated_positions:
+            group = engine.correlation_group(symbol)
+            self._reject(decision, GATE_CORRELATION_BLOCK,
+                         f"{corr_open} correlated open(s) in group {group} "
+                         f">= max {self.config.max_correlated_positions}")
+            return
+        decision.gates_passed.append(GATE_CORRELATION_BLOCK)
+        decision.metadata['correlated_open'] = corr_open
+
+        # ── GATE 15: Portfolio risk budget ────────────────────────────────
+        # Reject if adding this trade's risk would push total open risk
+        # beyond the portfolio budget. Uses the conservative flat-proxy
+        # estimate in portfolio_risk_in_use_pct + this trade's risk_pct.
+        in_use = engine.portfolio_risk_in_use_pct()
+        this_risk_pct = sizing_meta.get('risk_pct') or self.config.risk_per_trade_pct
+        if (in_use + this_risk_pct) > self.config.max_portfolio_risk_pct:
+            self._reject(decision, GATE_PORTFOLIO_BUDGET,
+                         f"Portfolio risk {in_use:.2%} + trade {this_risk_pct:.2%} "
+                         f"> budget {self.config.max_portfolio_risk_pct:.2%}")
+            return
+        decision.gates_passed.append(GATE_PORTFOLIO_BUDGET)
+        decision.metadata['portfolio_risk_in_use_pct'] = round(in_use * 100, 2)
+
         decision.lot_size    = lot
         decision.risk_amount = sizing_meta.get('risk_amount') or 0.0
         decision.approved    = True
-        decision.reasons.append("All 12 gates passed")
+        decision.reasons.append("All 15 gates passed")
 
     # ───────────────────────────────────────────────────────────────────────
     # Helpers
@@ -274,7 +314,7 @@ class RiskGate:
             f"streak_l={tele['consecutive_losses']} streak_w={tele['consecutive_wins']} "
             f"micro={decision.metadata.get('micro_account_mode', False)} "
             f"spread={decision.metadata.get('spread_pips', '?')} "
-            f"gates={len(decision.gates_passed)}/12 "
+            f"gates={len(decision.gates_passed)}/{len(ALL_GATES)} "
             f"failed=[{','.join(decision.gates_failed)}] "
             f"reasons=[{' | '.join(decision.reasons)}]"
         )

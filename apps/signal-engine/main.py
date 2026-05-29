@@ -19,6 +19,7 @@ from websocket.manager import ws_manager
 from api.routes import router as api_router
 from api.execute import router as execute_router
 from api.brokers import router as brokers_router
+from api.trading import router as trading_router
 from api.diagnostics import router as diagnostics_router
 from api.webhooks import router as webhooks_router
 from worker.signal_worker import SignalWorker
@@ -229,6 +230,7 @@ def create_app() -> FastAPI:
     app.include_router(api_router,    prefix='/api/v1')
     app.include_router(execute_router, prefix='/api/v1')
     app.include_router(brokers_router, prefix='/api/v1')
+    app.include_router(trading_router, prefix='/api/v1')
     app.include_router(diagnostics_router, prefix='/api/v1')
     app.include_router(webhooks_router, prefix='/api/v1')
 

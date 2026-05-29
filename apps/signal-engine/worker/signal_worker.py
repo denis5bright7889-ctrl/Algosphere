@@ -440,10 +440,20 @@ class SignalWorker:
             pass
 
     async def _count_active_signals(self, symbol: str) -> int:
+        """Active-signal cap is scoped to the engine's OWN signals.
+        Manually-published signals (engine_version='manual', inserted via
+        /api/admin/signals) are admin-curated content and are not auto-
+        closed by the lifecycle monitor — counting them here would
+        permanently starve a pair the moment an admin posted a signal
+        for it (max_active_per_symbol=1 → cap hit → engine skips every
+        cycle forever). The lifecycle monitor itself filters to
+        engine_version='algo_v1', so this filter keeps the two queries
+        symmetric: same scope counted, same scope closed."""
         try:
             result = self.db().table('signals') \
                 .select('id', count='exact') \
                 .eq('pair', symbol) \
+                .eq('engine_version', 'algo_v1') \
                 .eq('lifecycle_state', 'active') \
                 .execute()
             return result.count or 0

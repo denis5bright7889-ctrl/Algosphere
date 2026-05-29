@@ -253,13 +253,71 @@ class RiskEngine:
     # Trade lifecycle hooks
     # ───────────────────────────────────────────────────────────────────────
 
-    def register_open(self) -> None:
+    def register_open(self, symbol: Optional[str] = None) -> None:
+        """Called after a confirmed fill. Increments the global counter
+        and (if symbol supplied) the per-symbol counter consulted by the
+        portfolio gates."""
         self.state.open_positions += 1
+        if symbol:
+            s = symbol.upper()
+            self.state.open_positions_by_symbol[s] = (
+                self.state.open_positions_by_symbol.get(s, 0) + 1
+            )
         self.store.save(self.state)
 
-    def register_close(self) -> None:
+    def register_close(self, symbol: Optional[str] = None) -> None:
         self.state.open_positions = max(0, self.state.open_positions - 1)
+        if symbol:
+            s = symbol.upper()
+            cur = self.state.open_positions_by_symbol.get(s, 0)
+            new = max(0, cur - 1)
+            if new == 0:
+                self.state.open_positions_by_symbol.pop(s, None)
+            else:
+                self.state.open_positions_by_symbol[s] = new
         self.store.save(self.state)
+
+    # ── Correlation helpers (spec section 6: correlation blocking) ─────
+    # Coarse grouping that captures the dominant correlated buckets we
+    # see in retail flows. Pairs in the same group are treated as
+    # correlated; the gate refuses a new open if max_correlated_positions
+    # is already reached within the same group. Not exhaustive — a
+    # future iteration can derive groups from rolling return correlations.
+    CORRELATED_GROUPS: tuple[tuple[str, ...], ...] = (
+        ('XAUUSD', 'XAGUSD', 'XPTUSD', 'XPDUSD'),                              # precious metals
+        ('EURUSD', 'GBPUSD', 'AUDUSD', 'NZDUSD'),                              # USD-quoted majors
+        ('USDJPY', 'USDCHF', 'USDCAD'),                                        # USD-base majors
+        ('BTCUSD', 'BTCUSDT', 'ETHUSD', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'),      # crypto majors
+        ('US30', 'NAS100', 'SPX500'),                                           # US indices
+        ('USOIL', 'BRENT', 'WTI', 'NATGAS'),                                    # energy
+    )
+
+    @classmethod
+    def correlation_group(cls, symbol: str) -> Optional[tuple[str, ...]]:
+        s = symbol.upper()
+        for group in cls.CORRELATED_GROUPS:
+            if s in group:
+                return group
+        return None
+
+    def correlated_open_count(self, symbol: str) -> int:
+        """Count of currently-open positions in the same correlation
+        group as `symbol`, including the symbol itself."""
+        group = self.correlation_group(symbol)
+        if not group:
+            return self.state.open_positions_by_symbol.get(symbol.upper(), 0)
+        return sum(
+            self.state.open_positions_by_symbol.get(s, 0)
+            for s in group
+        )
+
+    def portfolio_risk_in_use_pct(self) -> float:
+        """Approximate sum of per-trade risk percentages tied up in open
+        positions. We don't track per-trade risk_amount yet so we use the
+        configured `risk_per_trade_pct` as a flat proxy multiplied by the
+        global open-position count. This is intentionally conservative —
+        the gate's portfolio budget will trip slightly early."""
+        return self.state.open_positions * self.config.risk_per_trade_pct
 
     def record_trade(self, was_win: bool, pnl: float = 0.0, symbol: str = '') -> None:
         """Called after every closed trade. Updates streaks and may fire cooldown / kill."""

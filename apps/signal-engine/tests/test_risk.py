@@ -382,11 +382,51 @@ def test_gate_12_sizing_rejects_when_micro_account_over_cap(engine, gate, broker
 # ═════════════════════════════════════════════════════════════════════════════
 
 def test_clean_trade_passes_all_gates(engine, gate):
+    from risk.risk_gate import ALL_GATES
     d = gate.approve_trade(**GOOD_TRADE)
     assert d.approved is True, f"Expected approval, got: {d.reasons}"
-    assert len(d.gates_passed) == 12
+    assert len(d.gates_passed) == len(ALL_GATES)
     assert d.lot_size > 0
     assert d.risk_amount > 0
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 11b. Spec section 6 portfolio gates (13/14/15)
+# ═════════════════════════════════════════════════════════════════════════════
+
+def test_gate_13_per_symbol_cap_blocks(engine, gate):
+    engine.state.open_positions_by_symbol = {'XAUUSD': 1}
+    d = gate.approve_trade(**GOOD_TRADE)
+    assert d.approved is False
+    assert '13_per_symbol_cap' in d.gates_failed
+
+
+def test_gate_14_correlation_block(engine, gate):
+    # XAUUSD and XAGUSD share the precious-metals correlation group.
+    # Two opens in the group hits max_correlated_positions=2.
+    engine.state.open_positions_by_symbol = {'XAGUSD': 2}
+    d = gate.approve_trade(**GOOD_TRADE)
+    assert d.approved is False
+    assert '14_correlation_block' in d.gates_failed
+
+
+def test_gate_15_portfolio_budget_blocks(engine, gate):
+    # 3 open positions × 1% risk proxy = 3% already in use; budget is 3%,
+    # so this trade's additional 1% pushes over.
+    engine.state.open_positions = 3
+    d = gate.approve_trade(**GOOD_TRADE)
+    assert d.approved is False
+    assert '15_portfolio_budget' in d.gates_failed
+
+
+def test_register_open_close_tracks_per_symbol(engine):
+    engine.register_open('XAUUSD')
+    engine.register_open('XAUUSD')
+    assert engine.state.open_positions_by_symbol['XAUUSD'] == 2
+    engine.register_close('XAUUSD')
+    assert engine.state.open_positions_by_symbol['XAUUSD'] == 1
+    engine.register_close('XAUUSD')
+    assert 'XAUUSD' not in engine.state.open_positions_by_symbol
 
 
 # ═════════════════════════════════════════════════════════════════════════════
