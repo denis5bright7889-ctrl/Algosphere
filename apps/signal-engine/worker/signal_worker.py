@@ -18,6 +18,7 @@ from engine.confidence_engine import score_confidence, tier_to_subscription
 from engine.signal_gate import RiskEngine, gate_signal, CircuitBreakerState
 from data.market_data import FallbackDataProvider, build_provider
 from risk import RiskConfig, RiskEngine as InstitutionalRiskEngine, RiskGate, SupabaseBroker
+from core import trace_logger
 
 
 class SignalWorker:
@@ -201,12 +202,32 @@ class SignalWorker:
         t0 = datetime.now(timezone.utc)
         logger.debug(f"[{symbol}] Pipeline start")
 
+        # Shared trace row — accumulated through the pipeline so the
+        # final emit captures everything we knew when we stopped.
+        trace = {
+            'symbol':    symbol,
+            'timeframe': self.settings.timeframe,
+        }
+
+        def _emit(rejected_by: Optional[str] = None,
+                  reason: Optional[str] = None,
+                  **extra) -> None:
+            row = dict(trace)
+            if rejected_by is not None:
+                row['rejected_by']      = rejected_by
+                row['rejection_reason'] = reason
+            row.update(extra)
+            row['latency_ms'] = int((datetime.now(timezone.utc) - t0).total_seconds() * 1000)
+            trace_logger.emit(row)
+
         # 1. Fetch OHLCV
         bars: list[OHLCVBar] = await self.provider().fetch_ohlcv(
             symbol, self.settings.timeframe, outputsize=300
         )
+        trace['bars_loaded'] = len(bars)
         if len(bars) < 50:
             logger.warning(f"[{symbol}] Insufficient bars ({len(bars)}) — skip")
+            _emit('insufficient_bars', f"have {len(bars)} need >=50")
             return
 
         hour_utc = datetime.now(timezone.utc).hour
@@ -215,10 +236,12 @@ class SignalWorker:
         features = engineer_features(bars, hour_utc)
         if not features.valid:
             logger.debug(f"[{symbol}] Features invalid — skip")
+            _emit('features_invalid', 'feature engineer flagged invalid')
             return
 
         # 3. Regime classification
         regime = classify_regime(features)
+        trace['regime'] = regime.regime.value
         logger.debug(f"[{symbol}] Regime: {regime.regime.value} ({regime.description})")
 
         # 4. Persist regime snapshot (non-blocking)
@@ -228,12 +251,15 @@ class SignalWorker:
         breaker = self._risk_engine.get_state(symbol)
         if breaker.is_open:
             logger.info(f"[{symbol}] Circuit breaker OPEN: {breaker.reason}")
+            _emit('strategy_circuit_breaker', breaker.reason)
             return
 
         # 6. Check active signal count
         active_count = await self._count_active_signals(symbol)
         if active_count >= self.settings.max_active_per_symbol:
             logger.debug(f"[{symbol}] Already {active_count} active signal(s) — skip")
+            _emit('active_signal_cap',
+                  f"{active_count} active >= max {self.settings.max_active_per_symbol}")
             return
 
         # 7. Ensemble signal generation. Pass the data-completeness factor so
@@ -245,7 +271,12 @@ class SignalWorker:
         proposal = ensemble_signal(symbol, features, regime, data_completeness=data_completeness)
         if proposal is None:
             logger.debug(f"[{symbol}] No ensemble consensus — skip")
+            _emit('no_ensemble_consensus',
+                  f"regime={regime.regime.value} weighted_score did not clear threshold")
             return
+
+        trace['ensemble_voted'] = list(proposal.strategies_voted)
+        trace['ensemble_score'] = float(proposal.total_vote_strength)
 
         logger.info(f"[{symbol}] Proposal: {proposal.direction.upper()} "
                     f"RR={proposal.risk_reward} strategies={proposal.strategies_voted}")
@@ -253,6 +284,7 @@ class SignalWorker:
         # 8. Confidence scoring
         spread = await self.provider().get_spread(symbol)
         confidence = score_confidence(features, regime, proposal, spread_pips=spread)
+        trace['confidence_score'] = confidence.score
 
         logger.info(f"[{symbol}] Confidence: {confidence.score}/100 ({confidence.tier})")
 
@@ -268,12 +300,16 @@ class SignalWorker:
 
         if not gate.approved:
             logger.info(f"[{symbol}] Gate BLOCKED: {gate.reason}")
+            _emit('signal_gate', gate.reason)
             return
+
+        trace['gate_passed'] = True
 
         # 9b. Institutional risk gate — AUTHORITATIVE capital protection layer
         risk_gate = self.risk_gate()
         if risk_gate is None:
             logger.critical(f"[{symbol}] Risk subsystem unavailable — refusing to publish")
+            _emit('risk_subsystem_unavailable', 'risk_gate() returned None')
             return
 
         risk_decision = risk_gate.approve_trade(
@@ -283,11 +319,15 @@ class SignalWorker:
             stop_loss_price=proposal.stop_loss,
             spread_pips=spread,
         )
+        trace['risk_gates_passed'] = len(risk_decision.gates_passed)
+        trace['risk_gates_failed'] = list(risk_decision.gates_failed)
         if not risk_decision.approved:
             logger.warning(
                 f"[{symbol}] RISK GATE BLOCKED: failed=[{','.join(risk_decision.gates_failed)}] "
                 f"reasons=[{' | '.join(risk_decision.reasons)}]"
             )
+            failed = risk_decision.gates_failed[0] if risk_decision.gates_failed else 'unknown'
+            _emit(f'risk.{failed}', ' | '.join(risk_decision.reasons))
             return
 
         logger.info(
@@ -305,6 +345,7 @@ class SignalWorker:
                 f"conf={confidence.score}/100({confidence.tier}) regime={regime.regime.value} "
                 f"lot={risk_decision.lot_size:.4f} — NOT publishing (dry-run)"
             )
+            _emit('dry_run', 'signal_dry_run=True — publish suppressed')
             return
 
         # 10. Publish to Supabase
@@ -312,10 +353,13 @@ class SignalWorker:
         if signal_id:
             ms = int((datetime.now(timezone.utc) - t0).total_seconds() * 1000)
             logger.success(f"[{symbol}] Signal published {signal_id[:8]} in {ms}ms")
+            _emit(rejected_by=None, reason='published', execution_attempted=False)
 
             # 11. WebSocket broadcast
             if self._ws_broadcast_fn:
                 await self._ws_broadcast_fn(symbol, signal_id, gate.tier_required)
+        else:
+            _emit('publish_failed', 'supabase insert returned no id')
 
     # ─── Database operations ──────────────────────────────────────────────
 

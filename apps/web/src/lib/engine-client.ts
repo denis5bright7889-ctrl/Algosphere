@@ -85,9 +85,106 @@ async function getJson<T>(path: string): Promise<Result<T>> {
   }
 }
 
+export interface TelemetryDistributions {
+  generated_at:  string
+  lookback_days: number
+  total_signals: number
+  confidence_distribution: {
+    scored_signals: number
+    buckets: { reject: number; reduced: number; standard: number; aggressive: number }
+  }
+  win_rate_by_regime: Record<string, {
+    wins: number; losses: number; breakeven: number; closed: number; win_rate: number | null
+  }>
+  strategy_contribution: { available: boolean; note?: string; signals_with_strategies?: number; counts?: Record<string, number> }
+  rejection_reasons:     { available: boolean; note?: string }
+  mt5_reconnect_frequency: { available: boolean; note?: string; mt5_accounts?: number; connected?: number; failed?: number; failed_pct?: number }
+}
+
 export function getEngineStatus():   Promise<Result<EngineStatus>>   { return getJson('/status') }
 export function getRiskTelemetry():  Promise<Result<RiskTelemetry>>  { return getJson('/risk/telemetry') }
 export function getCircuitBreakers(): Promise<Result<CircuitBreakers>> { return getJson('/circuit-breaker') }
+export function getTelemetryDistributions(lookbackDays = 30): Promise<Result<TelemetryDistributions>> {
+  return getJson(`/telemetry/distributions?lookback_days=${lookbackDays}`)
+}
+
+// ─── Trading diagnostics ────────────────────────────────────────────
+// Mirrors the engine's TradingDiagnostics shape. `unknown` permeates
+// the sub-sections because each one can degrade independently to an
+// "available: false" marker.
+
+export interface TradingDiagnostics {
+  generated_at: string
+  engine: {
+    signal_engine_enabled: boolean
+    signal_dry_run:        boolean
+    symbols:               string[]
+    symbol_count:          number
+    timeframe:             string
+    scan_interval_min:     number
+    min_confidence:        number
+    max_active_per_symbol: number
+    has_supabase:          boolean
+    has_market_data:       boolean
+  }
+  bars: {
+    available?: boolean; note?: string
+    fresh?: number; stale?: number; critical?: number; never_scanned?: number
+    symbols?: Array<{
+      symbol: string; status: string; last_regime: string | null
+      scanned_at: string | null; age_seconds: number | null
+    }>
+  }
+  institutional_risk: {
+    available?: boolean; reason?: string
+    state?: string; locked?: boolean; locked_reason?: string
+    kill_switch_active?: boolean; cooldown_until?: string | null
+    open_positions?: number
+    open_positions_by_symbol?: Record<string, number>
+    current_equity?: number
+    daily_drawdown_pct?: number; weekly_drawdown_pct?: number; total_drawdown_pct?: number
+    consecutive_losses?: number
+    broker_connected?: boolean
+    limits?: Record<string, number>
+  }
+  circuit_breakers: {
+    available?: boolean; reason?: string
+    open_count?: number
+    symbols?: Record<string, {
+      is_open: boolean; reason: string
+      consecutive_losses: number; daily_losses: number
+    }>
+  }
+  active_signals: {
+    available?: boolean; note?: string
+    max_active_per_symbol?: number
+    starved_symbols?: number; total_active?: number
+    symbols?: Array<{
+      symbol: string; active: number; starved: boolean
+      oldest_open: string | null
+    }>
+  }
+  last_signal_seen: {
+    available?: boolean; note?: string; age_seconds?: number | null
+    last_signal?: { id: string; pair: string; direction: string
+      confidence_score: number | null; regime: string | null
+      published_at: string } | null
+  }
+  rejection_trace_tail: {
+    available: boolean; path?: string; note?: string
+    tail_count?: number
+    rejection_breakdown?: Record<string, number>
+    rows?: Array<Record<string, unknown>>
+  }
+  summary: {
+    verdict:  string
+    suspects: string[]
+  }
+}
+
+export function getTradingDiagnostics(): Promise<Result<TradingDiagnostics>> {
+  return getJson('/diagnostics/trading')
+}
 
 
 // ─── Write endpoints (engine key required) ──────────────────────────
