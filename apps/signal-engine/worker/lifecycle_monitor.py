@@ -7,7 +7,6 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 from typing import Optional
-import httpx
 from loguru import logger
 from supabase import create_client, Client
 
@@ -172,24 +171,12 @@ class LifecycleMonitor:
             logger.error(f"Lifecycle transition failed for {signal_id}: {e}")
 
     async def _settle_copies(self, signal_id: str) -> None:
-        key = self.settings.engine_api_key
-        base = (self.settings.web_app_url or '').rstrip('/')
-        if not key or not base:
-            logger.debug("Skipping copy settlement — web_app_url/engine_api_key unset")
-            return
-        try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                resp = await client.post(
-                    f"{base}/api/internal/settle-signal",
-                    headers={'X-Engine-Key': key},
-                    json={'signal_id': signal_id},
-                )
-            if resp.status_code != 200:
-                logger.warning(
-                    f"Copy settlement callback {resp.status_code} for {signal_id}: "
-                    f"{resp.text[:200]}"
-                )
-            else:
-                logger.info(f"Copy settlement triggered for {signal_id}")
-        except Exception as e:
-            logger.warning(f"Copy settlement callback failed for {signal_id}: {e}")
+        """Refocus R2: copy-trade infrastructure retired. This callback
+        used to POST /api/internal/settle-signal on the web app, which
+        fanned signal closes into copy-trade settlements. That endpoint
+        no longer exists, so the call would 404 on every signal close.
+        Kept as a no-op so the caller in _transition() doesn't need a
+        conditional; will be removed entirely once R6 drops the
+        residual copy_* tables. Unused parameter is intentional."""
+        _ = signal_id  # noqa: keep signature, callers still pass it
+        return

@@ -6,10 +6,8 @@ import { isAdmin } from '@/lib/admin'
 import { computeQualityScore } from '@/lib/signals/quality'
 import { publishOpenFromSignal } from '@/lib/signal-bus'
 import { autoPostSignalCommentary } from '@/lib/ai-signal-commentary'
-// Legacy in-request fan-out — superseded by the event-driven signal bus
-// (copy-orchestrator → copy-executor workers on Railway). Keep the import
-// available for one-line rollback if needed.
-// import { relayLeaderSignal } from '@/lib/copy-relay'
+// Refocus R2: copy-relay infrastructure retired. The dead-comment
+// import was removed alongside lib/copy-relay.ts.
 
 const createSchema = z.object({
   pair: z.string().min(3).max(10).toUpperCase(),

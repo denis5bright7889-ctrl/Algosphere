@@ -1,6 +1,0 @@
-# Each line is a separate Railway service (set the start command per service).
-# They share this codebase + requirements.txt but scale independently.
-orchestrator: python orchestrator.py
-executor: python executor.py
-reconciler: python reconciler.py
-coach: python coach.py

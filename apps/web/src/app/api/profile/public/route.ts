@@ -8,7 +8,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
-import { isValidHandle, normalizeHandle } from '@/lib/leaderboard'
+import { isValidHandle, normalizeHandle } from '@/lib/profile-utils'
 
 const schema = z.object({
   public_profile: z.boolean(),
