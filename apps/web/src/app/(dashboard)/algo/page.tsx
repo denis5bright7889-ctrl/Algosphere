@@ -207,10 +207,10 @@ export default async function AlgoTradingPage() {
         </div>
         {allReady && isVip && (
           <a
-            href="/execution"
+            href="/execution/monitor"
             className="btn-premium mt-5 inline-flex !px-5 !py-2.5 !text-sm"
           >
-            Open Execution Desk
+            Open Automation Monitor
             <ArrowRight className="h-4 w-4" strokeWidth={2.25} aria-hidden />
           </a>
         )}

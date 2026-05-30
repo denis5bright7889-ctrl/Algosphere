@@ -8,7 +8,7 @@ import { createClient } from '@/lib/supabase/server'
 import PushSubscribeButton from '@/components/social/PushSubscribeButton'
 import CategoryPreferences from './CategoryPreferences'
 
-export const metadata = { title: 'Alerts & Notifications — AlgoSphere Quant' }
+export const metadata = { title: 'Smart Alerts — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'
 
 export default async function AlertsPage() {
@@ -39,11 +39,11 @@ export default async function AlertsPage() {
     <div className="mx-auto max-w-3xl px-1 py-4 sm:px-4 sm:py-6">
       <header className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">
-          Alerts & <span className="text-gradient">Notifications</span>
+          Smart <span className="text-gradient">Alerts</span>
         </h1>
         <p className="text-xs text-muted-foreground mt-1">
-          Push notifications work on every device — phone, laptop, desktop.
-          No app install required.
+          Route AI insights — coach evaluations, regime flips, risk breaches,
+          trade closes — to push, email, or Telegram. No app install required.
         </p>
       </header>
 
@@ -51,7 +51,7 @@ export default async function AlertsPage() {
       <section className="rounded-2xl border border-border bg-card p-6 mb-5">
         <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
           <div>
-            <h2 className="text-sm font-bold">📲 Web Push</h2>
+            <h2 className="text-sm font-bold">Web Push</h2>
             <p className="text-xs text-muted-foreground mt-1">
               Real-time push to this device. Free, instant, works offline-tolerant.
             </p>

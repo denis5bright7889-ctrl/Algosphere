@@ -67,7 +67,7 @@ export default function CommandPaletteImpl({ open, onClose }: Props) {
       { id: 'a-journal', label: 'Log a trade',        icon: BookOpen,        keywords: 'journal entry record new', hint: 'Action', run: () => nav('/journal') },
       { id: 'a-broker',  label: 'Connect a broker',   icon: Landmark,        keywords: 'broker binance bybit okx mt5 connect link api', hint: 'Action', run: () => nav('/brokers') },
       { id: 'a-backtest',label: 'Run a backtest',     icon: FlaskConical,    keywords: 'backtest simulate strategy test', hint: 'Action', run: () => nav('/backtest') },
-      { id: 'a-positions',label: 'View positions',    icon: Cpu,             keywords: 'positions execution desk orders open', hint: 'Action', run: () => nav('/execution') },
+      { id: 'a-monitor', label: 'Automation Monitor', icon: Cpu,             keywords: 'positions execution desk orders open monitor automation engine pulse', hint: 'Action', run: () => nav('/execution/monitor') },
       { id: 'a-risk',    label: 'Open Risk Engine',   icon: ShieldCheck,     keywords: 'risk exposure drawdown limits', hint: 'Action', run: () => nav('/risk') },
       { id: 'a-watch',   label: 'Manage watchlists',  icon: Star,            keywords: 'watchlist pin symbols favourites', hint: 'Action', run: () => nav('/watchlist') },
       { id: 'a-alerts',  label: 'Smart Alerts',       icon: Bell,            keywords: 'alerts notifications push triggers', hint: 'Action', run: () => nav('/alerts') },
