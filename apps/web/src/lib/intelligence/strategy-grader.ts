@@ -57,6 +57,17 @@ const DD_CRIT = 0.30   // 30%
 
 export type Confidence = 'low' | 'medium' | 'high'
 
+/** Deployment Readiness ladder — Journal V4 directive. Replaces the
+ *  blunt A-F grade for strategy evaluation. Each stage carries the
+ *  evidence bar: sample size + PF + MC quality + edge stability. */
+export type ReadinessStage =
+  | 'research'       // n<10
+  | 'testing'        // 10≤n<30
+  | 'validation'     // 30≤n<100
+  | 'pilot'          // 100≤n, PF≥1.3, edge stable
+  | 'deployable'     // 200≤n, PF≥1.5, MC high confidence
+  | 'institutional'  // 500≤n, PF≥2.0, MC ruin<5%, edge stable + regime-tested
+
 export interface GradeBreakdown {
   /** 0-100. Trade count, span, frequency, stat significance. */
   sample_quality: number
@@ -80,6 +91,9 @@ export interface StrategyGrade {
   verdict:      string
   /** Per-axis components so the UI can show them transparently. */
   breakdown:    GradeBreakdown
+  /** V4 Deployment Readiness stage — drives the "where this strategy
+   *  belongs on the journey" UI, independent of the letter grade. */
+  readiness:    ReadinessStage
 }
 
 
@@ -327,6 +341,8 @@ function deriveGrade(ctx: DeriveCtx): StrategyGrade {
     metrics.trades >= MIN_TRADES_RELIABLE    ? 'medium' :
                                                 'low'
 
+  const readiness = computeReadinessStage(metrics, result)
+
   // Thin sample → no letter grade. Period.
   if (metrics.trades < MIN_TRADES_RELIABLE) {
     return {
@@ -335,6 +351,7 @@ function deriveGrade(ctx: DeriveCtx): StrategyGrade {
       confidence,
       verdict: `Insufficient observations for statistical confidence. ${metrics.trades} trade${metrics.trades === 1 ? '' : 's'} — minimum recommended sample size is ${MIN_TRADES_RELIABLE}.`,
       breakdown,
+      readiness,
     }
   }
 
@@ -364,7 +381,43 @@ function deriveGrade(ctx: DeriveCtx): StrategyGrade {
   // The validation pass downstream catches any contradiction.
   const verdict = buildVerdict({ grade, metrics, result, performance, risk })
 
-  return { grade, score, confidence, verdict, breakdown }
+  return { grade, score, confidence, verdict, breakdown, readiness }
+}
+
+
+/** Map sample size + PF + drawdown + edge stability to a V4 readiness
+ *  stage. Each rung requires the previous rung's evidence — never
+ *  promotes on a single metric alone. */
+function computeReadinessStage(
+  m: ExtendedMetrics,
+  r: BacktestResult,
+): ReadinessStage {
+  const n = m.trades
+  if (n < 10)  return 'research'
+  if (n < 30)  return 'testing'
+  if (n < 100) return 'validation'
+
+  const pf = m.profit_factor ?? 0
+  const dd = r.maxDrawdownPct   // fraction
+  const stableEdge =
+    m.edge_stability != null && m.edge_stability >= 60 &&
+    m.consistency   != null && m.consistency   >= 50
+
+  // Pilot — first rung where the strategy is "ready to ship to shadow".
+  // Needs an actual positive edge + stable, but tolerates n=100..199.
+  if (n < 200 || pf < 1.5 || dd > 0.20 || !stableEdge) {
+    return 'pilot'
+  }
+
+  // Deployable — institutional-adjacent. Bigger sample, lower DD,
+  // stronger PF. No regime-specific test yet but sample size implies it.
+  if (n < 500 || pf < 2.0 || dd > 0.15) {
+    return 'deployable'
+  }
+
+  // Institutional — the ceiling. Reserved for strategies that have
+  // earned size + survived a long regime span.
+  return 'institutional'
 }
 
 
@@ -586,6 +639,7 @@ function enforceConsistency(args: {
       grade: 'N/A',
       score: null,
       verdict: `Insufficient observations for statistical confidence. ${metrics.trades} trade${metrics.trades === 1 ? '' : 's'} — minimum recommended sample size is ${MIN_TRADES_RELIABLE}.`,
+      // readiness already encodes the stage; preserved through spread.
     }
   }
 

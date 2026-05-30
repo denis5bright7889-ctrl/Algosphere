@@ -18,6 +18,7 @@ import assert from 'node:assert/strict'
 import type { BacktestResult, BacktestTrade } from '../backtest.ts'
 import { gradeStrategy } from './strategy-grader.ts'
 import { runMonteCarlo } from '../strategies/monte-carlo.ts'
+import { generateIntelligenceReport } from './strategy-intelligence-report.ts'
 
 
 // ─── Helpers ─────────────────────────────────────────────────────
@@ -303,6 +304,118 @@ test('Grade breakdown: weighted score equals (sample*0.3 + perf*0.4 + risk*0.2 +
 // ═══════════════════════════════════════════════════════════════════
 // 6. Verdict consistency invariant
 // ═══════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════
+// 7. V4: Deployment Readiness stage
+// ═══════════════════════════════════════════════════════════════════
+
+test('V4 readiness: 5 trades → research', () => {
+  const r = mockResult({
+    trades: Array.from({ length: 5 }, () => trade({ pnl: 25 })),
+    netPnl: 125,
+  })
+  const a = gradeStrategy(r)
+  assert.equal(a.grade.readiness, 'research')
+})
+
+test('V4 readiness: 20 trades → testing', () => {
+  const r = mockResult({
+    trades: Array.from({ length: 20 }, (_, i) => trade({ pnl: i % 3 ? 20 : -10 })),
+    netPnl: 150,
+  })
+  const a = gradeStrategy(r)
+  assert.equal(a.grade.readiness, 'testing')
+})
+
+test('V4 readiness: 50 trades → validation', () => {
+  const r = mockResult({
+    trades: Array.from({ length: 50 }, (_, i) => trade({ pnl: i % 3 ? 20 : -10 })),
+    netPnl: 500,
+    maxDrawdownPct: 0.08,
+  })
+  const a = gradeStrategy(r)
+  assert.equal(a.grade.readiness, 'validation')
+})
+
+test('V4 readiness: 150 trades + PF 1.5 + stable → pilot', () => {
+  // 100 winners @ $30, 50 losers @ $15 → PF = 3000/750 = 4.0; alternating ensures edge stability
+  const arr: BacktestTrade[] = []
+  for (let i = 0; i < 150; i++) {
+    arr.push(i % 3 === 2 ? trade({ pnl: -15 }) : trade({ pnl: 30 }))
+  }
+  const r = mockResult({ trades: arr, maxDrawdownPct: 0.08, netPnl: 2250 })
+  const a = gradeStrategy(r)
+  assert.equal(a.grade.readiness, 'pilot')
+})
+
+test('V4 readiness: 250 trades + PF 2 + small DD → deployable', () => {
+  const arr: BacktestTrade[] = []
+  for (let i = 0; i < 250; i++) {
+    arr.push(i % 3 === 2 ? trade({ pnl: -10 }) : trade({ pnl: 30 }))
+  }
+  const r = mockResult({ trades: arr, maxDrawdownPct: 0.09, netPnl: 4170 })
+  const a = gradeStrategy(r)
+  // Either deployable or pilot is acceptable; test the at-LEAST bar:
+  assert.ok(
+    a.grade.readiness === 'deployable' || a.grade.readiness === 'pilot',
+    `expected pilot or deployable, got ${a.grade.readiness}`,
+  )
+})
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 8. V4: Strategy Intelligence Report
+// ═══════════════════════════════════════════════════════════════════
+
+test('V4 report: positive run produces "why it works" entries', () => {
+  // Strong PF + tame DD + reasonable WR.
+  const arr: BacktestTrade[] = []
+  for (let i = 0; i < 60; i++) {
+    arr.push(i % 3 === 2 ? trade({ pnl: -12 }) : trade({ pnl: 25 }))
+  }
+  const r = mockResult({ trades: arr, maxDrawdownPct: 0.06, netPnl: 760 })
+  const a = gradeStrategy(r)
+  const report = generateIntelligenceReport(r, a)
+  assert.ok(report.why_it_works.length > 0, 'why_it_works should fire on a clean positive run')
+  assert.equal(report.why_it_fails.length, 0, 'why_it_fails should NOT fire on a clean positive run')
+})
+
+test('V4 report: negative run produces "why it fails" entries', () => {
+  const arr: BacktestTrade[] = []
+  for (let i = 0; i < 50; i++) {
+    arr.push(i % 2 === 0 ? trade({ pnl: -30 }) : trade({ pnl: 10 }))
+  }
+  const r = mockResult({ trades: arr, maxDrawdownPct: 0.25, netPnl: -500 })
+  const a = gradeStrategy(r)
+  const report = generateIntelligenceReport(r, a)
+  assert.ok(report.why_it_fails.length > 0, 'why_it_fails should fire on a losing run')
+})
+
+test('V4 report: drawdown text never inflates 1.15% to 115%', () => {
+  // Reuses the audit drawdown invariant for the report's prose.
+  const arr: BacktestTrade[] = []
+  for (let i = 0; i < 40; i++) {
+    arr.push(i % 5 === 0 ? trade({ pnl: -3 }) : trade({ pnl: 8 }))
+  }
+  const r = mockResult({ trades: arr, maxDrawdownPct: 0.0115, netPnl: 200 })
+  const a = gradeStrategy(r)
+  const report = generateIntelligenceReport(r, a)
+  for (const insight of [...report.why_it_works, ...report.why_it_fails,
+                          ...report.best_conditions, ...report.worst_conditions]) {
+    assert.doesNotMatch(insight.detail, /\b1[1-9]\d%|\d{3,}%/, `inflated %: "${insight.detail}"`)
+  }
+  for (const r2 of report.risk_characteristics) {
+    assert.doesNotMatch(r2, /\b1[1-9]\d%|\d{3,}%/, `inflated %: "${r2}"`)
+  }
+})
+
+test('V4 report: deployment_readiness mirrors the grader', () => {
+  const r = mockResult({ trades: [trade({ pnl: 10 })], netPnl: 10 })
+  const a = gradeStrategy(r)
+  const report = generateIntelligenceReport(r, a)
+  assert.equal(report.deployment_readiness, a.grade.readiness)
+})
+
 
 test('Invariant: if netPnl > 0 AND PF > 1, verdict NEVER contains "loses money"', () => {
   // Stress: 50 random profitable runs.

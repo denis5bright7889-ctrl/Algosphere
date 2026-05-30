@@ -1,17 +1,22 @@
 'use client'
 
 import { Fragment, useState } from 'react'
-import { X, Brain, AlertOctagon, Zap, Plug } from 'lucide-react'
+import { X, Brain, AlertOctagon, Zap, Plug, Cpu, Landmark, Hand } from 'lucide-react'
 import type { JournalEntry } from '@/lib/types'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import AddTradeModal from './AddTradeModal'
 
 /** Journal entries on the wire carry a few columns beyond the shared
  *  JournalEntry type (source / broker came in via the auto-detection
- *  migration). Widen locally so the auto-fill badge has a typed read. */
+ *  migration). V4 split the 'auto' source into auto_human (broker
+ *  imported a human-clicked trade) and auto_engine (the AlgoSphere
+ *  engine executed). 'auto' is kept here for backwards compatibility
+ *  with pre-migration rows still cached client-side. */
+type EntrySource = 'manual' | 'auto' | 'auto_human' | 'auto_engine'
 type EntryWire = JournalEntry & {
-  source?: 'manual' | 'auto' | null
+  source?: EntrySource | null
   broker?: string | null
+  engine_strategy_name?: string | null
 }
 
 /** Compact view of the latest coach evaluation for one journal entry.
@@ -137,7 +142,7 @@ export default function JournalClient({
                         {e.setup_tag}
                       </span>
                     )}
-                    {e.source === 'auto' && <AutoBadge broker={e.broker} />}
+                    <SourceBadge source={e.source} broker={e.broker} strategy={e.engine_strategy_name} />
                   </div>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {e.trade_date ? formatDate(e.trade_date) : '—'}
@@ -219,7 +224,7 @@ export default function JournalClient({
                       <td className="px-4 py-3 font-medium">
                         <span className="inline-flex items-center gap-1.5">
                           {e.pair ?? '—'}
-                          {e.source === 'auto' && <AutoBadge broker={e.broker} />}
+                          <SourceBadge source={e.source} broker={e.broker} strategy={e.engine_strategy_name} />
                         </span>
                       </td>
                       <td className="px-4 py-3">
@@ -300,20 +305,52 @@ const GRADE_STYLES: Record<CoachEvalSummary['strategy_grade'], string> = {
   F: 'bg-red-100 text-red-800 ring-red-300',
 }
 
-/** Tiny chip indicating a journal row was auto-imported from a broker
- *  ORDER_FILLED event rather than typed by the user. Surfaces the
- *  broker name as a tooltip so the user can trace where it came from. */
-function AutoBadge({ broker }: { broker?: string | null }) {
+/** V4 source badge — three states, three meanings:
+ *    MANUAL   (gray)    — user typed the trade by hand
+ *    BROKER   (amber)   — broker imported a human-clicked trade
+ *                         (source='auto_human' or legacy 'auto')
+ *    ENGINE   (emerald) — AlgoSphere engine published + executed
+ *                         (source='auto_engine'); the engine explains
+ *                         itself, so psychology is N/A
+ *  Manual rows render no badge so the journal stays scannable. */
+function SourceBadge({ source, broker, strategy }: {
+  source?: EntrySource | null
+  broker?: string | null
+  strategy?: string | null
+}) {
+  if (!source || source === 'manual') return null
+
+  if (source === 'auto_engine') {
+    return (
+      <span
+        title={strategy
+          ? `Auto-executed by the engine — strategy: ${strategy}`
+          : 'Auto-executed by the AlgoSphere engine'}
+        className="inline-flex items-center gap-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-300"
+      >
+        <Cpu className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden />
+        Engine
+      </span>
+    )
+  }
+
+  // 'auto_human' OR legacy 'auto'
   return (
     <span
-      title={broker ? `Auto-imported from ${broker.toUpperCase()}` : 'Auto-imported from a connected broker'}
+      title={broker
+        ? `Auto-imported from ${broker.toUpperCase()} (human-clicked)`
+        : 'Auto-imported from a connected broker (human-clicked)'}
       className="inline-flex items-center gap-0.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-300"
     >
-      <Zap className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden />
-      Auto
+      <Landmark className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden />
+      Broker
     </span>
   )
 }
+
+// Hand is retained for a future per-row "human-clicked" indicator
+// (Phase 2 of the V4 work). Zap and Plug are used by the AutoFillBanner.
+void Hand
 
 /** Top-of-page status strip explaining how auto-fill works. Three states:
  *  - At least one auto entry exists → "active" (green)

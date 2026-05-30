@@ -85,9 +85,13 @@ export default async function JournalPage() {
   }
 
   const connectedBrokerCount = brokersRes.data?.length ?? 0
-  const autoEntryCount       = displayEntries.filter(
-    (e) => (e as { source?: string }).source === 'auto',
-  ).length
+  // V4: 'auto' is the pre-migration value; 'auto_human' is its successor;
+  // 'auto_engine' is the new engine-execution variant. The banner counts
+  // all non-manual rows together to convey "auto-fill is active".
+  const autoEntryCount = displayEntries.filter((e) => {
+    const s = (e as { source?: string }).source
+    return s === 'auto' || s === 'auto_human' || s === 'auto_engine'
+  }).length
 
   return (
     <JournalClient

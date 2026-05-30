@@ -17,14 +17,19 @@
  */
 import {
   AlertOctagon, CheckCircle2, Info, ShieldCheck, TrendingUp,
-  Activity, Clock, Layers, Sparkles, type LucideIcon,
+  Activity, Clock, Layers, Sparkles, Compass, Rocket,
+  type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { BacktestResult } from '@/lib/backtest'
 import ProgressBar from '@/components/ui/ProgressBar'
 import {
   gradeStrategy, type StrategyAnalysis, type StrategyGrade, type GradeBreakdown,
+  type ReadinessStage,
 } from '@/lib/intelligence/strategy-grader'
+import {
+  generateIntelligenceReport, type StrategyIntelligenceReport, type ConditionInsight,
+} from '@/lib/intelligence/strategy-intelligence-report'
 
 interface Props {
   result: BacktestResult
@@ -32,12 +37,94 @@ interface Props {
 
 export default function StrategyDiagnosticsPanel({ result }: Props) {
   const analysis = gradeStrategy(result)
+  const report   = generateIntelligenceReport(result, analysis)
   return (
     <div className="space-y-4">
       <GradeCard a={analysis} />
+      <DeploymentReadinessCard stage={analysis.grade.readiness} />
       <BreakdownBars breakdown={analysis.grade.breakdown} />
       <MetricsGrid m={analysis.metrics} />
+      <IntelligenceReportCard report={report} />
       <DiagnosticsList items={analysis.diagnostics} />
+    </div>
+  )
+}
+
+
+// ─── Deployment Readiness ──────────────────────────────────────
+
+const READINESS_META: Record<ReadinessStage, {
+  label: string; tone: string; index: number; description: string
+}> = {
+  research: {
+    label: 'Research',     index: 1,
+    tone:  'border-zinc-500/40 bg-zinc-500/10 text-zinc-300',
+    description: 'Too few observations to evaluate edge — keep collecting data.',
+  },
+  testing: {
+    label: 'Testing',      index: 2,
+    tone:  'border-amber-500/40 bg-amber-500/10 text-amber-300',
+    description: 'Early signal forming. Continue running across diverse conditions.',
+  },
+  validation: {
+    label: 'Validation',   index: 3,
+    tone:  'border-amber-500/40 bg-amber-500/10 text-amber-300',
+    description: 'Edge plausible at this sample size. Verify on out-of-sample data.',
+  },
+  pilot: {
+    label: 'Pilot',        index: 4,
+    tone:  'border-blue-500/40 bg-blue-500/10 text-blue-300',
+    description: 'Ready for shadow mode — paper-validate live before any real capital.',
+  },
+  deployable: {
+    label: 'Deployable',   index: 5,
+    tone:  'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
+    description: 'Meets sample / profit factor / drawdown bars for cautious live sizing.',
+  },
+  institutional: {
+    label: 'Institutional',index: 6,
+    tone:  'border-emerald-500/50 bg-emerald-500/[0.12] text-emerald-300',
+    description: 'Earned size — survived a long regime span with strong, stable edge.',
+  },
+}
+
+const STAGE_ORDER: ReadinessStage[] = [
+  'research', 'testing', 'validation', 'pilot', 'deployable', 'institutional',
+]
+
+function DeploymentReadinessCard({ stage }: { stage: ReadinessStage }) {
+  const meta = READINESS_META[stage]
+  return (
+    <div className={cn('rounded-2xl border p-4', meta.tone)}>
+      <header className="mb-3 flex items-center gap-2">
+        <Rocket className="h-4 w-4" strokeWidth={2} aria-hidden />
+        <h3 className="text-sm font-semibold">Deployment readiness</h3>
+        <span className="ml-auto text-[10px] uppercase tracking-wider opacity-80">
+          stage {meta.index} of {STAGE_ORDER.length}
+        </span>
+      </header>
+      <ol className="grid grid-cols-6 gap-1.5">
+        {STAGE_ORDER.map((s) => {
+          const m = READINESS_META[s]
+          const isCurrent = s === stage
+          const isPast    = m.index < meta.index
+          return (
+            <li
+              key={s}
+              title={m.description}
+              className={cn(
+                'rounded-md border px-1.5 py-1.5 text-center text-[10px] font-bold uppercase tracking-wider',
+                isCurrent  ? 'border-current bg-current/15'
+                : isPast   ? 'border-current/40 bg-current/[0.05] opacity-80'
+                :            'border-border bg-background/40 text-muted-foreground/70',
+              )}
+            >
+              {m.label}
+            </li>
+          )
+        })}
+      </ol>
+      <p className="mt-2 text-[12px] opacity-90">{meta.description}</p>
     </div>
   )
 }
@@ -235,6 +322,112 @@ function DiagnosticsList({ items }: { items: StrategyAnalysis['diagnostics'] }) 
           )
         })}
       </ol>
+    </div>
+  )
+}
+
+
+function IntelligenceReportCard({ report }: { report: StrategyIntelligenceReport }) {
+  // If literally nothing fires, skip the card so it doesn't render
+  // empty headers. Better silence than fake structure.
+  const isEmpty =
+    report.why_it_works.length === 0 &&
+    report.why_it_fails.length === 0 &&
+    report.best_conditions.length === 0 &&
+    report.worst_conditions.length === 0 &&
+    report.risk_characteristics.length === 0 &&
+    report.overfitting_risk.length === 0
+  if (isEmpty) return null
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-4 space-y-4">
+      <header className="flex items-center gap-2">
+        <Compass className="h-4 w-4 text-amber-300" strokeWidth={2} aria-hidden />
+        <h3 className="text-sm font-semibold">Strategy Intelligence Report</h3>
+      </header>
+
+      {/* Two-column read: Why it works · Why it fails */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <ReportColumn title="Why it works" tone="emerald" items={report.why_it_works} />
+        <ReportColumn title="Why it fails" tone="rose"    items={report.why_it_fails} />
+      </div>
+
+      {/* Best vs worst conditions */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <ReportColumn title="Best conditions"  tone="emerald" items={report.best_conditions} />
+        <ReportColumn title="Worst conditions" tone="amber"   items={report.worst_conditions} />
+      </div>
+
+      {/* Risk + overfitting bullets */}
+      {(report.risk_characteristics.length > 0 || report.overfitting_risk.length > 0) && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {report.risk_characteristics.length > 0 && (
+            <ReportBullets title="Risk characteristics" items={report.risk_characteristics} />
+          )}
+          {report.overfitting_risk.length > 0 && (
+            <ReportBullets title="Overfitting risk" items={report.overfitting_risk} tone="amber" />
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ReportColumn({ title, tone, items }: {
+  title: string
+  tone:  'emerald' | 'rose' | 'amber'
+  items: ConditionInsight[]
+}) {
+  const toneCls = {
+    emerald: 'border-emerald-500/30 bg-emerald-500/[0.04] text-emerald-200',
+    rose:    'border-rose-500/30    bg-rose-500/[0.04]    text-rose-200',
+    amber:   'border-amber-500/30   bg-amber-500/[0.04]   text-amber-200',
+  }[tone]
+  if (items.length === 0) {
+    return (
+      <div className="rounded-lg border border-border/40 bg-background/40 p-3 text-[12px] text-muted-foreground">
+        <p className="text-[10px] font-bold uppercase tracking-wider mb-1">{title}</p>
+        Not enough evidence to call this yet.
+      </div>
+    )
+  }
+  return (
+    <div className={cn('rounded-lg border p-3', toneCls)}>
+      <p className="text-[10px] font-bold uppercase tracking-wider mb-2 opacity-80">{title}</p>
+      <ul className="space-y-2">
+        {items.map((i, idx) => (
+          <li key={idx}>
+            <p className="text-[12px] font-semibold leading-snug">{i.label}</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed opacity-90">{i.detail}</p>
+            {i.evidence && (
+              <p className="mt-0.5 font-mono text-[10px] tabular-nums opacity-70">{i.evidence}</p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function ReportBullets({ title, items, tone }: {
+  title: string
+  items: string[]
+  tone?: 'amber'
+}) {
+  const cls = tone === 'amber'
+    ? 'border-amber-500/30 bg-amber-500/[0.04] text-amber-200'
+    : 'border-border bg-background/40 text-foreground/85'
+  return (
+    <div className={cn('rounded-lg border p-3', cls)}>
+      <p className="text-[10px] font-bold uppercase tracking-wider mb-2 opacity-80">{title}</p>
+      <ul className="space-y-1 text-[11px]">
+        {items.map((b, idx) => (
+          <li key={idx} className="flex gap-1.5">
+            <span className="opacity-60">•</span>
+            <span>{b}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

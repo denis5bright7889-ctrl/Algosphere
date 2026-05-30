@@ -32,6 +32,12 @@ const QUALITY         = ['excellent', 'good', 'average', 'poor'] as const
 const TIMEFRAME       = ['M5', 'M15', 'M30', 'H1', 'H4', 'D1'] as const
 const MARKET_CONTEXT  = ['trending', 'ranging', 'news', 'volatile'] as const
 
+// V4: source distinguishes the three lifecycle modes. The DB CHECK
+// constraint guarantees only these values land. `manual` and
+// `auto_human` require psychology context (the trader clicked the
+// order); `auto_engine` does not (the engine self-explains).
+const SOURCE = ['manual', 'auto_human', 'auto_engine'] as const
+
 const journalEntrySchema = z.object({
   // ── Core ──
   pair:        z.string().min(1),
@@ -44,19 +50,29 @@ const journalEntrySchema = z.object({
   risk_amount: z.number().positive().optional(),
   setup_tag:   z.string().optional(),
   trade_date:  z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  source:      z.enum(SOURCE).default('manual'),
 
-  // ── Strategy context (REQUIRED — V3 acceptance) ──
-  strategy_used:  z.enum(STRATEGY_USED),
-  setup_validity: z.enum(SETUP_VALIDITY),
-  market_regime:  z.enum(MARKET_REGIME),
-  session:        z.enum(SESSION),
+  // ── Strategy context (REQUIRED for human modes; engine self-fills) ──
+  strategy_used:  z.enum(STRATEGY_USED).optional(),
+  setup_validity: z.enum(SETUP_VALIDITY).optional(),
+  market_regime:  z.enum(MARKET_REGIME).optional(),
+  session:        z.enum(SESSION).optional(),
 
-  // ── Psychology context (REQUIRED — V3 acceptance) ──
-  emotion_pre:      z.enum(EMOTION_PRE),
-  reason_for_entry: z.enum(REASON_ENTRY),
-  revenge_trade:    z.boolean(),
-  rule_compliance:  z.enum(RULE_COMPLIANCE),
-  confidence_level: z.number().int().min(1).max(10),
+  // ── Psychology context (REQUIRED for human modes; N/A for engine) ──
+  emotion_pre:      z.enum(EMOTION_PRE).optional(),
+  reason_for_entry: z.enum(REASON_ENTRY).optional(),
+  revenge_trade:    z.boolean().optional(),
+  rule_compliance:  z.enum(RULE_COMPLIANCE).optional(),
+  confidence_level: z.number().int().min(1).max(10).optional(),
+
+  // ── Engine-execution provenance (REQUIRED for auto_engine; N/A else) ──
+  engine_strategy_name:    z.string().max(120).optional(),
+  engine_strategy_version: z.number().int().nonnegative().optional(),
+  engine_entry_logic:      z.string().max(500).optional(),
+  engine_exit_reason:      z.string().max(120).optional(),
+  engine_risk_model:       z.string().max(120).optional(),
+  engine_position_sizing:  z.string().max(500).optional(),
+  engine_volatility_state: z.string().max(60).optional(),
 
   // ── Execution quality (optional but recommended) ──
   entry_quality:      z.enum(QUALITY).optional(),
@@ -109,14 +125,57 @@ export async function POST(request: NextRequest) {
   const parsed = journalEntrySchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json({
-      error: 'Strategy + Psychology context required.',
+      error: 'Invalid journal payload.',
       issues: parsed.error.flatten(),
     }, { status: 422 })
   }
 
-  // rule_violation legacy column is derived from rule_compliance so
-  // the existing analytics that read it keep working.
-  const ruleViolation = parsed.data.rule_compliance !== 'full'
+  // V4 mode-aware validation. Two lifecycles — never conflate them.
+  //   'manual' + 'auto_human' → trader clicked the order.
+  //     Required: strategy_used + setup_validity + market_regime +
+  //     session + emotion_pre + reason_for_entry + revenge_trade +
+  //     rule_compliance + confidence_level
+  //   'auto_engine' → AlgoSphere engine executed.
+  //     Required: engine_strategy_name + engine_entry_logic +
+  //     engine_exit_reason. Psychology is NOT asked.
+  const source = parsed.data.source
+  if (source === 'manual' || source === 'auto_human') {
+    const missing: string[] = []
+    if (!parsed.data.strategy_used)    missing.push('strategy_used')
+    if (!parsed.data.setup_validity)   missing.push('setup_validity')
+    if (!parsed.data.market_regime)    missing.push('market_regime')
+    if (!parsed.data.session)          missing.push('session')
+    if (!parsed.data.emotion_pre)      missing.push('emotion_pre')
+    if (!parsed.data.reason_for_entry) missing.push('reason_for_entry')
+    if (parsed.data.revenge_trade == null) missing.push('revenge_trade')
+    if (!parsed.data.rule_compliance)  missing.push('rule_compliance')
+    if (parsed.data.confidence_level == null) missing.push('confidence_level')
+    if (missing.length > 0) {
+      return NextResponse.json({
+        error: 'Strategy + Psychology context required for human-executed trades.',
+        missing,
+      }, { status: 422 })
+    }
+  } else if (source === 'auto_engine') {
+    const missing: string[] = []
+    if (!parsed.data.engine_strategy_name) missing.push('engine_strategy_name')
+    if (!parsed.data.engine_entry_logic)   missing.push('engine_entry_logic')
+    if (!parsed.data.engine_exit_reason)   missing.push('engine_exit_reason')
+    if (missing.length > 0) {
+      return NextResponse.json({
+        error: 'Engine provenance required for auto_engine trades.',
+        missing,
+      }, { status: 422 })
+    }
+  }
+
+  // rule_violation legacy column is derived from rule_compliance for
+  // human modes; engine rows leave it null so analytics that filter on
+  // it correctly skip engine output.
+  const ruleViolation =
+    parsed.data.rule_compliance != null
+      ? parsed.data.rule_compliance !== 'full'
+      : null
 
   const { data, error } = await supabase
     .from('journal_entries')
