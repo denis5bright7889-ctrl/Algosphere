@@ -20,7 +20,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Sparkles, FlaskConical, Play, Activity, type LucideIcon,
+  Sparkles, FlaskConical, Play, Activity, Database, type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { syntheticBars, type Bar } from '@/lib/backtest'
@@ -28,6 +28,30 @@ import { executeStrategy } from '@/lib/strategies/executor'
 import {
   BLOCK_CATALOG, type StrategyConfig, type BlockInstance, type BlockParam,
 } from '@/lib/strategies/blocks'
+
+// Mirrors BacktestClient's curated symbol set — the same provider
+// surface (TwelveData for FX/metals, Coinbase for crypto) backs both.
+// Kept inline rather than extracted: a third consumer would justify
+// the shared module, two does not.
+const HISTORICAL_SYMBOLS: { value: string; label: string; group: string }[] = [
+  { group: 'Forex',  value: 'EURUSD',  label: 'EUR/USD' },
+  { group: 'Forex',  value: 'GBPUSD',  label: 'GBP/USD' },
+  { group: 'Forex',  value: 'USDJPY',  label: 'USD/JPY' },
+  { group: 'Forex',  value: 'AUDUSD',  label: 'AUD/USD' },
+  { group: 'Metals', value: 'XAUUSD',  label: 'Gold (XAU/USD)' },
+  { group: 'Crypto', value: 'BTCUSDT', label: 'BTC/USDT' },
+  { group: 'Crypto', value: 'ETHUSDT', label: 'ETH/USDT' },
+  { group: 'Crypto', value: 'SOLUSDT', label: 'SOL/USDT' },
+]
+
+const TIMEFRAMES: { value: string; label: string }[] = [
+  { value: '15min', label: '15m' },
+  { value: '1h',    label: '1h'  },
+  { value: '4h',    label: '4h'  },
+  { value: '1day',  label: '1d'  },
+]
+
+type DataSource = 'synthetic' | 'historical'
 
 
 export interface SavedStrategyOption {
@@ -99,8 +123,13 @@ export default function OptimizationClient({
   const [steps,  setSteps]  = useState(12)
   const [metric, setMetric] = useState<Metric>('profit_factor')
 
-  // Synthetic bars (deterministic) — keeps the sweep reproducible and
-  // doesn't require an OHLCV provider being configured.
+  // Bar source — synthetic (deterministic seed) or historical (real
+  // OHLCV via the auth-gated /api/backtest/ohlcv proxy). Historical
+  // bars are fetched once before the sweep loop so the engine isn't
+  // hit N times.
+  const [dataSource, setDataSource] = useState<DataSource>('synthetic')
+  const [symbol,     setSymbol]     = useState('BTCUSDT')
+  const [timeframe,  setTimeframe]  = useState('1h')
   const [bars, setBars] = useState(500)
   const [seed, setSeed] = useState(42)
 
@@ -136,7 +165,25 @@ export default function OptimizationClient({
     setProgress(0)
     setResults(null)
 
-    const baseBars: Bar[] = syntheticBars(bars, seed)
+    // Fetch bars ONCE — every sweep step replays on the same series so
+    // metric differences come from the param, not from new bars.
+    let baseBars: Bar[]
+    if (dataSource === 'historical') {
+      const fetched = await fetchHistorical(symbol, timeframe, bars)
+      if (!fetched.ok) {
+        setError(fetched.error)
+        setRunning(false)
+        return
+      }
+      if (fetched.bars.length < 50) {
+        setError(`Only ${fetched.bars.length} bars returned; need at least 50 for a sweep.`)
+        setRunning(false)
+        return
+      }
+      baseBars = fetched.bars
+    } else {
+      baseBars = syntheticBars(bars, seed)
+    }
     const out: SweepPoint[] = []
     const span = maxVal - minVal
     const isInt = choice.param.kind === 'int'
@@ -187,6 +234,43 @@ export default function OptimizationClient({
     <div className="space-y-5">
       {/* Strategy + sweep config */}
       <section className="rounded-xl border border-border bg-card p-5">
+        {/* Bar source — synthetic (deterministic, instant) vs historical
+            (real OHLCV via the engine, identical to /backtest). */}
+        <div className="mb-4">
+          <span className="block text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
+            Bar source
+          </span>
+          <div role="radiogroup" aria-label="Bar source" className="inline-flex rounded-lg border border-border bg-background p-1">
+            {(['synthetic', 'historical'] as const).map((ds) => (
+              <button
+                key={ds}
+                type="button"
+                role="radio"
+                // jsx-a11y/aria-proptypes can't statically resolve the
+                // dynamic expression; runtime value is always a clean boolean.
+                // eslint-disable-next-line jsx-a11y/aria-proptypes
+                aria-checked={dataSource === ds}
+                onClick={() => setDataSource(ds)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition',
+                  dataSource === ds
+                    ? 'bg-gradient-primary text-black'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {ds === 'synthetic'
+                  ? <><FlaskConical className="h-3 w-3" strokeWidth={2} aria-hidden />Synthetic</>
+                  : <><Database     className="h-3 w-3" strokeWidth={2} aria-hidden />Historical</>}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[10px] text-muted-foreground/80">
+            {dataSource === 'synthetic'
+              ? 'Deterministic random-walk bars (same seed → identical sweep). Fast.'
+              : 'Real OHLCV from the engine. Bars are fetched once and reused across every sweep step.'}
+          </p>
+        </div>
+
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Strategy">
             <select
@@ -269,10 +353,39 @@ export default function OptimizationClient({
             <input aria-label="Bars per run" type="number" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none" value={bars} min={100} max={2000} step={50}
               onChange={(e) => setBars(Number(e.target.value))} />
           </Field>
-          <Field label="Random seed">
-            <input aria-label="Random seed" type="number" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none" value={seed}
-              onChange={(e) => setSeed(Number(e.target.value))} />
-          </Field>
+          {dataSource === 'synthetic' ? (
+            <Field label="Random seed">
+              <input aria-label="Random seed" type="number" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none" value={seed}
+                onChange={(e) => setSeed(Number(e.target.value))} />
+            </Field>
+          ) : (
+            <>
+              <Field label="Symbol">
+                <select
+                  aria-label="Symbol"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none"
+                  value={symbol}
+                  onChange={(e) => setSymbol(e.target.value)}
+                >
+                  {HISTORICAL_SYMBOLS.map((s) => (
+                    <option key={s.value} value={s.value}>{s.group} · {s.label}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Timeframe">
+                <select
+                  aria-label="Timeframe"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none"
+                  value={timeframe}
+                  onChange={(e) => setTimeframe(e.target.value)}
+                >
+                  {TIMEFRAMES.map((t) => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
+                  ))}
+                </select>
+              </Field>
+            </>
+          )}
         </div>
 
         <div className="mt-4 flex items-center gap-3">
@@ -441,6 +554,40 @@ function SweepChart({ points, metric, cfg, bestVal }: {
 
 
 // ─── Helpers ────────────────────────────────────────────────────────
+
+type FetchResult =
+  | { ok: true;  bars: Bar[] }
+  | { ok: false; error: string }
+
+/** Fetch real OHLCV via the auth-gated proxy. Same surface as
+ *  BacktestClient.fetchHistorical — duplicated here rather than
+ *  extracted; if a third consumer appears, lift to a shared lib. */
+async function fetchHistorical(symbol: string, interval: string, outputsize: number): Promise<FetchResult> {
+  try {
+    const qs = new URLSearchParams({ symbol, interval, outputsize: String(outputsize) })
+    const res = await fetch(`/api/backtest/ohlcv?${qs.toString()}`, { cache: 'no-store' })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) return { ok: false, error: json?.detail || json?.error || `engine HTTP ${res.status}` }
+    if (json.error) return { ok: false, error: `engine reported: ${json.error}` }
+    const rows: Array<Partial<Bar>> = Array.isArray(json.bars) ? json.bars : []
+    if (rows.length === 0) {
+      return { ok: false, error: `No historical bars for ${symbol} @ ${interval} — provider may not be configured.` }
+    }
+    const bars: Bar[] = rows
+      .map((b) => ({
+        time:  Number(b.time),
+        open:  Number(b.open),
+        high:  Number(b.high),
+        low:   Number(b.low),
+        close: Number(b.close),
+      }))
+      .filter((b) => Number.isFinite(b.time) && Number.isFinite(b.close))
+    return { ok: true, bars }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'fetch failed' }
+  }
+}
+
 
 interface SweepableEntry {
   instanceId: string
