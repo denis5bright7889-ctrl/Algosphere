@@ -74,12 +74,26 @@ export default async function GrowthEnginePage() {
             Content lifecycle for AlgoSphere marketing. Every published item is gated on a non-empty disclaimer.
           </p>
         </div>
-        <Link
-          href="/admin/growth/new"
-          className="rounded-md bg-amber-500 px-4 py-2 text-xs font-bold text-black hover:bg-amber-400"
-        >
-          + New content
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/admin/growth/calendar"
+            className="rounded-md border border-border px-3 py-2 text-xs font-semibold hover:bg-accent/40"
+          >
+            Calendar
+          </Link>
+          <Link
+            href="/admin/growth/brand"
+            className="rounded-md border border-border px-3 py-2 text-xs font-semibold hover:bg-accent/40"
+          >
+            Brand
+          </Link>
+          <Link
+            href="/admin/growth/new"
+            className="rounded-md bg-amber-500 px-4 py-2 text-xs font-bold text-black hover:bg-amber-400"
+          >
+            + New content
+          </Link>
+        </div>
       </header>
 
       {/* Stat strip */}

@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Save, AlertOctagon, Sparkles } from 'lucide-react'
+import SchedulePanel from './SchedulePanel'
 
 type Status = 'draft' | 'review' | 'approved' | 'scheduled' | 'published' | 'archived' | 'rejected'
 
@@ -164,6 +165,7 @@ export default function ContentDetailClient({ initial }: { initial: ContentItem 
         <Field label="Title">
           <input
             type="text"
+            aria-label="Title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
@@ -171,6 +173,7 @@ export default function ContentDetailClient({ initial }: { initial: ContentItem 
         </Field>
         <Field label="Summary">
           <textarea
+            aria-label="Summary"
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
             rows={2}
@@ -179,6 +182,7 @@ export default function ContentDetailClient({ initial }: { initial: ContentItem 
         </Field>
         <Field label="Body (markdown)">
           <textarea
+            aria-label="Body (markdown)"
             value={bodyMd}
             onChange={(e) => setBodyMd(e.target.value)}
             rows={16}
@@ -187,6 +191,7 @@ export default function ContentDetailClient({ initial }: { initial: ContentItem 
         </Field>
         <Field label="Disclaimer (required before publishing)">
           <textarea
+            aria-label="Disclaimer"
             value={disclaimer}
             onChange={(e) => setDisclaimer(e.target.value)}
             rows={3}
@@ -197,6 +202,7 @@ export default function ContentDetailClient({ initial }: { initial: ContentItem 
           <Field label="CTA text">
             <input
               type="text"
+              aria-label="CTA text"
               value={cta}
               onChange={(e) => setCta(e.target.value)}
               className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
@@ -205,6 +211,7 @@ export default function ContentDetailClient({ initial }: { initial: ContentItem 
           <Field label="CTA URL">
             <input
               type="url"
+              aria-label="CTA URL"
               value={ctaUrl}
               onChange={(e) => setCtaUrl(e.target.value)}
               className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
@@ -222,6 +229,9 @@ export default function ContentDetailClient({ initial }: { initial: ContentItem 
           {pending ? 'Saving…' : 'Save changes'}
         </button>
       </div>
+
+      {/* Schedule + publish */}
+      <SchedulePanel contentId={item.id} status={item.status} disclaimer={disclaimer} />
 
       {/* Provenance */}
       <details className="rounded-2xl border border-border bg-card p-4 text-[12px]">
