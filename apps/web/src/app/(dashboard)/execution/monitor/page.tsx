@@ -15,12 +15,13 @@
  * dropped. This is a from-scratch monitor that does not depend on
  * copy-trading at all — pure read of the live automation pipeline.
  */
-import { redirect } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import {
   Radar, ShieldAlert, Server, Cpu, AlertOctagon, CheckCircle2,
   Pause, Lock, type LucideIcon,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
+import { isAdmin } from '@/lib/admin'
 import { cn } from '@/lib/utils'
 import {
   getEngineStatus, getRiskTelemetry,
@@ -51,6 +52,13 @@ export default async function AutomationMonitorPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+
+  // Admin-only — operational/diagnostic surface. See
+  // [[feedback_admin_vs_user_surfaces]]: this page exposes engine
+  // internals (regime telemetry, risk gate state, broker fill streams)
+  // that belong in the admin/operator panel, not in a trader's
+  // workflow. Non-admin direct-URL access 404s.
+  if (!isAdmin(user.email)) notFound()
 
   const [engineRes, riskRes, brokersRes, signalsRes] = await Promise.all([
     getEngineStatus(),

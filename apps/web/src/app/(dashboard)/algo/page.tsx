@@ -136,7 +136,6 @@ export default async function AlgoTradingPage() {
   ]
 
   const doneCount = steps.filter((s) => s.done).length
-  const allReady  = doneCount === steps.length
   const pct       = Math.round((doneCount / steps.length) * 100)
 
   // ── Live state pill — same truthful logic as /execution ──
@@ -205,15 +204,13 @@ export default async function AlgoTradingPage() {
             />
           ))}
         </div>
-        {allReady && isVip && (
-          <a
-            href="/execution/monitor"
-            className="btn-premium mt-5 inline-flex !px-5 !py-2.5 !text-sm"
-          >
-            Open Automation Monitor
-            <ArrowRight className="h-4 w-4" strokeWidth={2.25} aria-hidden />
-          </a>
-        )}
+        {/* Automation Monitor is an admin-only operations panel — see
+            [[feedback_admin_vs_user_surfaces]]. Users see their broker
+            sync state on /brokers and signal feed health on /signals;
+            those communicate "is it working" without exposing engine
+            internals. The CTA used to render for VIP-ready users and
+            took them to the diagnostics panel; that's now reserved for
+            admins. */}
       </div>
 
       {/* Telegram preview — real chat-link state, honest CTA when missing */}

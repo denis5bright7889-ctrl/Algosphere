@@ -1,5 +1,5 @@
 import {
-  Radar, ShieldCheck, ScrollText, BarChart3, Cpu, Globe,
+  Radar, ShieldCheck, BookOpen, BarChart3, Brain, FlaskConical,
   ShieldHalf, LineChart, Lock, type LucideIcon,
 } from 'lucide-react'
 import { PLANS } from '@/lib/plans'
@@ -16,45 +16,47 @@ import MobileCtaBar from './_components/MobileCtaBar'
 import RefCookieCapture from '@/components/marketing/RefCookieCapture'
 
 export const metadata = {
-  title: 'AlgoSphere Quant — Institutional Market Intelligence & Execution Infrastructure',
+  title: 'AlgoSphere Quant — AI Trader Intelligence Operating System',
   description:
-    'A quantitative trading operating system: market regime, smart-money flow, liquidity and conviction intelligence, AI-assisted execution and a 12-gate risk engine. Built for serious traders, quants and desks.',
+    'An AI Trader Intelligence OS: behavioral trade journal with 5 process grades, AI Coach, Strategy Lab (Quant Builder + Backtester + Optimization), consolidated market intelligence, 15-gate institutional risk. Built for serious retail and prosumer traders.',
 }
 
 const FEATURES: { icon: LucideIcon; title: string; description: string }[] = [
   {
-    icon: Radar,
-    title: 'Market Intelligence Engine',
+    icon: BookOpen,
+    title: 'Behavioral Trade Journal',
     description:
-      'Regime, momentum, liquidity, smart-money flow and conviction — institutional market states across FX, metals, equities and crypto. No raw indicators; just intelligence.',
+      'Every trade is a decision event — auto-imported from your broker or logged manually. Each entry generates 5 process grades (Execution / Psychology / Risk / Discipline / Timing) plus 3+ AI insights. PnL never grades; process does.',
+  },
+  {
+    icon: Brain,
+    title: 'AI Coach',
+    description:
+      'Streak-aware, pair-specific recommendations. "Cap risk on EURUSD at 0.5%" rather than generic warnings. Reads your behavior in real time and tells you the next concrete fix.',
+  },
+  {
+    icon: FlaskConical,
+    title: 'Strategy Lab',
+    description:
+      'Visual Quant Builder (18 blocks · SMC + indicators + session filters), realistic-cost Backtester, Monte Carlo with sample-size confidence, Optimization Center with edge-stability scoring, and a 6-stage Deployment Readiness ladder (Research → Institutional).',
+  },
+  {
+    icon: Radar,
+    title: 'Consolidated Market Intelligence',
+    description:
+      'Regime · liquidity & flows · sentiment · rotation · momentum · volatility & stress — one decision surface for 34+ instruments across forex, metals, indices, oil and crypto. No raw indicators dumped on you.',
   },
   {
     icon: ShieldCheck,
-    title: 'Institutional Risk Engine',
+    title: '15-Gate Institutional Risk',
     description:
-      'Position sizing, daily-loss and drawdown limits, kill-switch and a 12-gate capital guard.',
-  },
-  {
-    icon: ScrollText,
-    title: 'Trade Journal',
-    description:
-      'Log trades with screenshots, tags and notes. Win rate, R:R and P&L computed automatically.',
+      'Position sizing, daily/weekly/total drawdown, consecutive-loss cooldown, kill switch, news shield, correlation cap, session limits — every signal pre-checked before publishing.',
   },
   {
     icon: BarChart3,
-    title: 'Performance Analytics',
+    title: 'Performance Intelligence',
     description:
-      'Break down results by pair, setup, session and regime. See exactly what edges hold.',
-  },
-  {
-    icon: Cpu,
-    title: 'Live Execution',
-    description: 'Auto-mirror signals to Binance, Bybit, OKX or MT5 — shadow-validated before going live.',
-  },
-  {
-    icon: Globe,
-    title: 'Multi-Channel Delivery',
-    description: 'Signals and account alerts via Web Push, email and Telegram — never miss an entry.',
+      'Sharpe / Sortino / Calmar, drawdown clustering, per-pair / per-session / per-setup edges, equity curve, monthly attribution. Find where your edge lives — and where it leaks.',
   },
 ]
 
@@ -78,24 +80,28 @@ const TRUST: { icon: LucideIcon; title: string; description: string }[] = [
 
 const FAQS = [
   {
-    q: 'How accurate are the signals?',
-    a: 'Our signals are based on multi-timeframe technical analysis. Historical win rate is displayed live in the analytics dashboard — we show the truth, not cherry-picked results.',
+    q: 'What actually is AlgoSphere?',
+    a: 'An AI Trader Intelligence Operating System. The flagship surface is the Behavioral Trade Journal that scores every trade on 5 process axes (Execution / Psychology / Risk / Discipline / Timing) and generates AI insights. Around it sit a consolidated Market Intelligence read, an AI Coach that gives pair-specific recommendations, a Strategy Lab (Quant Builder + Backtester + Optimization), and a 15-gate institutional risk system. Signals exist but are a feature, not the lead.',
+  },
+  {
+    q: 'Do I have to be auto-trading to get value?',
+    a: 'No. Most users connect a broker so trades auto-import into the journal — the AI Coach reads the resulting behavior and tells you what to fix. Live execution is opt-in on premium tiers; the intelligence layer works whether or not you wire it.',
+  },
+  {
+    q: 'Which markets does the engine cover?',
+    a: 'The signal engine currently scans 34+ instruments across Forex majors (EURUSD, GBPUSD, USDJPY, AUDUSD, USDCHF, USDCAD, NZDUSD, EURJPY), metals (Gold, Silver, Platinum, Palladium), oil (WTI, Brent), indices (NAS100, SPX500, GER40, UK100, JPN225), and crypto majors (BTC, ETH, SOL, XRP, ADA, DOGE, AVAX, LINK, LTC, DOT, and more). The Behavioral Journal works on any pair you log.',
+  },
+  {
+    q: 'Which brokers can I connect?',
+    a: 'MetaTrader 4, MetaTrader 5, cTrader, Binance, Bybit, OKX. Broker API keys are AES-256-GCM encrypted at the app layer; withdrawal scope stays disabled. Adding a broker auto-imports your fills into the Behavioral Journal.',
   },
   {
     q: 'Can I cancel anytime?',
-    a: 'Yes. Cancel from your billing settings at any time and your plan remains active until the end of the billing period. No lock-ins.',
-  },
-  {
-    q: 'Which markets do you cover?',
-    a: 'We focus on Gold (XAUUSD), major Forex pairs (EURUSD, GBPUSD, USDJPY), and selected indices. More pairs are added based on demand.',
-  },
-  {
-    q: 'Do I need a specific broker?',
-    a: 'No — signals include entry, SL, and TP levels that you enter manually on any broker. Connect MT5 (and supported crypto venues) for the optional auto-execution layer when you are away from the screen.',
+    a: 'Yes. Cancel from billing settings at any time; your plan stays active to the end of the billing period. No lock-ins. Payment is crypto-only (USDT-TRC20 + BTC/ETH/Binance Pay).',
   },
   {
     q: 'Is there a free plan?',
-    a: 'Yes. The free tier gives you 3 signals per week, a dashboard preview, and access to the Telegram community. Upgrade for daily signals and full features.',
+    a: 'Yes. The free tier gives you 3 AI signals per week, the Trader Intelligence dashboard preview, and access to the curated Telegram channels. Upgrade for the full Behavioral Journal, Performance Intelligence, AI Coach, and Strategy Lab.',
   },
 ]
 
@@ -118,35 +124,35 @@ export default function HomePage() {
           <div className="text-center lg:text-left animate-fade-in">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(16,185,129,0.7)]" />
-              Institutional AI · live regime engine
+              AI Trader Intelligence Operating System
             </span>
             <h1 className="mt-4 text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl">
-              Where{' '}
-              <span className="text-gradient">algorithms</span>
+              Understand{' '}
+              <span className="text-gradient">your edge</span>.
               <br className="hidden sm:inline" />
-              meet alpha
+              Build the next one.
             </h1>
             <p className="mt-5 max-w-xl text-base text-muted-foreground sm:text-lg mx-auto lg:mx-0">
-              Market regime, smart-money flow, liquidity and conviction intelligence,
-              AI-assisted execution and a 12-gate risk engine — one quantitative
-              operating system, not a signals feed.
+              Every trade scored on 5 process axes. An AI Coach that tells you the
+              next concrete fix. A Strategy Lab to test what works. Built for traders
+              who want to improve, not just receive signals.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row lg:justify-start">
               <a href="/signup" className="btn-premium w-full sm:w-auto !px-8 !py-3 !text-base">
                 Start free trial
               </a>
               <a href="#features" className="btn-glass w-full sm:w-auto !px-8 !py-3 !text-base">
-                See how it works
+                See what&apos;s inside
               </a>
             </div>
             <p className="mt-4 text-xs text-muted-foreground">
-              7-day free trial · no card required
+              7-day free trial · no card required · crypto-only billing
             </p>
           </div>
 
-          {/* RIGHT — honest live-engine card (replaces the prior simulated-tape preview;
-              no fake candles, no fabricated AI badge — visitors are routed to /live,
-              which is the actual engine running). */}
+          {/* RIGHT — honest live-engine card. No simulated tape, no fabricated
+              AI badge — visitors route to /live to inspect the actual engine
+              + /journal to see the Behavioral Journal in action. */}
           <aside className="rounded-2xl border border-border bg-card/40 p-6 md:p-8">
             <div className="flex items-center gap-2">
               <span className="relative flex h-2 w-2" aria-hidden>
@@ -154,23 +160,24 @@ export default function HomePage() {
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
               </span>
               <span className="text-[10px] font-semibold uppercase tracking-widest text-emerald-300">
-                Engine live
+                Trader Intelligence — live
               </span>
             </div>
             <h3 className="mt-4 text-2xl font-semibold tracking-tight md:text-3xl">
-              30 institutional instruments<br />scanning right now.
+              34+ instruments scanned.<br />
+              <span className="text-gradient">Every trade graded.</span>
             </h3>
             <p className="mt-3 text-sm text-muted-foreground">
-              Forex · gold · silver · platinum · palladium · WTI · Brent · 14 crypto.
-              Regime, weighted ensemble, risk-gated signal generation — published
-              only when conviction clears institutional thresholds.
+              Forex majors · metals · oil · indices · 14+ crypto. Each signal pre-checked
+              by a 15-gate risk system. Each trade you log scored on 5 process axes —
+              never on P&amp;L alone.
             </p>
             <a href="/live"
                className="mt-6 inline-flex items-center gap-2 rounded-lg border border-amber-500/40 px-4 py-2 text-sm font-bold text-amber-300 hover:bg-amber-500/10">
               See the engine working →
             </a>
             <p className="mt-3 text-[11px] text-muted-foreground">
-              No simulated tape. No fake AI signals. Honest by construction.
+              No simulated tape. No fake AI badges. Honest by construction.
             </p>
           </aside>
         </div>
@@ -188,9 +195,12 @@ export default function HomePage() {
       {/* Features */}
       <section id="features" className="mx-auto max-w-5xl scroll-mt-20 px-4 py-14 sm:py-20">
         <div className="mb-10 text-center sm:mb-12">
-          <h2 className="text-2xl font-bold sm:text-3xl">Everything you need to trade consistently</h2>
+          <h2 className="text-2xl font-bold sm:text-3xl">
+            One decision intelligence system, not six tools
+          </h2>
           <p className="mt-3 text-sm text-muted-foreground sm:text-base">
-            One subscription. All the tools. No spreadsheets needed.
+            Every layer reads the same data: your trades. The journal grades them, the
+            coach reads the grades, the Strategy Lab tests new ones, the risk engine guards them.
           </p>
         </div>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

@@ -12,19 +12,19 @@ import Link from 'next/link'
 export const metadata = {
   title: 'Investors & Supporters — AlgoSphere Quant',
   description:
-    'AlgoSphere Quant is institutional-grade market intelligence shipped end-to-end by a solo founder. Live engine, persistent OHLCV cache, weighted-ensemble strategies, risk-gated execution, real architecture. Open to supporters and angel investors.',
+    'AlgoSphere Quant is an AI Trader Intelligence Operating System shipped end-to-end by a solo founder. Behavioral journal, 5-axis trade grading, AI coach, Strategy Lab, consolidated market intelligence, 15-gate institutional risk. Open to supporters and angel investors.',
   alternates: { canonical: '/investors' },
   openGraph: {
     type: 'website',
     title: 'AlgoSphere Quant — for investors & supporters',
     description:
-      'Institutional market intelligence shipped end-to-end by a solo founder. Real engineering, live system, honest traction. Open to supporters.',
+      'AI Trader Intelligence Operating System shipped end-to-end by a solo founder. Real engineering, live system, honest traction. Open to supporters.',
     url: '/investors',
   },
   twitter: {
     card: 'summary_large_image',
     title: 'AlgoSphere Quant — for investors & supporters',
-    description: 'Institutional market intelligence shipped end-to-end by a solo founder.',
+    description: 'AI Trader Intelligence Operating System shipped end-to-end by a solo founder.',
   },
 }
 
@@ -36,13 +36,14 @@ export default function InvestorsPage() {
       <header className="space-y-4">
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-300">For investors &amp; supporters</p>
         <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
-          Institutional market intelligence, <span className="text-gradient">shipped end-to-end</span> by one founder.
+          An AI Trader Intelligence Operating System, <span className="text-gradient">shipped end-to-end</span> by one founder.
         </h1>
         <p className="text-base text-muted-foreground md:text-lg">
-          AlgoSphere Quant is a working quantitative trading intelligence platform —
-          live engine, persistent infrastructure, risk-gated signals, real
-          architecture you can inspect right now. Built by a solo founder. Open to
-          supporters who back early product over polished pitch decks.
+          AlgoSphere Quant teaches retail traders about themselves: every trade is
+          scored on 5 process axes, an AI Coach gives pair-specific recommendations,
+          a Strategy Lab tests new edges, and a 15-gate institutional risk system
+          guards execution. Live, working, inspectable. Built by a solo founder.
+          Open to supporters who back early product over polished pitch decks.
         </p>
         <div className="flex flex-wrap gap-3 pt-2">
           <Link href="/live"
@@ -59,38 +60,41 @@ export default function InvestorsPage() {
       <Section title="The problem">
         <p>
           Retail traders pay for noise. The signals industry sells lottery
-          tickets — opaque indicators, untracked outcomes, no risk gates, no
-          continuity. Meanwhile, real institutional desks run consolidated
-          intelligence: regime detection, smart-money flow, liquidity, layered
-          risk. That stack is locked inside hedge funds and prime brokers.
+          tickets — opaque indicators, untracked outcomes, no behavioral feedback,
+          no risk gates. Meanwhile, real institutional desks run consolidated
+          intelligence and treat every trade as a decision event with structured
+          process data. That feedback loop is locked inside hedge funds.
         </p>
       </Section>
 
       <Section title="The product">
         <p>
-          AlgoSphere Quant ships the institutional read in a form retail and
-          prosumer traders can actually use: a single decision brain over
-          regime, momentum, market internals, smart-money proxies, volatility,
-          and execution health. The same architecture institutional desks use —
-          unbundled, opinionated, and operated honestly.
+          AlgoSphere Quant is an AI Trader Intelligence Operating System.
+          Every trade — manually logged or auto-imported from a broker — is
+          scored on 5 process axes (Execution / Psychology / Risk / Discipline /
+          Timing), generating 3+ AI insights per entry. An AI Coach reads the
+          resulting behavior in real time. A Strategy Lab (Quant Builder +
+          Backtester + Optimization Center) lets traders test what works before
+          deploying. A 15-gate institutional risk system guards execution.
+          Signals exist but are a feature, not the lead.
         </p>
       </Section>
 
       <Section title="What's actually built (verifiable on the live site)">
         <ul className="grid gap-3 sm:grid-cols-2">
-          <Bullet>25-instrument live scanner — forex, metals, indices, crypto</Bullet>
-          <Bullet>Weighted-ensemble engine, 8 independent strategies</Bullet>
-          <Bullet>Persistent OHLCV cache (survives deploys + provider outages)</Bullet>
-          <Bullet>Per-symbol data-health labels (Active / Degraded / Stale / Offline)</Bullet>
-          <Bullet>Institutional risk gate: drawdown / breaker / sizing</Bullet>
-          <Bullet>Decision Brain — single consolidated state output</Bullet>
-          <Bullet>TradingView-grade chart workspace + symbol registry</Bullet>
-          <Bullet>Telegram auto-broadcaster (channel + tier-gated DMs)</Bullet>
-          <Bullet>Crypto payments (Binance Pay / TRC20)</Bullet>
-          <Bullet>Signals-only by default; real-money execution is opt-in</Bullet>
+          <Bullet>Behavioral Trade Journal — 5 process grades per trade + 3+ AI insights, structured Strategy + Psychology context required</Bullet>
+          <Bullet>AI Coach — streak-aware, pair-specific recommendations (&quot;cap risk on EURUSD at 0.5%&quot;)</Bullet>
+          <Bullet>Strategy Lab — visual Quant Builder (18 blocks · SMC + indicators), Backtester with realistic per-asset costs, Monte Carlo with sample-size confidence, Optimization Center, Deployment Readiness ladder (6 stages)</Bullet>
+          <Bullet>Consolidated Market Intelligence — 6 thematic sections (Regime · Liquidity &amp; Flows · Sentiment · Rotation · Momentum · Volatility &amp; Stress)</Bullet>
+          <Bullet>34+ instrument live scanner — forex majors + metals + oil + indices + 14+ crypto</Bullet>
+          <Bullet>15-gate institutional risk system — drawdown / kill switch / cooldowns / news shield / correlation</Bullet>
+          <Bullet>Multi-broker connections (MT4/MT5/cTrader/Binance/Bybit/OKX) — AES-256-GCM encrypted, trades auto-import to journal</Bullet>
+          <Bullet>Performance Intelligence — Sharpe / Sortino / Calmar / drawdown clusters / per-pair edges</Bullet>
+          <Bullet>Curated Telegram signal channels + tier-gated DMs</Bullet>
+          <Bullet>Crypto-only billing (USDT-TRC20 + BTC/ETH/Binance Pay)</Bullet>
         </ul>
         <p className="mt-3 text-[12px] text-muted-foreground">
-          50+ engineered PRs of real, verifiable work. The codebase is auditable.
+          70+ engineered PRs of real, verifiable work. The codebase is auditable.
         </p>
       </Section>
 
@@ -109,9 +113,9 @@ export default function InvestorsPage() {
       <Section title="What support unlocks">
         <ul className="space-y-2 text-sm">
           <li>• <span className="font-semibold text-foreground">Runway</span> to maintain the platform while it onboards paying users.</li>
-          <li>• <span className="font-semibold text-foreground">Data tier upgrades</span> — multi-TF confirmation, higher provider quotas, premium feeds.</li>
-          <li>• <span className="font-semibold text-foreground">Audited go-live</span> of the auto-execution layer (currently opt-in; staged validation before any real-money fan-out).</li>
-          <li>• <span className="font-semibold text-foreground">Growth surface</span> — paid Telegram-channel listings marketplace, referral payouts, content engine.</li>
+          <li>• <span className="font-semibold text-foreground">Data tier upgrades</span> — multi-TF confirmation, higher provider quotas, premium feeds for full forex coverage.</li>
+          <li>• <span className="font-semibold text-foreground">Audited go-live</span> of the auto-execution layer (opt-in; staged validation before any real-money fan-out).</li>
+          <li>• <span className="font-semibold text-foreground">Growth surface</span> — paid Telegram-channel listings directory, referral payouts, content engine.</li>
         </ul>
       </Section>
 
@@ -120,9 +124,10 @@ export default function InvestorsPage() {
           The retail trading product space is loud and shallow. AlgoSphere is the
           opposite — quiet, deeply engineered, institutional by construction.
           One person shipped the full stack: data infrastructure, signal engine,
-          risk layer, decision brain, intelligence surfaces, payment rails,
-          chart workspace, public APIs, governance docs. That same person is
-          asking for the runway to put it in users&apos; hands.
+          15-gate risk layer, behavioral journal with 5 process grades, AI coach,
+          Strategy Lab, consolidated market intelligence, payment rails, chart
+          workspace, public APIs. That same person is asking for the runway to
+          put it in users&apos; hands.
         </p>
       </Section>
 

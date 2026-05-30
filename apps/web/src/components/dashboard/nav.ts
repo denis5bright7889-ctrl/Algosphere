@@ -60,6 +60,10 @@ export interface NavItem {
   action?: 'logout'
   /** Minimum subscription tier to see this item. Absent = everyone. */
   minTier?: Tier
+  /** Admin-only. Operational/diagnostic surfaces (engine pulse,
+   *  automation monitor) live here; regular users never see them.
+   *  See [[feedback_admin_vs_user_surfaces]]. */
+  adminOnly?: boolean
   /** Extra search terms for the command palette. */
   keywords?: string
 }
@@ -68,6 +72,10 @@ export interface NavGroup {
   label: string
   icon:  LucideIcon
   items: NavItem[]
+  /** Admin-only group — every item hidden from regular users.
+   *  Used for entire operations groups + the Community/Telegram
+   *  directory (which is a marketing surface, not a trader workflow). */
+  adminOnly?: boolean
 }
 
 export const NAV_GROUPS: NavGroup[] = [
@@ -131,7 +139,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/algo',              label: 'Auto Trading',       icon: Cpu,       keywords: 'algo bot mt5 institutional execution gateway desk activate engine semi auto fully' },
       { href: '/shadow',            label: 'Shadow Mode',        icon: Ghost,     minTier: 'premium', keywords: 'paper validation simulation forward test' },
-      { href: '/execution/monitor', label: 'Automation Monitor', icon: LineChart, keywords: 'running automations execution logs alerts open positions trades' },
+      { href: '/execution/monitor', label: 'Automation Monitor', icon: LineChart, adminOnly: true, keywords: 'running automations execution logs alerts open positions trades engine pulse risk telemetry' },
     ],
   },
   {
@@ -145,9 +153,15 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    // A directory, not a forum. Admin-managed Telegram destinations only.
+    // A directory, not a forum — and crucially, a curated marketing
+    // surface, not a trader workflow. Per the admin-vs-user rule
+    // ([[feedback_admin_vs_user_surfaces]]) the Community/Telegram Hub
+    // does NOT appear in the regular user sidebar. Admins still see it
+    // for moderation; the page itself stays publicly reachable via the
+    // /communities route from marketing pages.
     label: 'Premium Community',
     icon: Crown,
+    adminOnly: true,
     items: [
       { href: '/communities', label: 'Telegram Hub', icon: Crown,
         keywords: 'telegram channel group vip signals education premium directory' },
@@ -170,7 +184,14 @@ export const NAV_GROUPS: NavGroup[] = [
 
 /**
  * Returns the nav groups visible to a given tier (admins see all).
- * Items above the user's tier are dropped; empty groups are dropped.
+ *
+ * Filtering rules:
+ *   • adminOnly groups → dropped entirely for non-admins
+ *   • adminOnly items  → dropped for non-admins
+ *   • items above the user's tier → dropped
+ *   • empty groups → dropped
+ *
+ * Admins see everything regardless of tier or adminOnly flags.
  */
 export function visibleNav(
   tier: Tier = 'free',
@@ -178,11 +199,16 @@ export function visibleNav(
 ): NavGroup[] {
   const rank = TIER_RANK[tier] ?? 0
   return NAV_GROUPS
+    // Drop whole admin-only groups (Community / future Operations) for users.
+    .filter((g) => isAdmin || !g.adminOnly)
     .map((g) => ({
       ...g,
-      items: g.items.filter(
-        (i) => isAdmin || !i.minTier || rank >= TIER_RANK[i.minTier],
-      ),
+      items: g.items.filter((i) => {
+        if (isAdmin) return true
+        if (i.adminOnly) return false
+        if (i.minTier && rank < TIER_RANK[i.minTier]) return false
+        return true
+      }),
     }))
     .filter((g) => g.items.length > 0)
 }
@@ -190,7 +216,11 @@ export function visibleNav(
 /** A nav item guaranteed to have an href (no action items). */
 export type NavLink = NavItem & { href: string }
 
-/** Flat list of navigable items — used by the command palette. */
+/** Flat list of navigable items — used by the command palette.
+ *  Excludes adminOnly items + items inside adminOnly groups so the
+ *  ⌘K palette doesn't expose ops/community surfaces to regular users.
+ *  Admins reach those via direct URL or via /admin/ops. */
 export const NAV_FLAT: NavLink[] = NAV_GROUPS
+  .filter((g) => !g.adminOnly)
   .flatMap((g) => g.items)
-  .filter((i): i is NavLink => typeof i.href === 'string')
+  .filter((i): i is NavLink => typeof i.href === 'string' && !i.adminOnly)

@@ -8,8 +8,8 @@ import { MARKET_UNIVERSE, UNIVERSE_TOTAL } from '@/lib/market-universe'
 const STATS: { value: string; label: string }[] = [
   { value: `${UNIVERSE_TOTAL}+`,            label: 'Instruments tracked live' },
   { value: `${MARKET_UNIVERSE.length}`,     label: 'Asset classes covered' },
-  { value: '12',                            label: 'Capital-risk gates enforced' },
-  { value: '4',                             label: 'Execution venues (Binance · Bybit · OKX · MT5)' },
+  { value: '15',                            label: 'Institutional risk gates enforced' },
+  { value: '5',                             label: 'AI grades per trade (Exec · Psy · Risk · Disc · Timing)' },
 ]
 
 export default function StatsBand() {

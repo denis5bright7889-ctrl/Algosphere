@@ -1,20 +1,32 @@
-import { PlugZap, BrainCircuit, Rocket } from 'lucide-react'
+import { PlugZap, Brain, FlaskConical, Rocket } from 'lucide-react'
 
+/**
+ * V3 trader journey: CONNECT → ANALYZE → VALIDATE → EXECUTE.
+ *
+ * Was a 3-step "from signal to execution" funnel that implied copy-trading
+ * ("auto-mirror trades, shadow-validated before going live"). Copy-trading
+ * was retired in R7; the four-stage trader-intelligence journey replaces it.
+ */
 const STEPS = [
   {
     icon: PlugZap,
     title: 'Connect',
-    body: 'Link Binance, Bybit, OKX or MT5 in read-only first. No withdrawal scope, ever. Or just take the signals manually.',
+    body: 'Link a broker (MT4/MT5/cTrader/Binance/Bybit/OKX) so trades auto-import into the journal. Keys are AES-256-GCM encrypted; withdrawal scope stays disabled.',
   },
   {
-    icon: BrainCircuit,
-    title: 'Get AI signals',
-    body: 'The regime-aware engine posts entries, stop-loss and layered take-profits — each one pre-checked by the 12-gate risk system.',
+    icon: Brain,
+    title: 'Analyze',
+    body: 'Each trade is scored on 5 process axes (Execution / Psychology / Risk / Discipline / Timing) and gets 3+ AI insights — "cap risk on EURUSD at 0.5%" rather than generic warnings.',
+  },
+  {
+    icon: FlaskConical,
+    title: 'Validate',
+    body: 'Use the Strategy Lab — Quant Builder, Backtester with realistic per-asset costs, Monte Carlo with sample-size confidence, and the Deployment Readiness ladder before you size up.',
   },
   {
     icon: Rocket,
-    title: 'Execute & track',
-    body: 'Auto-mirror trades (shadow-validated before going live) and watch win-rate, R:R and P&L compute from real closed trades.',
+    title: 'Execute',
+    body: 'When a strategy clears Pilot stage, deploy it through the 15-gate institutional risk system. Engine pulse, live positions and logs surface on the Automation Monitor.',
   },
 ]
 
@@ -23,14 +35,14 @@ export default function HowItWorks() {
     <section id="how" className="mx-auto max-w-5xl scroll-mt-20 px-4 py-14 sm:py-20">
       <div className="mb-10 text-center sm:mb-12">
         <span className="inline-block rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-amber-300">
-          How it works
+          The trader journey
         </span>
         <h2 className="mt-4 text-2xl font-bold tracking-tight sm:text-3xl">
-          From signal to execution in <span className="text-gradient">three steps</span>
+          Connect &middot; Analyze &middot; Validate &middot; <span className="text-gradient">Execute</span>
         </h2>
       </div>
 
-      <ol className="grid gap-4 sm:gap-6 md:grid-cols-3">
+      <ol className="grid gap-4 sm:gap-6 md:grid-cols-2 lg:grid-cols-4">
         {STEPS.map((s, i) => {
           const Icon = s.icon
           return (
