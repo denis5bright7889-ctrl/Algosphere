@@ -25,6 +25,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             { href: '/admin/brokers',      label: 'Broker Health' },
             { href: '/admin/bridge',       label: 'Bridge Command Center' },
             { href: '/admin/communities',  label: 'Communities Hub' },
+            { href: '/admin/growth',       label: 'Growth Engine' },
             { href: '/admin/payments',     label: 'Payments' },
             { href: '/admin/compliance',   label: 'Compliance & Audit' },
             { href: '/admin/dune-probe',   label: 'Dune Probe' },
