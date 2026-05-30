@@ -17,6 +17,7 @@ import {
 } from '@/lib/strategies/monte-carlo'
 import type { StrategyConfig } from '@/lib/strategies/blocks'
 import StrategyDiagnosticsPanel from '@/components/backtest/StrategyDiagnosticsPanel'
+import StrategyCoachPanel from '@/components/backtest/StrategyCoachPanel'
 
 
 export interface SavedStrategyOption {
@@ -427,6 +428,15 @@ export default function BacktestClient({
             <EquityChart curve={result.equityCurve} />
 
             <StrategyDiagnosticsPanel result={result} />
+
+            <StrategyCoachPanel
+              result={result}
+              config={
+                mode === 'saved'
+                  ? savedStrategies.find((s) => s.id === selectedId)?.config ?? null
+                  : null
+              }
+            />
 
             {mc && mc.trades > 0 && <MonteCarloPanel mc={mc} startingEquity={10_000} />}
 
