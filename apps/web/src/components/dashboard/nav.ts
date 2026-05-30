@@ -116,9 +116,10 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Strategy Lab',
     icon: FlaskConical,
     items: [
-      { href: '/quant-builder', label: 'Quant Builder', icon: BrainCircuit, minTier: 'premium', keywords: 'visual builder if conditions confirmations entry risk exit indicators smc session multi-timeframe ai no-code' },
-      { href: '/backtest',      label: 'Backtester',    icon: FlaskRound,   keywords: 'historical simulation monte carlo slippage spread commission tick candle replay ai explanation edge stability' },
-      { href: '/calculators',   label: 'Calculators',   icon: Calculator,   keywords: 'position size lot pip risk reward' },
+      { href: '/quant-builder', label: 'Quant Builder',        icon: BrainCircuit, minTier: 'premium', keywords: 'visual builder if conditions confirmations entry risk exit indicators smc session multi-timeframe ai no-code' },
+      { href: '/backtest',      label: 'Backtester',           icon: FlaskRound,   keywords: 'historical simulation monte carlo slippage spread commission tick candle replay ai explanation edge stability' },
+      { href: '/optimization',  label: 'Optimization Center',  icon: Sparkles,     minTier: 'premium', keywords: 'parameter sweep grid search edge stability overfit robustness profit factor sharpe drawdown' },
+      { href: '/calculators',   label: 'Calculators',          icon: Calculator,   keywords: 'position size lot pip risk reward' },
     ],
   },
   {
