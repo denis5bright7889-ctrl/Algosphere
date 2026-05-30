@@ -23,6 +23,7 @@
  */
 import type { BehavioralReport, BehaviorFlag } from './behavioral'
 import type { PerformanceReport, SegmentRow } from './performance'
+import type { JournalEntry } from '@/lib/types'
 
 
 export type InsightKind =
@@ -39,6 +40,8 @@ export type InsightKind =
   | 'thin_sample'
   | 'drawdown'
   | 'profit_factor'
+  | 'current_streak'
+  | 'pair_cap'
 
 
 export interface CoachInsight {
@@ -53,6 +56,11 @@ export interface CoachInsight {
 export function generateInsights(
   behavior: BehavioralReport,
   perf:     PerformanceReport,
+  /** Chronological journal entries (newest-first OR oldest-first; we
+   *  sort defensively). When provided, the coach emits sharper, more
+   *  contextual recommendations — current streak, pair-specific risk
+   *  caps. Optional for backwards compatibility. */
+  entries?: JournalEntry[],
 ): CoachInsight[] {
   const insights: CoachInsight[] = []
 
@@ -66,6 +74,30 @@ export function generateInsights(
     return insights
   }
 
+  // ─── Current streak (contextual — top priority for the user RIGHT NOW) ─
+  if (entries && entries.length > 0) {
+    const streak = currentStreak(entries)
+    if (streak.run <= -3) {
+      insights.push({
+        kind: 'current_streak',
+        severity: streak.run <= -5 ? 'critical' : 'warn',
+        headline: `${Math.abs(streak.run)} losses in a row — halve your size.`,
+        detail: streak.run <= -5
+          ? `Cap risk at 0.25% per trade until you book a winner. Step away from the screen if the next entry is impulsive — a sixth loss is rarely a setup, it's tilt.`
+          : `Cap risk at 0.5% per trade until you book a winner. Don't size up to chase the drawdown back.`,
+        evidence: `Last ${Math.abs(streak.run)} closed trades · all losing · sequence ends ${streak.lastDate ?? 'recently'}`,
+      })
+    } else if (streak.run >= 5) {
+      insights.push({
+        kind: 'current_streak',
+        severity: 'info',
+        headline: `${streak.run} wins in a row — don't scale up.`,
+        detail: `Stick to your normal size. After-win risk inflation is the highest-correlation predictor of a giveback trade in this dataset.`,
+        evidence: `Last ${streak.run} closed trades · all winning`,
+      })
+    }
+  }
+
   // ─── Behavioral risks (highest priority) ─────────────────────────
   for (const f of behavior.flags) {
     insights.push(insightFromFlag(f))
@@ -77,7 +109,7 @@ export function generateInsights(
   pushBestEdge(insights, perf.by_setup,   'setup_edge',   'Your best setup is')
 
   pushWorstEdge(insights, perf.by_session, 'session_edge', 'You bleed in')
-  pushWorstEdge(insights, perf.by_pair,    'pair_edge',    'You overtrade')
+  pushPairCap (insights, perf.by_pair)
   pushWorstEdge(insights, perf.by_setup,   'setup_edge',   'Your worst setup is')
 
   // ─── Day-of-week edge ────────────────────────────────────────────
@@ -186,6 +218,65 @@ function pushWorstEdge(
     detail: `${r.trades} trades, win rate ${pct(r.win_rate ?? 0)}, expectancy ${formatNum(r.expectancy ?? 0)}. Take a break from this slot until the data turns.`,
     evidence: `${r.trades} trades · ${pct(r.win_rate ?? 0)} WR · E ${formatNum(r.expectancy ?? 0)} · PnL ${formatNum(r.total_pnl)}`,
   })
+}
+
+/** Specific pair-risk recommendation: when a pair has reliably-negative
+ *  expectancy, suggest a concrete cap (0.3% / 0.5%) rather than a generic
+ *  "take a break". The cap scales with how bad the bleed is. */
+function pushPairCap(out: CoachInsight[], rows: SegmentRow[]) {
+  const r = [...rows].reverse().find(
+    (x) => x.reliable && (x.expectancy ?? Infinity) < 0,
+  )
+  if (!r) return
+  const ev = r.expectancy ?? 0
+  // Worse expectancy → tighter cap.
+  const cap = ev <= -1   ? '0.25%'
+            : ev <= -0.5 ? '0.3%'
+            :              '0.5%'
+  out.push({
+    kind: 'pair_cap',
+    severity: 'warn',
+    headline: `Cap risk on ${r.key} at ${cap} per trade.`,
+    detail: `Negative expectancy across ${r.trades} trades — ${pct(r.win_rate ?? 0)} win rate and ${formatNum(ev)} R per trade. ${cap} keeps you in the game while the data turns; don't size up here until expectancy crosses zero.`,
+    evidence: `${r.trades} trades · ${pct(r.win_rate ?? 0)} WR · E ${formatNum(ev)} · PnL ${formatNum(r.total_pnl)}`,
+  })
+}
+
+/** Current win/loss streak from the user's most recent trades. Positive
+ *  = winning streak, negative = losing streak. Returns `lastDate` so the
+ *  insight can ground the user in real time. */
+function currentStreak(entries: JournalEntry[]): {
+  run: number
+  lastDate: string | null
+} {
+  // Defensive sort newest-first regardless of caller's order.
+  const sorted = [...entries].sort(
+    (a, b) => +new Date(b.created_at) - +new Date(a.created_at),
+  )
+  let run = 0
+  let lastDate: string | null = null
+  for (const e of sorted) {
+    if (e.pnl == null) continue                  // open / break-even-undefined
+    const win  = e.pnl > 0
+    const loss = e.pnl < 0
+    if (!win && !loss) break                     // exact break-even ends the run
+    if (run === 0) {
+      run = win ? 1 : -1
+      lastDate = formatDate(e.trade_date ?? e.created_at)
+    } else if ((run > 0 && win) || (run < 0 && loss)) {
+      run = win ? run + 1 : run - 1
+    } else {
+      break
+    }
+  }
+  return { run, lastDate }
+}
+
+function formatDate(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (!Number.isFinite(d.getTime())) return null
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
 

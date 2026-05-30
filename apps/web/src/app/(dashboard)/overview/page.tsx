@@ -127,7 +127,7 @@ export default async function OverviewPage() {
 
   const behavior    = analyzeBehavior(entries, WINDOW_DAYS)
   const performance = analyzePerformance(entries)
-  const insights    = generateInsights(behavior, performance)
+  const insights    = generateInsights(behavior, performance, entries)
   const timing      = generateTiming(
     (snapshotsRes.data ?? []) as RegimeSnapshot[],
     performance.by_pair,

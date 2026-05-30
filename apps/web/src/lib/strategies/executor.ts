@@ -59,6 +59,73 @@ export const DEFAULT_COSTS: CostModel = {
 }
 
 
+/**
+ * Realistic per-asset-class default costs. Backtests that run with all-zero
+ * costs systematically overstate returns — a 1% edge that disappears once
+ * spread + slippage + commission are charged is the silent killer of retail
+ * strategies. These defaults are conservative-realistic for liquid majors
+ * on a typical retail broker; institutional / VIP tiers will see less.
+ *
+ * pip_value stays at the executor default (ATR-derived); the caller can
+ * override per-symbol if they have a precise contract spec.
+ */
+const COST_PRESETS: Record<string, Omit<CostModel, 'pip_value'>> = {
+  // Forex majors (EURUSD / GBPUSD / USDJPY / AUDUSD / USDCHF)
+  forex_major: {
+    spread_pips:              1.0,
+    slippage_pct:             0.00005,   // 0.5 bps each side
+    commission_per_trade_pct: 0,
+  },
+  // Forex crosses + minors
+  forex_minor: {
+    spread_pips:              2.5,
+    slippage_pct:             0.00010,
+    commission_per_trade_pct: 0,
+  },
+  // Gold / silver (XAUUSD / XAGUSD)
+  metals: {
+    spread_pips:              30,        // gold spread is ~$0.30 typical
+    slippage_pct:             0.00010,
+    commission_per_trade_pct: 0,
+  },
+  // Crypto majors (BTC / ETH / SOL)
+  crypto: {
+    spread_pips:              0,
+    slippage_pct:             0.0005,    // 5 bps each side
+    commission_per_trade_pct: 0.0004,    // 4 bps taker
+  },
+  // Indices (NAS100 / SPX500 / GER40)
+  indices: {
+    spread_pips:              5,
+    slippage_pct:             0.00008,
+    commission_per_trade_pct: 0,
+  },
+}
+
+const FOREX_MAJORS = new Set([
+  'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCHF', 'USDCAD', 'NZDUSD',
+])
+
+/**
+ * Pick a realistic cost model for the given symbol. Defaults to the
+ * (all-zero) DEFAULT_COSTS when the symbol can't be classified, so the
+ * caller never gets fabricated costs — the user can opt in.
+ */
+export function defaultCostsFor(symbol: string): CostModel {
+  const s = symbol.toUpperCase().trim()
+  let preset: Omit<CostModel, 'pip_value'> | null = null
+  if (FOREX_MAJORS.has(s))                                preset = COST_PRESETS.forex_major!
+  else if (/^[A-Z]{6}$/.test(s) && !s.startsWith('XAU')
+        && !s.startsWith('XAG'))                          preset = COST_PRESETS.forex_minor!
+  else if (s.startsWith('XAU') || s.startsWith('XAG'))    preset = COST_PRESETS.metals!
+  else if (s.endsWith('USDT') || s.endsWith('USD') && /BTC|ETH|SOL|XRP|BNB|DOGE|ADA/.test(s))
+                                                          preset = COST_PRESETS.crypto!
+  else if (/NAS100|SPX500|GER40|US30|UK100|JPN225/.test(s)) preset = COST_PRESETS.indices!
+  if (!preset) return DEFAULT_COSTS
+  return { ...preset, pip_value: DEFAULT_COSTS.pip_value }
+}
+
+
 export interface ExecuteOptions {
   startingEquity: number
   costs?:         Partial<CostModel>

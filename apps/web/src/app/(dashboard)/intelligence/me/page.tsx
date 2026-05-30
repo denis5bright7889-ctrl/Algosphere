@@ -20,7 +20,7 @@
  */
 import { redirect } from 'next/navigation'
 import {
-  Brain, Activity, BarChart3, ShieldCheck, TrendingUp, TrendingDown,
+  Brain, Activity, BarChart3, ShieldCheck, TrendingUp,
   AlertOctagon, CheckCircle2, Info, BookOpen, Sparkles, Zap,
   Calendar, Radar, Target, MinusCircle, type LucideIcon,
 } from 'lucide-react'
@@ -30,6 +30,11 @@ import { analyzeBehavior, type BehavioralReport } from '@/lib/intelligence/behav
 import { analyzePerformance, type PerformanceReport, type SegmentRow } from '@/lib/intelligence/performance'
 import { generateInsights, type CoachInsight } from '@/lib/intelligence/coach'
 import { generateTiming, type RegimeSnapshot, type TimingRecommendation } from '@/lib/intelligence/timing'
+import {
+  lossDrivers, conditionEdges,
+  type LossDriversReport, type ConditionCohort,
+  type V2Entry,
+} from '@/lib/intelligence/journal-analytics'
 import type { JournalEntry } from '@/lib/types'
 
 interface CoachEvalRow {
@@ -117,11 +122,19 @@ export default async function TraderIntelligencePage() {
 
   const behavior   = analyzeBehavior(entries, WINDOW_DAYS)
   const performance = analyzePerformance(entries)
-  const insights   = generateInsights(behavior, performance)
+  const insights   = generateInsights(behavior, performance, entries)
   const timing     = generateTiming(
     (snapshotsRes.data ?? []) as RegimeSnapshot[],
     performance.by_pair,
   )
+
+  // ── Journal Intelligence (Stage 1) ──────────────────────────────────
+  // Deterministic, schema-agnostic computations over V2 journal fields.
+  // No LLM call, no quota cost, no schema change — every number is read
+  // directly from the user's own entries.
+  const v2entries  = entries as unknown as V2Entry[]
+  const losses     = lossDrivers(v2entries)
+  const conditions = conditionEdges(v2entries)
 
   return (
     <div className="mx-auto max-w-6xl px-1 py-4 sm:px-4 sm:py-6">
@@ -192,6 +205,42 @@ export default async function TraderIntelligencePage() {
       <section className="surface mb-5 p-5">
         <SectionHeader icon={Sparkles} title="Behavior" subtitle="How discipline is holding up" />
         <BehaviorPanel b={behavior} />
+      </section>
+
+      {/* ── Loss Drivers (Journal Intelligence S1) ───────────────── */}
+      <section className="surface mb-5 p-5">
+        <SectionHeader
+          icon={AlertOctagon}
+          title="Loss drivers"
+          subtitle={
+            losses.reliable
+              ? `${losses.total_losses} losing trades · ${fmtCurrency(losses.total_net_loss_usd)} net`
+              : 'Why your losing trades lose'
+          }
+        />
+        <LossDriversPanel r={losses} />
+      </section>
+
+      {/* ── Best / Worst Conditions ──────────────────────────────── */}
+      <section className="grid gap-4 mb-5 sm:grid-cols-2">
+        <ConditionsPanel
+          title="Best conditions"
+          icon={Target}
+          tone="good"
+          cohorts={conditions.best}
+          reliable={conditions.reliable}
+          insufficientReason={conditions.insufficient_reason}
+          emptyHint="No positive-expectancy cohort yet."
+        />
+        <ConditionsPanel
+          title="Worst conditions"
+          icon={MinusCircle}
+          tone="bad"
+          cohorts={conditions.worst}
+          reliable={conditions.reliable}
+          insufficientReason={conditions.insufficient_reason}
+          emptyHint="No negative-expectancy cohort yet."
+        />
       </section>
 
       {/* ── Performance panel ────────────────────────────────────── */}
@@ -613,4 +662,84 @@ function fmtCurrency(n: number): string {
 function fmtNum(n: number): string {
   if (!Number.isFinite(n)) return '—'
   return n.toFixed(2)
+}
+
+// ─── Journal Intelligence (Stage 1) sub-components ──────────────────
+
+function LossDriversPanel({ r }: { r: LossDriversReport }) {
+  if (!r.reliable) {
+    return (
+      <p className="mt-2 flex items-start gap-2 text-[12px] text-muted-foreground">
+        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" strokeWidth={2} />
+        {r.insufficient_reason ?? 'Insufficient data to attribute losses.'}
+      </p>
+    )
+  }
+  const top = r.drivers.slice(0, 6)
+  return (
+    <ul className="mt-3 space-y-1.5">
+      {top.map((d) => (
+        <li key={d.category} className="flex items-center gap-3 text-[12px]">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate font-semibold">{d.label}</span>
+              <span className="shrink-0 tabular-nums text-muted-foreground">
+                {d.losses} {d.losses === 1 ? 'loss' : 'losses'} · {fmtCurrency(d.net_loss_usd)}
+              </span>
+            </div>
+          </div>
+          <span className="w-12 shrink-0 text-right text-[11px] font-bold tabular-nums text-rose-300">
+            {d.loss_share_pct.toFixed(0)}%
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function ConditionsPanel({
+  title, icon: Icon, tone, cohorts, reliable, insufficientReason, emptyHint,
+}: {
+  title:              string
+  icon:               LucideIcon
+  tone:               'good' | 'bad'
+  cohorts:            ConditionCohort[]
+  reliable:           boolean
+  insufficientReason: string | undefined
+  emptyHint:          string
+}) {
+  return (
+    <div className="surface p-5">
+      <SectionHeader icon={Icon} title={title} subtitle="Cohort win-rate · expectancy" />
+      {!reliable ? (
+        <p className="mt-2 flex items-start gap-2 text-[12px] text-muted-foreground">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" strokeWidth={2} />
+          {insufficientReason ?? 'Insufficient data.'}
+        </p>
+      ) : cohorts.length === 0 ? (
+        <p className="mt-2 text-[12px] text-muted-foreground">{emptyHint}</p>
+      ) : (
+        <ul className="mt-3 space-y-1.5">
+          {cohorts.map((c) => (
+            <li key={`${c.dim}-${c.key}`} className="flex items-center gap-3 text-[12px]">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate font-semibold">{c.label}</span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                    {c.trades} trades
+                  </span>
+                </div>
+                <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] tabular-nums text-muted-foreground">
+                  <span>{(c.win_rate * 100).toFixed(0)}% win-rate</span>
+                  <span className={tone === 'good' ? 'text-emerald-300' : 'text-rose-300'}>
+                    {c.expectancy >= 0 ? '+' : ''}{fmtCurrency(c.expectancy)}/trade
+                  </span>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
 }

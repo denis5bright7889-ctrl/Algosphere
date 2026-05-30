@@ -540,8 +540,21 @@ function AddConnectionForm({
             is_default: isDefault,
           }),
         })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error ?? data.fix ?? 'Failed')
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          // Translate the server's internal error string into something the
+          // user can act on. The most common cause is the encryption key
+          // not being configured on the deploy — that's an infra fix, not
+          // something the trader can resolve themselves.
+          const raw = data?.error ?? data?.fix ?? `HTTP ${res.status}`
+          const friendly =
+            res.status === 503 || /CREDENTIAL_ENCRYPTION_KEY|vault/i.test(String(raw))
+              ? 'Broker credential encryption is unavailable on the server. Please contact support — the AlgoSphere team needs to configure the encryption key before connections can be saved.'
+              : res.status === 409
+              ? raw
+              : raw
+          throw new Error(friendly)
+        }
         onAdded(data.connection)
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed')

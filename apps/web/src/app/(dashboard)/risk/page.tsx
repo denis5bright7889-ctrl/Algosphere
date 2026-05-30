@@ -60,7 +60,7 @@ export default async function RiskPage() {
   const entries = ((windowEntries ?? []) as unknown as JournalEntry[])
   const behavior    = entries.length > 0 ? analyzeBehavior(entries, WINDOW_DAYS)   : null
   const performance = entries.length > 0 ? analyzePerformance(entries)             : null
-  const insights    = (behavior && performance) ? generateInsights(behavior, performance) : []
+  const insights    = (behavior && performance) ? generateInsights(behavior, performance, entries) : []
   const riskInsights = insights.filter((i) => RISK_INSIGHT_KINDS.has(i.kind)).slice(0, 2)
 
   return (

@@ -17,10 +17,11 @@
  */
 import { redirect } from 'next/navigation'
 import {
-  Activity, Database, CheckCircle2, type LucideIcon,
+  Activity, Database, CheckCircle2, AlertTriangle, type LucideIcon,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
+import { isVaultAvailable } from '@/lib/vault'
 import BrokersClient from './BrokersClient'
 
 export const metadata = { title: 'Broker Connections — AlgoSphere Quant' }
@@ -92,6 +93,7 @@ export default async function BrokersPage() {
   const autoCount     = autoRes.count   ?? 0
   const manualCount   = manualRes.count ?? 0
   const pipelineTotal = autoCount + manualCount
+  const vaultReady    = isVaultAvailable()
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
@@ -106,6 +108,20 @@ export default async function BrokersPage() {
           frontend.
         </p>
       </header>
+
+      {!vaultReady && (
+        <div className="mb-4 flex items-start gap-2 rounded-xl border border-rose-500/40 bg-rose-500/[0.06] p-4 text-xs text-rose-200">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+          <div>
+            <p className="font-semibold">Broker connections temporarily unavailable.</p>
+            <p className="mt-1 text-rose-200/80">
+              The credential encryption layer needs to be configured on the server before
+              new broker connections can be saved. We&apos;re aware and working on it —
+              please check back shortly. Existing connections continue to work normally.
+            </p>
+          </div>
+        </div>
+      )}
 
       {connections.length > 0 && (
         <SyncHealthPanel conns={connections} />

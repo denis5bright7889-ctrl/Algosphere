@@ -9,7 +9,7 @@ import {
   type BacktestConfig, type BacktestResult, type StrategyType,
 } from '@/lib/backtest'
 import {
-  executeStrategy, DEFAULT_COSTS,
+  executeStrategy, DEFAULT_COSTS, defaultCostsFor,
   type CostModel, type ExecuteResult,
 } from '@/lib/strategies/executor'
 import {
@@ -100,10 +100,25 @@ export default function BacktestClient({
   const [timeframe,  setTimeframe]  = useState('1h')
   const [histBars,   setHistBars]   = useState(500)
 
-  // Cost model
-  const [spreadPips,   setSpreadPips]   = useState(DEFAULT_COSTS.spread_pips)
-  const [slipPct,      setSlipPct]      = useState(DEFAULT_COSTS.slippage_pct)
-  const [commPct,      setCommPct]      = useState(DEFAULT_COSTS.commission_per_trade_pct)
+  // Cost model — defaults to a realistic per-symbol preset so runs
+  // don't silently overstate edge with all-zero costs. User can still
+  // override every field. Re-syncs when the user picks a new symbol.
+  const initialCosts = useMemo(() => defaultCostsFor(symbol), [symbol])
+  const [spreadPips,   setSpreadPips]   = useState(initialCosts.spread_pips)
+  const [slipPct,      setSlipPct]      = useState(initialCosts.slippage_pct)
+  const [commPct,      setCommPct]      = useState(initialCosts.commission_per_trade_pct)
+  const [costsTouched, setCostsTouched] = useState(false)
+
+  // When the symbol changes and the user hasn't manually edited costs,
+  // re-seed the cost fields with the new symbol's preset. Once the user
+  // touches any cost input, we stop auto-syncing so their values stick.
+  useEffect(() => {
+    if (costsTouched) return
+    const preset = defaultCostsFor(symbol)
+    setSpreadPips(preset.spread_pips)
+    setSlipPct(preset.slippage_pct)
+    setCommPct(preset.commission_per_trade_pct)
+  }, [symbol, costsTouched])
 
   // Monte Carlo runs
   const [mcRuns, setMcRuns] = useState(1000)
@@ -334,12 +349,12 @@ export default function BacktestClient({
 
         <details className="rounded-lg border border-border bg-background/40">
           <summary className="cursor-pointer select-none px-3 py-2 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
-            Cost model
+            Cost model {!costsTouched && <span className="ml-2 normal-case text-[10px] font-medium text-amber-300/80">— realistic preset for {symbol}</span>}
           </summary>
           <div className="space-y-3 p-3">
-            <Slider label={`Spread — ${spreadPips} pips`}    min={0} max={10} step={0.5} value={spreadPips} onChange={setSpreadPips} />
-            <Slider label={`Slippage — ${(slipPct * 100).toFixed(2)}%`} min={0} max={0.005} step={0.0005} value={slipPct} onChange={setSlipPct} />
-            <Slider label={`Commission — ${(commPct * 100).toFixed(2)}%`} min={0} max={0.005} step={0.0005} value={commPct} onChange={setCommPct} />
+            <Slider label={`Spread — ${spreadPips} pips`}    min={0} max={50} step={0.5} value={spreadPips} onChange={(v) => { setCostsTouched(true); setSpreadPips(v) }} />
+            <Slider label={`Slippage — ${(slipPct * 100).toFixed(3)}%`} min={0} max={0.005} step={0.00005} value={slipPct} onChange={(v) => { setCostsTouched(true); setSlipPct(v) }} />
+            <Slider label={`Commission — ${(commPct * 100).toFixed(3)}%`} min={0} max={0.005} step={0.00005} value={commPct} onChange={(v) => { setCostsTouched(true); setCommPct(v) }} />
           </div>
         </details>
 
