@@ -8,7 +8,7 @@ import ProgressBar from '@/components/ui/ProgressBar'
 import PnlChart from './PnlChart'
 import DrawdownChart from './DrawdownChart'
 
-export const metadata = { title: 'Performance Analytics' }
+export const metadata = { title: 'Performance Intelligence' }
 export const dynamic = 'force-dynamic'
 
 function groupBy<T>(arr: T[], key: (item: T) => string): Record<string, T[]> {
@@ -43,11 +43,13 @@ export default async function AnalyticsPage() {
   if (entries.length === 0) {
     return (
       <div className="space-y-4">
-        <h1 className="text-2xl font-bold">Performance Analytics</h1>
+        <h1 className="text-2xl font-bold">
+          Performance <span className="text-gradient">Intelligence</span>
+        </h1>
         <div className="rounded-xl border border-border bg-card p-12 text-center">
-          <p className="text-muted-foreground">Log trades in your Trade Log to unlock performance analytics.</p>
+          <p className="text-muted-foreground">Log trades in your journal to unlock per-pair, per-session, and per-setup performance attribution.</p>
           <a href="/journal" className="mt-4 inline-block rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
-            Open Trade Log
+            Open journal
           </a>
         </div>
       </div>
@@ -110,9 +112,11 @@ export default async function AnalyticsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl sm:text-2xl font-bold">Performance Analytics</h1>
+        <h1 className="text-xl sm:text-2xl font-bold">
+          Performance <span className="text-gradient">Intelligence</span>
+        </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Institutional-grade performance attribution · {metrics.total_trades} trades
+          Where your edge lives — and where it leaks · {metrics.total_trades} trades
         </p>
       </div>
 
