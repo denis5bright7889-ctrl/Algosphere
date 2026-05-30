@@ -1,17 +1,30 @@
 'use client'
 
-import { useState } from 'react'
-import { X } from 'lucide-react'
+import { Fragment, useState } from 'react'
+import { X, Brain, AlertOctagon } from 'lucide-react'
 import type { JournalEntry } from '@/lib/types'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import AddTradeModal from './AddTradeModal'
 
+/** Compact view of the latest coach evaluation for one journal entry.
+ *  Surfaced server-side by /journal page.tsx so the client doesn't
+ *  fan out a query per row. */
+export interface CoachEvalSummary {
+  quality_score:    number
+  strategy_grade:   'A' | 'B' | 'C' | 'D' | 'F'
+  emotional_flag:   boolean
+  emotional_reason: string | null
+  advancement:      string | null
+  top_fix:          string | null
+}
+
 interface Props {
   initialEntries: JournalEntry[]
   userId: string
+  coachByEntry?: Record<string, CoachEvalSummary>
 }
 
-export default function JournalClient({ initialEntries, userId }: Props) {
+export default function JournalClient({ initialEntries, userId, coachByEntry = {} }: Props) {
   const [entries, setEntries] = useState<JournalEntry[]>(initialEntries)
   const [showModal, setShowModal] = useState(false)
 
@@ -139,6 +152,9 @@ export default function JournalClient({ initialEntries, userId }: Props) {
                   ) : '—'}
                 </div>
               </div>
+
+              {/* Refocus R4b: AI coach evaluation for this trade, if persisted */}
+              {coachByEntry[e.id] && <CoachStrip eval={coachByEntry[e.id]!} />}
             </li>
           ))}
         </ul>
@@ -154,56 +170,73 @@ export default function JournalClient({ initialEntries, userId }: Props) {
               </tr>
             </thead>
             <tbody>
-              {entries.map((e) => (
-                <tr key={e.id} className="border-b border-border last:border-0 hover:bg-muted/30">
-                  <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
-                    {e.trade_date ? formatDate(e.trade_date) : '—'}
-                  </td>
-                  <td className="px-4 py-3 font-medium">{e.pair ?? '—'}</td>
-                  <td className="px-4 py-3">
-                    <span className={cn(
-                      'rounded-full px-2 py-0.5 text-xs font-semibold uppercase',
-                      e.direction === 'buy' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                    )}>
-                      {e.direction ?? '—'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">{e.entry_price ?? '—'}</td>
-                  <td className="px-4 py-3">{e.exit_price ?? '—'}</td>
-                  <td className="px-4 py-3">{e.lot_size ?? '—'}</td>
-                  <td className="px-4 py-3">
-                    {e.pips != null ? (
-                      <span className={e.pips >= 0 ? 'text-green-600' : 'text-red-600'}>
-                        {e.pips >= 0 ? '+' : ''}{e.pips}
-                      </span>
-                    ) : '—'}
-                  </td>
-                  <td className="px-4 py-3 font-semibold">
-                    {e.pnl != null ? (
-                      <span className={e.pnl >= 0 ? 'text-green-600' : 'text-red-600'}>
-                        {formatCurrency(e.pnl)}
-                      </span>
-                    ) : '—'}
-                  </td>
-                  <td className="px-4 py-3">
-                    {e.setup_tag ? (
-                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs capitalize">
-                        {e.setup_tag}
-                      </span>
-                    ) : '—'}
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
-                      type="button"
-                      aria-label="Delete trade"
-                      onClick={() => handleDelete(e.id)}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-md text-xs text-muted-foreground hover:bg-muted hover:text-destructive touch-manipulation"
+              {entries.map((e) => {
+                const coach = coachByEntry[e.id]
+                return (
+                  <Fragment key={e.id}>
+                    <tr
+                      className={cn(
+                        'border-b border-border hover:bg-muted/30',
+                        coach && 'border-b-0',
+                      )}
                     >
-                      <X className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                      <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
+                        {e.trade_date ? formatDate(e.trade_date) : '—'}
+                      </td>
+                      <td className="px-4 py-3 font-medium">{e.pair ?? '—'}</td>
+                      <td className="px-4 py-3">
+                        <span className={cn(
+                          'rounded-full px-2 py-0.5 text-xs font-semibold uppercase',
+                          e.direction === 'buy' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                        )}>
+                          {e.direction ?? '—'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">{e.entry_price ?? '—'}</td>
+                      <td className="px-4 py-3">{e.exit_price ?? '—'}</td>
+                      <td className="px-4 py-3">{e.lot_size ?? '—'}</td>
+                      <td className="px-4 py-3">
+                        {e.pips != null ? (
+                          <span className={e.pips >= 0 ? 'text-green-600' : 'text-red-600'}>
+                            {e.pips >= 0 ? '+' : ''}{e.pips}
+                          </span>
+                        ) : '—'}
+                      </td>
+                      <td className="px-4 py-3 font-semibold">
+                        {e.pnl != null ? (
+                          <span className={e.pnl >= 0 ? 'text-green-600' : 'text-red-600'}>
+                            {formatCurrency(e.pnl)}
+                          </span>
+                        ) : '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        {e.setup_tag ? (
+                          <span className="rounded-full bg-muted px-2 py-0.5 text-xs capitalize">
+                            {e.setup_tag}
+                          </span>
+                        ) : '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          aria-label="Delete trade"
+                          onClick={() => handleDelete(e.id)}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-xs text-muted-foreground hover:bg-muted hover:text-destructive touch-manipulation"
+                        >
+                          <X className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+                        </button>
+                      </td>
+                    </tr>
+                    {coach && (
+                      <tr className="border-b border-border last:border-0">
+                        <td colSpan={10} className="px-4 pb-3 pt-0">
+                          <CoachStrip eval={coach} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -216,6 +249,50 @@ export default function JournalClient({ initialEntries, userId }: Props) {
           onAdded={handleAdded}
           onClose={() => setShowModal(false)}
         />
+      )}
+    </div>
+  )
+}
+
+const GRADE_STYLES: Record<CoachEvalSummary['strategy_grade'], string> = {
+  A: 'bg-green-100 text-green-800 ring-green-300',
+  B: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  C: 'bg-amber-50 text-amber-700 ring-amber-200',
+  D: 'bg-orange-50 text-orange-700 ring-orange-200',
+  F: 'bg-red-100 text-red-800 ring-red-300',
+}
+
+function CoachStrip({ eval: ev }: { eval: CoachEvalSummary }) {
+  const gradeCls = GRADE_STYLES[ev.strategy_grade] ?? GRADE_STYLES.C
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md bg-muted/40 px-2.5 py-1.5 text-[11px] md:mt-0">
+      <span className="inline-flex items-center gap-1 font-medium text-muted-foreground">
+        <Brain className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+        Coach
+      </span>
+      <span
+        className={cn(
+          'inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded px-1.5 text-[10px] font-bold ring-1',
+          gradeCls,
+        )}
+        title={`Strategy grade ${ev.strategy_grade} • quality ${ev.quality_score}/100`}
+      >
+        {ev.strategy_grade}
+      </span>
+      <span className="text-muted-foreground tabular-nums">{ev.quality_score}/100</span>
+      {ev.emotional_flag && (
+        <span
+          className="inline-flex items-center gap-1 rounded-full bg-red-50 px-1.5 py-0.5 font-medium text-red-700 ring-1 ring-red-200"
+          title={ev.emotional_reason ?? 'Emotional pattern detected'}
+        >
+          <AlertOctagon className="h-3 w-3" strokeWidth={2} aria-hidden />
+          Emotional
+        </span>
+      )}
+      {ev.advancement && (
+        <span className="min-w-0 flex-1 truncate text-foreground/80">
+          {ev.advancement}
+        </span>
       )}
     </div>
   )
