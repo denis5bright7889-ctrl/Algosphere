@@ -13,7 +13,7 @@ export default async function JournalPage() {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const [{ data: profile }, { data: entries }, { data: evals }] = await Promise.all([
+  const [{ data: profile }, { data: entries }, { data: evals }, brokersRes] = await Promise.all([
     supabase.from('profiles').select('account_type').eq('id', user!.id).single(),
     supabase
       .from('journal_entries')
@@ -28,6 +28,14 @@ export default async function JournalPage() {
       .select('id, journal_entry_id, quality_score, strategy_grade, emotional_flag, emotional_reason, advancement, what_to_fix, created_at')
       .eq('user_id', user!.id)
       .order('created_at', { ascending: false }),
+    // Auto-fill status: does the user have any broker connected? The
+    // pipeline (DB trigger on execution_events with source='auto') runs
+    // whenever a connected broker reports an ORDER_FILLED event.
+    supabase
+      .from('broker_connections')
+      .select('id, status', { count: 'exact', head: false })
+      .eq('user_id', user!.id)
+      .eq('status', 'connected'),
   ])
 
   let displayEntries = (entries ?? []) as JournalEntry[]
@@ -64,11 +72,18 @@ export default async function JournalPage() {
     }
   }
 
+  const connectedBrokerCount = brokersRes.data?.length ?? 0
+  const autoEntryCount       = displayEntries.filter(
+    (e) => (e as { source?: string }).source === 'auto',
+  ).length
+
   return (
     <JournalClient
       initialEntries={displayEntries}
       userId={user!.id}
       coachByEntry={coachByEntry}
+      connectedBrokerCount={connectedBrokerCount}
+      autoEntryCount={autoEntryCount}
     />
   )
 }

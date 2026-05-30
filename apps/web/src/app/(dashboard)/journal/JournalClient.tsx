@@ -1,10 +1,18 @@
 'use client'
 
 import { Fragment, useState } from 'react'
-import { X, Brain, AlertOctagon } from 'lucide-react'
+import { X, Brain, AlertOctagon, Zap, Plug } from 'lucide-react'
 import type { JournalEntry } from '@/lib/types'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import AddTradeModal from './AddTradeModal'
+
+/** Journal entries on the wire carry a few columns beyond the shared
+ *  JournalEntry type (source / broker came in via the auto-detection
+ *  migration). Widen locally so the auto-fill badge has a typed read. */
+type EntryWire = JournalEntry & {
+  source?: 'manual' | 'auto' | null
+  broker?: string | null
+}
 
 /** Compact view of the latest coach evaluation for one journal entry.
  *  Surfaced server-side by /journal page.tsx so the client doesn't
@@ -22,10 +30,18 @@ interface Props {
   initialEntries: JournalEntry[]
   userId: string
   coachByEntry?: Record<string, CoachEvalSummary>
+  /** Number of broker_connections with status='connected'. Drives the
+   *  auto-fill status banner (active vs eligible vs not connected). */
+  connectedBrokerCount?: number
+  /** How many of the current entries came from the auto-fill pipeline. */
+  autoEntryCount?: number
 }
 
-export default function JournalClient({ initialEntries, userId, coachByEntry = {} }: Props) {
-  const [entries, setEntries] = useState<JournalEntry[]>(initialEntries)
+export default function JournalClient({
+  initialEntries, userId, coachByEntry = {},
+  connectedBrokerCount = 0, autoEntryCount = 0,
+}: Props) {
+  const [entries, setEntries] = useState<EntryWire[]>(initialEntries as EntryWire[])
   const [showModal, setShowModal] = useState(false)
 
   const totalPnl = entries.reduce((s, e) => s + (e.pnl ?? 0), 0)
@@ -34,7 +50,7 @@ export default function JournalClient({ initialEntries, userId, coachByEntry = {
   const winRate = entries.length ? Math.round((wins / entries.length) * 100) : 0
 
   function handleAdded(entry: JournalEntry) {
-    setEntries((prev) => [entry, ...prev])
+    setEntries((prev) => [entry as EntryWire, ...prev])
     setShowModal(false)
   }
 
@@ -63,6 +79,12 @@ export default function JournalClient({ initialEntries, userId, coachByEntry = {
           + Add trade
         </button>
       </div>
+
+      {/* Auto-fill status — bridges connected brokers to the journal */}
+      <AutoFillBanner
+        connectedBrokers={connectedBrokerCount}
+        autoEntries={autoEntryCount}
+      />
 
       {/* Summary bar */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -105,6 +127,7 @@ export default function JournalClient({ initialEntries, userId, coachByEntry = {
                         {e.setup_tag}
                       </span>
                     )}
+                    {e.source === 'auto' && <AutoBadge broker={e.broker} />}
                   </div>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {e.trade_date ? formatDate(e.trade_date) : '—'}
@@ -183,7 +206,12 @@ export default function JournalClient({ initialEntries, userId, coachByEntry = {
                       <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
                         {e.trade_date ? formatDate(e.trade_date) : '—'}
                       </td>
-                      <td className="px-4 py-3 font-medium">{e.pair ?? '—'}</td>
+                      <td className="px-4 py-3 font-medium">
+                        <span className="inline-flex items-center gap-1.5">
+                          {e.pair ?? '—'}
+                          {e.source === 'auto' && <AutoBadge broker={e.broker} />}
+                        </span>
+                      </td>
                       <td className="px-4 py-3">
                         <span className={cn(
                           'rounded-full px-2 py-0.5 text-xs font-semibold uppercase',
@@ -260,6 +288,77 @@ const GRADE_STYLES: Record<CoachEvalSummary['strategy_grade'], string> = {
   C: 'bg-amber-50 text-amber-700 ring-amber-200',
   D: 'bg-orange-50 text-orange-700 ring-orange-200',
   F: 'bg-red-100 text-red-800 ring-red-300',
+}
+
+/** Tiny chip indicating a journal row was auto-imported from a broker
+ *  ORDER_FILLED event rather than typed by the user. Surfaces the
+ *  broker name as a tooltip so the user can trace where it came from. */
+function AutoBadge({ broker }: { broker?: string | null }) {
+  return (
+    <span
+      title={broker ? `Auto-imported from ${broker.toUpperCase()}` : 'Auto-imported from a connected broker'}
+      className="inline-flex items-center gap-0.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-300"
+    >
+      <Zap className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden />
+      Auto
+    </span>
+  )
+}
+
+/** Top-of-page status strip explaining how auto-fill works. Three states:
+ *  - At least one auto entry exists → "active" (green)
+ *  - Broker connected but no auto entries yet → "eligible" (amber, hint)
+ *  - No broker connected → "available" (muted, CTA to /brokers) */
+function AutoFillBanner({
+  connectedBrokers, autoEntries,
+}: {
+  connectedBrokers: number
+  autoEntries: number
+}) {
+  if (autoEntries > 0) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.05] px-3.5 py-2.5 text-[12px] text-emerald-200">
+        <Zap className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+        <span className="flex-1 min-w-0">
+          <span className="font-semibold">Auto-fill is active.</span>{' '}
+          {autoEntries} trade{autoEntries === 1 ? '' : 's'} imported from your connected
+          broker{connectedBrokers > 1 ? 's' : ''}. Rows tagged{' '}
+          <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1 text-[9px] font-bold uppercase tracking-wider text-amber-300">Auto</span>{' '}
+          came from the live execution feed.
+        </span>
+        <a href="/brokers" className="shrink-0 text-[11px] font-semibold text-amber-300 hover:underline">
+          Manage brokers
+        </a>
+      </div>
+    )
+  }
+  if (connectedBrokers > 0) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/[0.05] px-3.5 py-2.5 text-[12px] text-amber-200">
+        <Zap className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+        <span className="flex-1 min-w-0">
+          <span className="font-semibold">Auto-fill is ready.</span>{' '}
+          {connectedBrokers} broker{connectedBrokers > 1 ? 's' : ''} connected. The next
+          live trade from that account will appear here automatically — no manual entry needed.
+        </span>
+        <a href="/brokers" className="shrink-0 text-[11px] font-semibold text-amber-300 hover:underline">
+          Brokers
+        </a>
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3.5 py-2.5 text-[12px] text-muted-foreground">
+      <Plug className="h-3.5 w-3.5 shrink-0 text-amber-300" strokeWidth={2} aria-hidden />
+      <span className="flex-1 min-w-0">
+        <span className="font-semibold text-foreground">Tip:</span> connect a broker and
+        your trades log here automatically — no more typing entries by hand.
+      </span>
+      <a href="/brokers" className="shrink-0 text-[11px] font-semibold text-amber-300 hover:underline">
+        Connect broker
+      </a>
+    </div>
+  )
 }
 
 function CoachStrip({ eval: ev }: { eval: CoachEvalSummary }) {

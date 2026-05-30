@@ -1,10 +1,12 @@
 import { redirect } from 'next/navigation'
 import {
   Inbox, Mail, MessageCircle, Smartphone, Phone, Lock,
-  SlidersHorizontal, ScrollText,
+  SlidersHorizontal, ScrollText, Send, ExternalLink,
+  CheckCircle2, AlertCircle, Megaphone,
   type LucideIcon,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
+import { cn } from '@/lib/utils'
 import PushSubscribeButton from '@/components/social/PushSubscribeButton'
 import CategoryPreferences from './CategoryPreferences'
 
@@ -16,24 +18,40 @@ export default async function AlertsPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: prefs } = await supabase
-    .from('notification_preferences')
-    .select('*')
-    .eq('user_id', user.id)
-    .maybeSingle()
-
-  const { data: pushDevices } = await supabase
-    .from('push_subscriptions')
-    .select('id, user_agent, created_at, last_sent_at')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false })
-
-  const { data: recentLog } = await supabase
-    .from('notification_log')
-    .select('channel, event_type, subject, status, sent_at')
-    .eq('user_id', user.id)
-    .order('sent_at', { ascending: false })
-    .limit(15)
+  const [{ data: prefs }, { data: pushDevices }, { data: recentLog }, { data: profile }, { data: signalChannels }] = await Promise.all([
+    supabase
+      .from('notification_preferences')
+      .select('*')
+      .eq('user_id', user.id)
+      .maybeSingle(),
+    supabase
+      .from('push_subscriptions')
+      .select('id, user_agent, created_at, last_sent_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('notification_log')
+      .select('channel, event_type, subject, status, sent_at')
+      .eq('user_id', user.id)
+      .order('sent_at', { ascending: false })
+      .limit(15),
+    supabase
+      .from('profiles')
+      .select('telegram_chat_id')
+      .eq('id', user.id)
+      .single(),
+    // Top signal channels from the curated directory — what users
+    // typically want to find when they look for "the channel where
+    // signals are sent".
+    supabase
+      .from('telegram_communities')
+      .select('id, name, description, telegram_url, kind, is_featured, member_count')
+      .is('archived_at', null)
+      .eq('category', 'signals')
+      .order('is_featured', { ascending: false })
+      .order('member_count', { ascending: false, nullsFirst: false })
+      .limit(3),
+  ])
 
   return (
     <div className="mx-auto max-w-3xl px-1 py-4 sm:px-4 sm:py-6">
@@ -75,6 +93,83 @@ export default async function AlertsPage() {
                       ? `last alert ${new Date(d.last_sent_at).toLocaleDateString()}`
                       : `added ${new Date(d.created_at).toLocaleDateString()}`}
                   </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </section>
+
+      {/* Telegram — bot connection + signal channels */}
+      <section className="rounded-2xl border border-border bg-card p-6 mb-5">
+        <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
+          <div className="flex items-center gap-2">
+            <Send className="h-4 w-4 text-amber-300" strokeWidth={1.75} aria-hidden />
+            <h2 className="text-sm font-bold">Telegram</h2>
+          </div>
+          <span className={cn(
+            'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
+            profile?.telegram_chat_id
+              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+              : 'border-amber-500/40 bg-amber-500/10 text-amber-300',
+          )}>
+            {profile?.telegram_chat_id ? (
+              <><CheckCircle2 className="h-3 w-3" strokeWidth={2} /> Connected</>
+            ) : (
+              <><AlertCircle className="h-3 w-3" strokeWidth={2} /> Not linked</>
+            )}
+          </span>
+        </div>
+
+        {/* Personal bot connection */}
+        <div className="rounded-lg border border-border/40 bg-background/40 p-3.5">
+          <h3 className="text-xs font-semibold">Personal bot</h3>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+            {profile?.telegram_chat_id
+              ? 'Your AlgoSphere bot is linked. Trade-close notifications, coach evaluations, regime flips and risk breaches route here automatically.'
+              : 'Link the AlgoSphere bot to your Telegram so personal alerts (trade closes, coach evaluations, risk breaches) arrive in your DM. Setup takes about 30 seconds.'}
+          </p>
+          <a
+            href="/settings"
+            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-300 hover:underline"
+          >
+            {profile?.telegram_chat_id ? 'Manage bot link' : 'Link bot in Settings'}
+            <ExternalLink className="h-3 w-3" strokeWidth={2} aria-hidden />
+          </a>
+        </div>
+
+        {/* Curated signal channels */}
+        {(signalChannels?.length ?? 0) > 0 && (
+          <div className="mt-3 rounded-lg border border-border/40 bg-background/40 p-3.5">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <h3 className="flex items-center gap-1.5 text-xs font-semibold">
+                <Megaphone className="h-3 w-3 text-amber-300" strokeWidth={2} aria-hidden />
+                Signal channels
+              </h3>
+              <a href="/communities" className="text-[10px] font-semibold text-amber-300 hover:underline">
+                See all →
+              </a>
+            </div>
+            <p className="text-[11px] leading-relaxed text-muted-foreground mb-2.5">
+              Curated Telegram channels where engine-emitted signals are published. Tap to open on Telegram.
+            </p>
+            <ul className="space-y-1.5">
+              {(signalChannels ?? []).map((ch) => (
+                <li key={ch.id}>
+                  <a
+                    href={ch.telegram_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-between gap-2 rounded-md border border-border/40 bg-card px-3 py-2 text-[12px] transition hover:border-amber-500/40 hover:bg-amber-500/[0.04]"
+                  >
+                    <span className="min-w-0 flex-1 truncate font-semibold">{ch.name}</span>
+                    {typeof ch.member_count === 'number' && ch.member_count > 0 && (
+                      <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                        {formatCount(ch.member_count)} members
+                      </span>
+                    )}
+                    <ExternalLink className="h-3 w-3 shrink-0 text-amber-300" strokeWidth={2} aria-hidden />
+                  </a>
                 </li>
               ))}
             </ul>
@@ -220,4 +315,10 @@ function abbreviateUA(ua: string): string {
   if (/Windows/.test(ua))       return 'Windows'
   if (/Linux/.test(ua))         return 'Linux'
   return ua.slice(0, 60)
+}
+
+function formatCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k`
+  return String(n)
 }
