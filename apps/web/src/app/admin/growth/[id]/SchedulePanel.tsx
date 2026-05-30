@@ -6,13 +6,13 @@ import { useRouter } from 'next/navigation'
 
 const CHANNELS: { key: ChannelKey; label: string; wired: boolean }[] = [
   { key: 'telegram',         label: 'Telegram',         wired: true  },
+  { key: 'discord',          label: 'Discord',          wired: true  },
+  { key: 'linkedin',         label: 'LinkedIn',         wired: true  },
+  { key: 'facebook',         label: 'Facebook',         wired: true  },
+  { key: 'instagram',        label: 'Instagram',        wired: true  },
   { key: 'x',                label: 'X (Twitter)',      wired: false },
-  { key: 'discord',          label: 'Discord',          wired: false },
-  { key: 'linkedin',         label: 'LinkedIn',         wired: false },
-  { key: 'instagram',        label: 'Instagram',        wired: false },
-  { key: 'facebook',         label: 'Facebook',         wired: false },
-  { key: 'youtube',          label: 'YouTube',          wired: false },
   { key: 'whatsapp_channel', label: 'WhatsApp Channel', wired: false },
+  { key: 'youtube',          label: 'YouTube',          wired: false },
 ]
 
 type ChannelKey =

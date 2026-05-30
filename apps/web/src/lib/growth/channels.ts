@@ -305,14 +305,14 @@ export function formatForChannel(channel: Channel, c: ContentInput, b: BrandInpu
 }
 
 export const SUPPORTED_CHANNELS: { key: Channel; label: string; wired: boolean }[] = [
-  { key: 'x',                label: 'X (Twitter)',       wired: false },
   { key: 'telegram',         label: 'Telegram',          wired: true  },
-  { key: 'discord',          label: 'Discord',           wired: false },
-  { key: 'linkedin',         label: 'LinkedIn',          wired: false },
-  { key: 'instagram',        label: 'Instagram',         wired: false },
-  { key: 'facebook',         label: 'Facebook',          wired: false },
-  { key: 'youtube',          label: 'YouTube',           wired: false },
-  { key: 'whatsapp_channel', label: 'WhatsApp Channel',  wired: false },
-  { key: 'instagram_reels',  label: 'Instagram Reels',   wired: false },
-  { key: 'youtube_shorts',   label: 'YouTube Shorts',    wired: false },
+  { key: 'discord',          label: 'Discord',           wired: true  },
+  { key: 'linkedin',         label: 'LinkedIn',          wired: true  }, // env-gated
+  { key: 'facebook',         label: 'Facebook',          wired: true  }, // env-gated
+  { key: 'instagram',        label: 'Instagram',         wired: true  }, // env-gated, needs hero
+  { key: 'x',                label: 'X (Twitter)',       wired: false }, // needs SDK install
+  { key: 'whatsapp_channel', label: 'WhatsApp Channel',  wired: false }, // no public API
+  { key: 'instagram_reels',  label: 'Instagram Reels',   wired: false }, // video pipeline
+  { key: 'youtube',          label: 'YouTube',           wired: false }, // video pipeline
+  { key: 'youtube_shorts',   label: 'YouTube Shorts',    wired: false }, // video pipeline
 ]

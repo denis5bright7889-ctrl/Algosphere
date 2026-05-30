@@ -17,6 +17,14 @@ import {
   formatForChannel, type ContentInput, type BrandInput, type Channel,
 } from './channels'
 import { postToTelegram, type AdapterResult } from './adapters/telegram'
+import { postToDiscord } from './adapters/discord'
+import { postToX } from './adapters/x'
+import { postToLinkedIn } from './adapters/linkedin'
+import {
+  postToFacebook, postToInstagram, postToInstagramReels,
+} from './adapters/meta'
+import { postToYouTube, postToYouTubeShorts } from './adapters/youtube'
+import { postToWhatsAppChannel } from './adapters/whatsapp'
 
 function svc(): SupabaseClient {
   return serviceClient(
@@ -33,27 +41,22 @@ export interface PublishOutcome {
   error?:       string
 }
 
-async function postViaAdapter(channel: Channel, text: string): Promise<AdapterResult> {
+async function postViaAdapter(
+  channel: Channel,
+  text:    string,
+  hero?:   string | null,
+): Promise<AdapterResult> {
   switch (channel) {
-    case 'telegram':
-      return postToTelegram(text)
-
-    // Stubs — return a clear "not wired" error so the audit log shows
-    // why nothing happened. Phase 2 ships the formatter for every
-    // channel; actual posting is incremental as we add SDK keys.
-    case 'x':
-    case 'discord':
-    case 'linkedin':
-    case 'instagram':
-    case 'facebook':
-    case 'youtube':
-    case 'whatsapp_channel':
-    case 'instagram_reels':
-    case 'youtube_shorts':
-      return {
-        ok:    false,
-        error: `Channel "${channel}" formatter is wired but the posting adapter isn't configured yet. Add credentials + import the SDK in lib/growth/adapters/${channel}.ts.`,
-      }
+    case 'telegram':         return postToTelegram(text)
+    case 'discord':          return postToDiscord(text)
+    case 'x':                return postToX(text)
+    case 'linkedin':         return postToLinkedIn(text)
+    case 'facebook':         return postToFacebook(text)
+    case 'instagram':        return postToInstagram(text, hero ?? undefined)
+    case 'instagram_reels':  return postToInstagramReels(text)
+    case 'youtube':          return postToYouTube(text)
+    case 'youtube_shorts':   return postToYouTubeShorts(text)
+    case 'whatsapp_channel': return postToWhatsAppChannel(text)
   }
 }
 
@@ -111,7 +114,8 @@ export async function publishOne(scheduledId: string): Promise<PublishOutcome> {
     : {}
 
   const formatted = formatForChannel(sched.channel as Channel, ci, bi)
-  const adapter   = await postViaAdapter(sched.channel as Channel, formatted.text)
+  const heroUrl   = sched.hero_image_url ?? content.hero_image_url ?? null
+  const adapter   = await postViaAdapter(sched.channel as Channel, formatted.text, heroUrl)
   const durationMs = Date.now() - startedAt
   const nextAttempt = (sched.attempts ?? 0) + 1
 
