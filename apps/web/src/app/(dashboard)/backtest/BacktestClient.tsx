@@ -418,7 +418,7 @@ export default function BacktestClient({
               <Stat label="Return"        value={`${result.netPnlPct >= 0 ? '+' : ''}${result.netPnlPct}%`} tone={result.netPnlPct >= 0 ? 'green' : 'red'} />
               <Stat label="Win Rate"      value={`${result.winRate}%`} tone="gold" />
               <Stat label="Trades"        value={String(result.totalTrades)} />
-              <Stat label="Max DD"        value={`${result.maxDrawdownPct}%`} tone="red" />
+              <Stat label="Max DD"        value={`${(result.maxDrawdownPct * 100).toFixed(2)}%`} tone="red" />
               <Stat label="Sharpe"        value={result.sharpe != null ? String(result.sharpe) : '—'} />
               <Stat label="Profit Factor" value={String(result.profitFactor)} />
               <Stat label="Avg W / L"     value={`$${result.avgWin} / $${result.avgLoss}`} />
@@ -456,10 +456,33 @@ function MonteCarloPanel({ mc, startingEquity }: {
           <FlaskConical className="h-4 w-4 text-amber-300" />
           <h3 className="text-sm font-semibold">Monte Carlo robustness</h3>
         </div>
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-          {mc.runs} shuffled paths · {mc.trades} trades
-        </span>
+        <div className="flex items-center gap-2">
+          <span className={cn(
+            'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
+            mc.confidence === 'high'
+              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+              : mc.confidence === 'medium'
+                ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                : 'border-rose-500/40 bg-rose-500/10 text-rose-300',
+          )}>
+            Reliability · {mc.confidence}
+          </span>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            {mc.runs} shuffled paths · {mc.trades} trades
+          </span>
+        </div>
       </div>
+
+      {/* Confidence note — explains the band so users don't act on a
+          statistically meaningless distribution. */}
+      <p className={cn(
+        'mb-3 rounded-md border px-2.5 py-1.5 text-[11px]',
+        mc.confidence === 'low'
+          ? 'border-rose-500/40 bg-rose-500/[0.05] text-rose-200'
+          : 'border-border bg-background/40 text-muted-foreground',
+      )}>
+        {mc.confidence_note}
+      </p>
 
       <div className="grid gap-3 sm:grid-cols-2 mb-3">
         <div className={cn(

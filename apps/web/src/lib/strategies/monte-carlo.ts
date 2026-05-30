@@ -21,9 +21,21 @@ export interface MonteCarloOptions {
 }
 
 
+/** Audit acceptance: MC robustness conclusions are gated by sample size.
+ *  Mirror the grader's reliability thresholds so the two reads agree. */
+const MIN_TRADES_MC_RELIABLE = 30
+const HIGH_CONFIDENCE_MC_TRADES = 100
+/** Confidence in the MC verdict. Low when sample is too thin to support
+ *  any conclusion; medium ≥ 30; high ≥ 100. */
+export type MCConfidence = 'low' | 'medium' | 'high'
+
 export interface MonteCarloResult {
   runs:             number
   trades:           number
+  confidence:       MCConfidence
+  /** Human-readable note explaining the confidence band — e.g.
+   *  "Insufficient trade sample" or "Stable convergence". */
+  confidence_note:  string
   /** Confidence intervals on key statistics. */
   final_pnl: {
     p05: number; p25: number; p50: number; p75: number; p95: number
@@ -33,6 +45,8 @@ export interface MonteCarloResult {
     p05: number; p25: number; p50: number; p75: number; p95: number
     mean: number
   }
+  /** Drawdown as a fraction in [0, 1] — display layers multiply by 100
+   *  for "%". Matches lib/backtest.ts BacktestResult.maxDrawdownPct. */
   max_drawdown_pct: {
     p05: number; p25: number; p50: number; p75: number; p95: number
     mean: number
@@ -86,6 +100,8 @@ export function runMonteCarlo(
   if (trades.length === 0) {
     return {
       runs: 0, trades: 0,
+      confidence: 'low',
+      confidence_note: 'Monte Carlo unavailable — no trades to shuffle.',
       final_pnl:        zero(),
       max_drawdown_usd: zero(),
       max_drawdown_pct: zero(),
@@ -124,8 +140,25 @@ export function runMonteCarlo(
   maxDdUsds.sort((a, b) => a - b)
   maxDdPcts.sort((a, b) => a - b)
 
+  // Confidence in the resulting distribution: low if the trade sample
+  // is below the audit threshold; high once the sample is large enough
+  // for percentile estimates to be statistically meaningful.
+  let confidence: MCConfidence
+  let confidence_note: string
+  if (trades.length < MIN_TRADES_MC_RELIABLE) {
+    confidence = 'low'
+    confidence_note = `Only ${trades.length} trade${trades.length === 1 ? '' : 's'} — Monte Carlo distribution is not statistically meaningful below ${MIN_TRADES_MC_RELIABLE}. Treat percentile bands as illustrative, not predictive.`
+  } else if (trades.length < HIGH_CONFIDENCE_MC_TRADES) {
+    confidence = 'medium'
+    confidence_note = `${trades.length} trades — distribution is suggestive but tighter conclusions need 100+ trades.`
+  } else {
+    confidence = 'high'
+    confidence_note = `${trades.length} trades — distribution is statistically meaningful.`
+  }
+
   return {
     runs, trades: trades.length,
+    confidence, confidence_note,
     final_pnl: summarize(finalPnls),
     max_drawdown_usd: summarize(maxDdUsds),
     max_drawdown_pct: summarize(maxDdPcts),

@@ -207,7 +207,12 @@ export function runBacktest(bars: Bar[], cfg: BacktestConfig): BacktestResult {
     winRate:        trades.length ? Math.round(wins.length / trades.length * 1000) / 10 : 0,
     netPnl:         Math.round((equity - cfg.startingEquity) * 100) / 100,
     netPnlPct:      Math.round((equity - cfg.startingEquity) / cfg.startingEquity * 10000) / 100,
-    maxDrawdownPct: Math.round(maxDd * 10000) / 100,
+    // Fraction in [0, 1] — display layers multiply by 100 for "%". This
+    // matches Monte Carlo's max_drawdown_pct convention (lib/strategies/
+    // monte-carlo.ts) and the grader's DD_WARN/DD_CRIT thresholds, which
+    // are also fractions. Storing this as a percent here used to cascade
+    // a 100× error into the grader's "catastrophic 397% drawdown" output.
+    maxDrawdownPct: Math.round(maxDd * 10000) / 10000,
     sharpe:         sharpe != null ? Math.round(sharpe * 100) / 100 : null,
     profitFactor:   grossLoss > 0 ? Math.round(grossWin / grossLoss * 100) / 100 : grossWin > 0 ? 99 : 0,
     avgWin:         wins.length ? Math.round(grossWin / wins.length * 100) / 100 : 0,
