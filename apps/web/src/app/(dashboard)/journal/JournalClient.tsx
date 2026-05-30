@@ -16,7 +16,11 @@ type EntryWire = JournalEntry & {
 
 /** Compact view of the latest coach evaluation for one journal entry.
  *  Surfaced server-side by /journal page.tsx so the client doesn't
- *  fan out a query per row. */
+ *  fan out a query per row.
+ *
+ *  V3: the 5 process sub-grades + ai_insights array are part of the
+ *  shape so the strip can render them inline. All nullable for
+ *  backward-compat with pre-V3 evaluation rows. */
 export interface CoachEvalSummary {
   quality_score:    number
   strategy_grade:   'A' | 'B' | 'C' | 'D' | 'F'
@@ -24,6 +28,12 @@ export interface CoachEvalSummary {
   emotional_reason: string | null
   advancement:      string | null
   top_fix:          string | null
+  execution_grade?:  number | null
+  psychology_grade?: number | null
+  risk_grade?:       number | null
+  discipline_grade?: number | null
+  timing_grade?:     number | null
+  ai_insights?:      string[]
 }
 
 interface Props {
@@ -361,38 +371,100 @@ function AutoFillBanner({
   )
 }
 
+/** V3 sub-grade tones — process-based, never PnL-based. */
+function subGradeTone(score: number | null | undefined): string {
+  if (score == null) return 'text-muted-foreground/60'
+  if (score >= 80) return 'text-emerald-300'
+  if (score >= 65) return 'text-emerald-200'
+  if (score >= 50) return 'text-amber-300'
+  if (score >= 35) return 'text-orange-300'
+  return 'text-rose-300'
+}
+
+/** Inline coach strip — renders the overall grade + the 5 process
+ *  sub-grades (Execution / Psychology / Risk / Discipline / Timing) +
+ *  the lead AI insight if any. Process-based, never PnL-based. */
 function CoachStrip({ eval: ev }: { eval: CoachEvalSummary }) {
   const gradeCls = GRADE_STYLES[ev.strategy_grade] ?? GRADE_STYLES.C
+  const hasSubGrades =
+    ev.execution_grade  != null || ev.psychology_grade != null ||
+    ev.risk_grade       != null || ev.discipline_grade != null ||
+    ev.timing_grade     != null
+  const leadInsight = ev.ai_insights?.[0] ?? ev.advancement ?? null
+
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md bg-muted/40 px-2.5 py-1.5 text-[11px] md:mt-0">
-      <span className="inline-flex items-center gap-1 font-medium text-muted-foreground">
-        <Brain className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
-        Coach
-      </span>
-      <span
-        className={cn(
-          'inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded px-1.5 text-[10px] font-bold ring-1',
-          gradeCls,
-        )}
-        title={`Strategy grade ${ev.strategy_grade} • quality ${ev.quality_score}/100`}
-      >
-        {ev.strategy_grade}
-      </span>
-      <span className="text-muted-foreground tabular-nums">{ev.quality_score}/100</span>
-      {ev.emotional_flag && (
+    <div className="mt-2 rounded-md bg-muted/40 px-2.5 py-2 text-[11px] md:mt-0">
+      {/* Row 1: overall grade + sub-grade tile strip */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-1 font-medium text-muted-foreground">
+          <Brain className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+          Coach
+        </span>
         <span
-          className="inline-flex items-center gap-1 rounded-full bg-red-50 px-1.5 py-0.5 font-medium text-red-700 ring-1 ring-red-200"
-          title={ev.emotional_reason ?? 'Emotional pattern detected'}
+          className={cn(
+            'inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded px-1.5 text-[10px] font-bold ring-1',
+            gradeCls,
+          )}
+          title={`Overall ${ev.strategy_grade} · ${ev.quality_score}/100 — process-based, not PnL-based`}
         >
-          <AlertOctagon className="h-3 w-3" strokeWidth={2} aria-hidden />
-          Emotional
+          {ev.strategy_grade}
         </span>
+        <span className="text-muted-foreground tabular-nums">{ev.quality_score}/100</span>
+        {ev.emotional_flag && (
+          <span
+            className="inline-flex items-center gap-1 rounded-full bg-red-50 px-1.5 py-0.5 font-medium text-red-700 ring-1 ring-red-200"
+            title={ev.emotional_reason ?? 'Emotional pattern detected'}
+          >
+            <AlertOctagon className="h-3 w-3" strokeWidth={2} aria-hidden />
+            Emotional
+          </span>
+        )}
+        {hasSubGrades && (
+          <span className="ml-auto inline-flex items-center gap-2 text-[10px] uppercase tracking-wider text-muted-foreground/80">
+            <SubGrade label="Exec" score={ev.execution_grade}  />
+            <SubGrade label="Psy"  score={ev.psychology_grade} />
+            <SubGrade label="Risk" score={ev.risk_grade}       />
+            <SubGrade label="Disc" score={ev.discipline_grade} />
+            <SubGrade label="Time" score={ev.timing_grade}     />
+          </span>
+        )}
+      </div>
+
+      {/* Row 2: lead insight (preferring AI insights over advancement). */}
+      {leadInsight && (
+        <p className="mt-1.5 text-[11px] leading-relaxed text-foreground/80 line-clamp-2">
+          {leadInsight}
+        </p>
       )}
-      {ev.advancement && (
-        <span className="min-w-0 flex-1 truncate text-foreground/80">
-          {ev.advancement}
-        </span>
+
+      {/* Row 3: remaining insights (when present), tiny chips. */}
+      {ev.ai_insights && ev.ai_insights.length > 1 && (
+        <ul className="mt-1.5 flex flex-wrap gap-1">
+          {ev.ai_insights.slice(1, 3).map((i, idx) => (
+            <li
+              key={idx}
+              className="rounded-full border border-border/60 bg-background/40 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+              title={i}
+            >
+              {i.length > 80 ? `${i.slice(0, 78)}…` : i}
+            </li>
+          ))}
+        </ul>
       )}
     </div>
+  )
+}
+
+function SubGrade({ label, score }: { label: string; score?: number | null }) {
+  return (
+    <span
+      className="inline-flex items-center gap-0.5"
+      title={`${label} grade ${score ?? '—'}/100 — process-based`}
+    >
+      <span className="font-semibold text-muted-foreground/70">{label}</span>
+      <span className={cn('font-bold tabular-nums', subGradeTone(score))}>
+        {score ?? '—'}
+      </span>
+    </span>
   )
 }

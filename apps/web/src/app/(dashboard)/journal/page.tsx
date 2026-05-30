@@ -25,7 +25,7 @@ export default async function JournalPage() {
     // append-only; the dashboard always reads the freshest).
     supabase
       .from('journal_coach_evaluations')
-      .select('id, journal_entry_id, quality_score, strategy_grade, emotional_flag, emotional_reason, advancement, what_to_fix, created_at')
+      .select('id, journal_entry_id, quality_score, strategy_grade, emotional_flag, emotional_reason, advancement, what_to_fix, ai_insights, execution_grade, psychology_grade, risk_grade, discipline_grade, timing_grade, created_at')
       .eq('user_id', user!.id)
       .order('created_at', { ascending: false }),
     // Auto-fill status: does the user have any broker connected? The
@@ -58,6 +58,12 @@ export default async function JournalPage() {
     emotional_reason:  string | null
     advancement:       string | null
     what_to_fix:       string[] | null
+    ai_insights:       string[] | null
+    execution_grade:   number | null
+    psychology_grade:  number | null
+    risk_grade:        number | null
+    discipline_grade:  number | null
+    timing_grade:      number | null
     created_at:        string
   }
   for (const row of ((evals ?? []) as unknown as EvalRow[])) {
@@ -69,6 +75,12 @@ export default async function JournalPage() {
       emotional_reason: row.emotional_reason,
       advancement:      row.advancement,
       top_fix:          row.what_to_fix?.[0] ?? null,
+      execution_grade:  row.execution_grade,
+      psychology_grade: row.psychology_grade,
+      risk_grade:       row.risk_grade,
+      discipline_grade: row.discipline_grade,
+      timing_grade:     row.timing_grade,
+      ai_insights:      row.ai_insights ?? [],
     }
   }
 
