@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { ChevronsLeft, ChevronsRight, Settings2 } from 'lucide-react'
 import Sidebar from './Sidebar'
 import type { Tier } from './nav'
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export default function DesktopSidebar({ admin, showUpgradePrompt, tier = 'free' }: Props) {
+  const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
   const [hovered, setHovered] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -26,6 +28,14 @@ export default function DesktopSidebar({ admin, showUpgradePrompt, tier = 'free'
     setCollapsed(localStorage.getItem(LS_KEY) === '1')
     setMounted(true)
   }, [])
+
+  // Auto-collapse on navigation: any pathname change clears the hover
+  // flag so a mid-click expansion snaps back to the icon rail. Without
+  // this, the cursor sitting on a clicked nav row keeps `hovered=true`
+  // even after the route swaps and the panel stays expanded.
+  useEffect(() => {
+    setHovered(false)
+  }, [pathname])
 
   function toggle() {
     setCollapsed((c) => {
@@ -52,7 +62,9 @@ export default function DesktopSidebar({ admin, showUpgradePrompt, tier = 'free'
       onMouseLeave={() => setHovered(false)}
       className={cn(
         'hidden md:flex shrink-0 flex-col border-r border-border/70',
-        'glass-strong py-6 transition-[width] duration-300 ease-out',
+        // Solid opaque dark surface — no blur / no translucency so the
+        // nav text stays readable against any page content underneath.
+        'bg-background py-6 transition-[width] duration-300 ease-out',
         // Smooth width animation only after first paint
         mounted ? '' : 'duration-0',
         compact ? 'w-[4.75rem]' : 'w-60',
