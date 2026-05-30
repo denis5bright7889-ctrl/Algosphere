@@ -148,35 +148,34 @@ export default function CryptoPaymentFlow({ currentTier }: Props) {
         {PLANS.map((plan) => {
           const isCurrent = plan.id === currentTier
           const isVip = plan.id === 'vip'
+          // Pro + VIP are temporarily LOCKED — purchase is suppressed and
+          // the card renders in a disabled visual state with a "Coming
+          // soon" badge so the layout stays consistent for Starter.
+          const isLocked = plan.id === 'premium' || isVip
           return (
             <div
               key={plan.id}
+              {...(isLocked && { 'aria-disabled': true as const })}
+              title={isLocked ? 'This plan is launching soon. Starter is available now.' : undefined}
               className={cn(
                 'relative rounded-2xl border p-6 flex flex-col transition-all duration-300',
-                plan.highlight && 'border-amber-500/40 bg-card shadow-glow-gold lg:scale-[1.02]',
-                isVip && 'border-amber-500/30 bg-gradient-to-b from-amber-500/[0.06] to-card hover:border-amber-500/50 hover:shadow-glow',
-                !plan.highlight && !isVip && 'border-border bg-card hover:border-amber-500/30 hover:shadow-card-lift',
+                isLocked && 'border-border/60 bg-card/60 opacity-70 cursor-not-allowed',
+                !isLocked && plan.highlight && 'border-amber-500/40 bg-card shadow-glow-gold lg:scale-[1.02]',
+                !isLocked && isVip && 'border-amber-500/30 bg-gradient-to-b from-amber-500/[0.06] to-card hover:border-amber-500/50 hover:shadow-glow',
+                !isLocked && !plan.highlight && !isVip && 'border-border bg-card hover:border-amber-500/30 hover:shadow-card-lift',
               )}
             >
-              {plan.highlight && (
-                <>
-                  <div className="absolute inset-x-0 top-0 h-px bg-gradient-gold rounded-t-2xl" aria-hidden />
-                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-gradient-gold px-3 py-1 text-[10px] font-bold tracking-widest text-black uppercase shadow-glow-gold">
-                    {plan.badge}
-                  </span>
-                </>
-              )}
-              {isVip && (
+              {isLocked && (
                 <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full border border-amber-500/40 bg-background px-3 py-1 text-[10px] font-bold tracking-widest text-amber-300 uppercase">
-                  {plan.badge}
+                  Coming soon
                 </span>
               )}
 
-              <h3 className={cn('text-lg font-bold tracking-tight', (plan.highlight || isVip) && 'text-gradient')}>
+              <h3 className={cn('text-lg font-bold tracking-tight', !isLocked && (plan.highlight || isVip) && 'text-gradient')}>
                 {plan.name}
               </h3>
               <div className="mt-1 mb-1 flex items-end gap-1">
-                <span className={cn('text-3xl font-extrabold tabular-nums', (plan.highlight || isVip) && 'text-gradient')}>
+                <span className={cn('text-3xl font-extrabold tabular-nums', !isLocked && (plan.highlight || isVip) && 'text-gradient')}>
                   ${interval === 'annual' ? annualPrice(plan.id) : plan.price}
                 </span>
                 <span className="mb-0.5 text-sm text-muted-foreground">
@@ -184,24 +183,30 @@ export default function CryptoPaymentFlow({ currentTier }: Props) {
                 </span>
               </div>
               <p className="mb-4 h-4 text-[11px] text-emerald-400">
-                {interval === 'annual'
+                {!isLocked && interval === 'annual'
                   ? `You save $${annualSavings(plan.id)}/yr vs monthly`
                   : ''}
               </p>
               <ul className="flex-1 space-y-1.5 mb-5">
                 {plan.features.map((f) => (
                   <li key={f} className="flex items-start gap-2 text-sm">
-                    <span className="text-amber-400 mt-0.5 shrink-0">✓</span>
+                    <span className={cn('mt-0.5 shrink-0', isLocked ? 'text-muted-foreground' : 'text-amber-400')}>✓</span>
                     <span className="text-foreground/85">{f}</span>
                   </li>
                 ))}
               </ul>
               <div className="space-y-2">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                  Pay with USDT TRC20 (Binance)
-                </div>
-                {isCurrent ? (
+                {!isLocked && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                    Pay with USDT TRC20 (Binance)
+                  </div>
+                )}
+                {isLocked ? (
+                  <div className="block rounded-md border border-border bg-muted/30 px-4 py-2.5 text-center text-sm font-semibold text-muted-foreground">
+                    Coming soon
+                  </div>
+                ) : isCurrent ? (
                   <div className="block rounded-md border border-border bg-muted/30 px-4 py-2.5 text-center text-sm font-semibold text-muted-foreground">
                     Current plan
                   </div>
@@ -212,7 +217,7 @@ export default function CryptoPaymentFlow({ currentTier }: Props) {
                     disabled={creating}
                     className={cn(
                       'block w-full text-center text-sm',
-                      (plan.highlight || isVip) ? 'btn-premium' : 'btn-glass justify-center',
+                      plan.highlight ? 'btn-premium' : 'btn-glass justify-center',
                       creating && 'opacity-50 cursor-not-allowed'
                     )}
                   >

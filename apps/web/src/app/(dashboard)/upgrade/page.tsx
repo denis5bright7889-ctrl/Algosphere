@@ -108,6 +108,10 @@ export default async function UpgradePage({
           - instant-activate mode (admin or beta flag): clicking a card hits
             /demo/[plan] which server-side instantly grants the live plan.
           - normal mode: full CryptoPaymentFlow with USDT TRC20 instructions.
+
+          Pro + VIP are temporarily LOCKED behind a "Coming soon" gate.
+          Their cards render in a disabled visual state with no CTA so the
+          existing layout is preserved while purchase is suppressed.
       */}
       {instantActivateMode ? (
         <div className="grid gap-5 md:grid-cols-3">
@@ -118,34 +122,27 @@ export default async function UpgradePage({
           ] as const).map((p) => {
             const isPro = p.id === 'premium'
             const isVip = p.id === 'vip'
+            const isLocked = isPro || isVip
             const isCurrent = tier === p.id
-            return (
-              <a
-                key={p.id}
-                href={`/demo/${p.id}`}
-                className={
-                  'relative rounded-2xl border p-6 flex flex-col transition-all duration-300 hover:scale-[1.02] ' +
-                  (isPro ? 'border-amber-500/40 bg-card shadow-glow-gold ' :
-                   isVip ? 'border-amber-500/30 bg-gradient-to-b from-amber-500/[0.06] to-card hover:border-amber-500/50 hover:shadow-glow ' :
-                   'border-border bg-card hover:border-amber-500/30 hover:shadow-card-lift')
-                }
-              >
-                {'badge' in p && p.badge && (
-                  <span className={
-                    'absolute -top-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[10px] font-bold tracking-widest uppercase ' +
-                    (isPro
-                      ? 'bg-gradient-gold text-black shadow-glow-gold'
-                      : 'border border-amber-500/40 bg-background text-amber-300')
-                  }>
-                    {p.badge}
+            const cardCls =
+              'relative rounded-2xl border p-6 flex flex-col transition-all duration-300 ' + (
+                isLocked
+                  ? 'border-border/60 bg-card/60 opacity-70 cursor-not-allowed'
+                  : 'border-border bg-card hover:border-amber-500/30 hover:shadow-card-lift hover:scale-[1.02]'
+              )
+            const inner = (
+              <>
+                {isLocked && (
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full border border-amber-500/40 bg-background px-3 py-1 text-[10px] font-bold tracking-widest text-amber-300 uppercase">
+                    Coming soon
                   </span>
                 )}
 
-                <h3 className={'text-lg font-bold tracking-tight ' + ((isPro || isVip) ? 'text-gradient' : '')}>
+                <h3 className="text-lg font-bold tracking-tight">
                   {TIER_LABELS[p.id]}
                 </h3>
                 <div className="mt-1 mb-4 flex items-end gap-1">
-                  <span className={'text-3xl font-extrabold tabular-nums ' + ((isPro || isVip) ? 'text-gradient' : '')}>
+                  <span className="text-3xl font-extrabold tabular-nums">
                     ${p.price}
                   </span>
                   <span className="mb-0.5 text-sm text-muted-foreground">/month</span>
@@ -154,25 +151,36 @@ export default async function UpgradePage({
                 <ul className="flex-1 space-y-1.5 mb-5">
                   {p.features.map((f) => (
                     <li key={f} className="flex items-start gap-2 text-sm">
-                      <span className="text-amber-400 mt-0.5 shrink-0">✓</span>
+                      <span className={(isLocked ? 'text-muted-foreground' : 'text-amber-400') + ' mt-0.5 shrink-0'}>✓</span>
                       <span className="text-foreground/85">{f}</span>
                     </li>
                   ))}
                 </ul>
 
-                {isCurrent ? (
+                {isLocked ? (
+                  <div className="block rounded-md border border-border bg-muted/30 px-4 py-2.5 text-center text-sm font-semibold text-muted-foreground">
+                    Coming soon
+                  </div>
+                ) : isCurrent ? (
                   <div className="block rounded-md border border-border bg-muted/30 px-4 py-2.5 text-center text-sm font-semibold text-muted-foreground">
                     Current plan
                   </div>
                 ) : (
-                  <span className={
-                    'block w-full text-center text-sm ' +
-                    ((isPro || isVip) ? 'btn-premium' : 'btn-glass justify-center')
-                  }>
+                  <span className="block w-full text-center text-sm btn-glass justify-center">
                     Get {TIER_LABELS[p.id]}
                   </span>
                 )}
-              </a>
+              </>
+            )
+            return isLocked ? (
+              <div
+                key={p.id}
+                aria-disabled
+                title="This plan is launching soon. Starter is available now."
+                className={cardCls}
+              >{inner}</div>
+            ) : (
+              <a key={p.id} href={`/demo/${p.id}`} className={cardCls}>{inner}</a>
             )
           })}
         </div>

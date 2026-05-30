@@ -120,7 +120,7 @@ export default async function SettingsPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
+        <div className="min-w-0 space-y-6 lg:col-span-2">
           {/* Profile */}
           <Section icon={User} title="Profile">
             <AccountForm userId={user!.id} initialName={profile?.full_name ?? ''} />
@@ -243,7 +243,7 @@ export default async function SettingsPage() {
         </div>
 
         {/* Right rail — security & devices */}
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           <Section id="security" icon={ShieldCheck} title="Security">
             <div className="space-y-4">
               <div>
