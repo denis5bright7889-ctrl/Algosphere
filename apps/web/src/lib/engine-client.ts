@@ -90,6 +90,50 @@ export function getRiskTelemetry():  Promise<Result<RiskTelemetry>>  { return ge
 export function getCircuitBreakers(): Promise<Result<CircuitBreakers>> { return getJson('/circuit-breaker') }
 
 
+// ─── Historical OHLCV (for /backtest real-data mode) ────────────────
+
+export interface OhlcvBar {
+  time:   number   // unix epoch seconds
+  open:   number
+  high:   number
+  low:    number
+  close:  number
+  volume: number
+}
+
+export interface OhlcvResponse {
+  symbol:   string
+  interval: string
+  bars:     OhlcvBar[]
+  /** Engine returns this when no provider key is configured. */
+  provider?: string
+  /** Engine returns this when the provider call threw. */
+  error?:   string
+}
+
+/**
+ * Fetch historical bars from the engine for the backtester. The engine
+ * itself degrades to `{ bars: [] }` when no provider is configured, so
+ * callers should still handle the empty-bars case as a soft state, not
+ * an error.
+ *
+ * `interval` accepts the engine's TwelveData-style format:
+ *   '1min' | '5min' | '15min' | '30min' | '45min' | '1h' | '2h' | '4h' | '1day' | '1week'
+ */
+export function getOhlcv(
+  symbol:    string,
+  interval:  string,
+  outputsize = 500,
+): Promise<Result<OhlcvResponse>> {
+  const qs = new URLSearchParams({
+    symbol,
+    interval,
+    outputsize: String(outputsize),
+  })
+  return getJson(`/ohlcv?${qs.toString()}`)
+}
+
+
 // ─── Write endpoints (engine key required) ──────────────────────────
 
 export interface BrokerTestResult {

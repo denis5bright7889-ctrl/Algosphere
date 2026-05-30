@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, XCircle, Sparkles, FlaskConical } from 'lucide-react'
+import { CheckCircle2, XCircle, Sparkles, FlaskConical, Database, Cpu } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   runBacktest, syntheticBars,
+  type Bar,
   type BacktestConfig, type BacktestResult, type StrategyType,
 } from '@/lib/backtest'
 import {
@@ -33,7 +34,37 @@ const STRATEGIES: { key: StrategyType; label: string }[] = [
 ]
 
 
+/**
+ * Symbol list for the historical-data picker. Forex/metals route
+ * through TwelveData on the engine; crypto goes via the engine's
+ * Coinbase fallback. Both are read-only and stable, so we don't need
+ * to fan out a registry call — keep the list curated and short.
+ */
+const HISTORICAL_SYMBOLS: { value: string; label: string; group: string }[] = [
+  { group: 'Forex',     value: 'EURUSD',  label: 'EUR/USD' },
+  { group: 'Forex',     value: 'GBPUSD',  label: 'GBP/USD' },
+  { group: 'Forex',     value: 'USDJPY',  label: 'USD/JPY' },
+  { group: 'Forex',     value: 'AUDUSD',  label: 'AUD/USD' },
+  { group: 'Forex',     value: 'USDCHF',  label: 'USD/CHF' },
+  { group: 'Metals',    value: 'XAUUSD',  label: 'Gold (XAU/USD)' },
+  { group: 'Crypto',    value: 'BTCUSDT', label: 'BTC/USDT' },
+  { group: 'Crypto',    value: 'ETHUSDT', label: 'ETH/USDT' },
+  { group: 'Crypto',    value: 'SOLUSDT', label: 'SOL/USDT' },
+  { group: 'Crypto',    value: 'XRPUSDT', label: 'XRP/USDT' },
+]
+
+const TIMEFRAMES: { value: string; label: string }[] = [
+  { value: '5min',  label: '5m'  },
+  { value: '15min', label: '15m' },
+  { value: '30min', label: '30m' },
+  { value: '1h',    label: '1h'  },
+  { value: '4h',    label: '4h'  },
+  { value: '1day',  label: '1d'  },
+]
+
+
 type Mode = 'built_in' | 'saved'
+type DataSource = 'synthetic' | 'historical'
 
 
 export default function BacktestClient({
@@ -59,9 +90,15 @@ export default function BacktestClient({
   const [rr, setRr]             = useState(2)
   const [slAtr, setSlAtr]       = useState(1.5)
 
-  // Bars + seed (shared between modes)
+  // Bars + seed (synthetic only)
   const [bars, setBars] = useState(500)
   const [seed, setSeed] = useState(42)
+
+  // Historical-data mode
+  const [dataSource, setDataSource] = useState<DataSource>('synthetic')
+  const [symbol,     setSymbol]     = useState('EURUSD')
+  const [timeframe,  setTimeframe]  = useState('1h')
+  const [histBars,   setHistBars]   = useState(500)
 
   // Cost model
   const [spreadPips,   setSpreadPips]   = useState(DEFAULT_COSTS.spread_pips)
@@ -83,36 +120,75 @@ export default function BacktestClient({
     pip_value:                DEFAULT_COSTS.pip_value,
   }), [spreadPips, slipPct, commPct])
 
+  /** Fetch real bars from the engine via the auth-gated web proxy.
+   *  Returns null with `setError` populated on any failure so the
+   *  caller can short-circuit. */
+  async function fetchHistorical(): Promise<Bar[] | null> {
+    try {
+      const qs = new URLSearchParams({ symbol, interval: timeframe, outputsize: String(histBars) })
+      const res = await fetch(`/api/backtest/ohlcv?${qs.toString()}`, { cache: 'no-store' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(json?.detail || json?.error || `engine HTTP ${res.status}`)
+        return null
+      }
+      if (json.error) {
+        setError(`engine reported: ${json.error}`)
+        return null
+      }
+      const rows: Array<Partial<Bar>> = Array.isArray(json.bars) ? json.bars : []
+      if (rows.length === 0) {
+        setError(`No historical bars for ${symbol} @ ${timeframe} — provider may not be configured on the engine.`)
+        return null
+      }
+      // Engine returns OhlcvBar with `volume`; Bar shape ignores it.
+      return rows
+        .map((b) => ({
+          time:  Number(b.time),
+          open:  Number(b.open),
+          high:  Number(b.high),
+          low:   Number(b.low),
+          close: Number(b.close),
+        }))
+        .filter((b) => Number.isFinite(b.time) && Number.isFinite(b.close))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'fetch failed')
+      return null
+    }
+  }
+
   function run() {
     setRunning(true); setError(null); setMc(null)
-    setTimeout(() => {
+    // Use async because fetchHistorical is async; setTimeout-yield kept
+    // so the spinner has a chance to render before the heavy work.
+    setTimeout(async () => {
       try {
-        const data = syntheticBars(bars, seed)
-        let r: BacktestResult | ExecuteResult
+        const data = dataSource === 'historical'
+          ? await fetchHistorical()
+          : syntheticBars(bars, seed)
+        if (!data) return        // fetchHistorical already set the error
+        if (data.length < 50) {
+          setError(`Only ${data.length} bars returned; need at least 50.`)
+          return
+        }
 
+        let r: BacktestResult | ExecuteResult
         if (mode === 'saved') {
           const sel = savedStrategies.find((s) => s.id === selectedId)
           if (!sel?.config) {
-            throw new Error('Pick a saved strategy with at least one version.')
+            setError('Pick a saved strategy with at least one version.')
+            return
           }
-          r = executeStrategy(data, sel.config, {
-            startingEquity: 10_000,
-            costs,
-          })
+          r = executeStrategy(data, sel.config, { startingEquity: 10_000, costs })
         } else {
           const cfg: BacktestConfig = {
-            strategy,
-            startingEquity: 10_000,
-            riskPct,
-            rrTarget: rr,
-            slAtrMult: slAtr,
+            strategy, startingEquity: 10_000,
+            riskPct, rrTarget: rr, slAtrMult: slAtr,
           }
           r = runBacktest(data, cfg)
         }
 
         setResult(r)
-
-        // Monte Carlo on the result we just produced
         const mcResult = runMonteCarlo(r, { runs: mcRuns, startingEquity: 10_000, seed })
         setMc(mcResult)
       } catch (e) {
@@ -183,15 +259,78 @@ export default function BacktestClient({
           </>
         )}
 
-        <Slider label={`Bars — ${bars}`}            min={200} max={2000} step={100} value={bars} onChange={setBars} />
-        <Field label="Random seed">
-          <input
-            type="number"
-            value={seed}
-            onChange={(e) => setSeed(+e.target.value)}
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none"
+        {/* Data source toggle (R-followup): synthetic vs real engine bars */}
+        <div className="flex gap-1 rounded-lg border border-border p-1">
+          <ModeButton
+            active={dataSource === 'synthetic'}
+            onClick={() => setDataSource('synthetic')}
+            label="Synthetic"
           />
-        </Field>
+          <ModeButton
+            active={dataSource === 'historical'}
+            onClick={() => setDataSource('historical')}
+            label="Historical"
+          />
+        </div>
+
+        {dataSource === 'synthetic' ? (
+          <>
+            <Slider label={`Bars — ${bars}`} min={200} max={2000} step={100} value={bars} onChange={setBars} />
+            <Field label="Random seed">
+              <input
+                type="number"
+                value={seed}
+                onChange={(e) => setSeed(+e.target.value)}
+                aria-label="Random seed"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none"
+              />
+            </Field>
+          </>
+        ) : (
+          <>
+            <Field label="Symbol">
+              <select
+                value={symbol}
+                onChange={(e) => setSymbol(e.target.value)}
+                aria-label="Historical symbol"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none"
+              >
+                {(['Forex','Metals','Crypto'] as const).map((g) => (
+                  <optgroup key={g} label={g}>
+                    {HISTORICAL_SYMBOLS.filter((s) => s.group === g).map((s) => (
+                      <option key={s.value} value={s.value}>{s.label}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </Field>
+            <Field label="Timeframe">
+              <div className="grid grid-cols-6 gap-1">
+                {TIMEFRAMES.map((t) => (
+                  <button
+                    key={t.value}
+                    type="button"
+                    onClick={() => setTimeframe(t.value)}
+                    aria-label={`Timeframe ${t.label}`}
+                    className={cn(
+                      'rounded-md border px-1.5 py-1.5 text-[11px] font-semibold tabular-nums',
+                      timeframe === t.value
+                        ? 'border-amber-500/60 bg-amber-500/15 text-amber-200'
+                        : 'border-border bg-background/40 text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </Field>
+            <Slider label={`Bars — ${histBars}`} min={100} max={500} step={50} value={histBars} onChange={setHistBars} />
+            <p className="rounded-md border border-border bg-background/40 p-2 text-[10px] text-muted-foreground/80 inline-flex items-start gap-1.5">
+              <Database className="h-3 w-3 shrink-0 mt-0.5" />
+              Bars come from the signal engine&apos;s provider chain (TwelveData → AlphaVantage; Coinbase for crypto). When the engine is keyless or unreachable the run fails honestly — no synthetic fallback.
+            </p>
+          </>
+        )}
 
         <details className="rounded-lg border border-border bg-background/40">
           <summary className="cursor-pointer select-none px-3 py-2 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
@@ -229,8 +368,11 @@ export default function BacktestClient({
             {error}
           </p>
         )}
-        <p className="text-[10px] text-muted-foreground">
-          Synthetic GBM price series, deterministic by seed. Hooking real historical bars is the next slice.
+        <p className="text-[10px] text-muted-foreground inline-flex items-start gap-1.5">
+          {dataSource === 'synthetic' ? <Cpu className="h-3 w-3 shrink-0 mt-0.5" /> : <Database className="h-3 w-3 shrink-0 mt-0.5" />}
+          {dataSource === 'synthetic'
+            ? 'Synthetic GBM price series, deterministic by seed.'
+            : `Live engine bars for ${symbol} @ ${timeframe}.`}
         </p>
       </div>
 
