@@ -24,8 +24,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             { href: '/admin/signals',      label: 'Signal Management' },
             { href: '/admin/brokers',      label: 'Broker Health' },
             { href: '/admin/bridge',       label: 'Bridge Command Center' },
+            { href: '/admin/communities',  label: 'Communities Hub' },
             { href: '/admin/payments',     label: 'Payments' },
-            { href: '/admin/verification', label: 'Verifications' },
             { href: '/admin/compliance',   label: 'Compliance & Audit' },
             { href: '/admin/dune-probe',   label: 'Dune Probe' },
           ].map(link => (
