@@ -25,11 +25,11 @@ import {
   Calendar, Radar, Target, MinusCircle, type LucideIcon,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
-import { cn } from '@/lib/utils'
+import { cn, formatRelativeTime } from '@/lib/utils'
 import { analyzeBehavior, type BehavioralReport } from '@/lib/intelligence/behavioral'
 import { analyzePerformance, type PerformanceReport, type SegmentRow } from '@/lib/intelligence/performance'
 import { generateInsights, type CoachInsight } from '@/lib/intelligence/coach'
-import { generateTiming, type RegimeSnapshot, type TimingRecommendation } from '@/lib/intelligence/timing'
+import { generateTiming, type RegimeSnapshot, type TimingRecommendation, type TimingReport } from '@/lib/intelligence/timing'
 import {
   lossDrivers, conditionEdges,
   type LossDriversReport, type ConditionCohort,
@@ -160,15 +160,7 @@ export default async function TraderIntelligencePage() {
 
       {/* ── Market timing (R4b) ──────────────────────────────────── */}
       <section className="surface mb-5 p-5">
-        <SectionHeader icon={Radar} title="Market timing" subtitle={`Live regime × your edge · ${timing.recommendations.length} pair${timing.recommendations.length === 1 ? '' : 's'}`} />
-        <p className="mt-1 text-[12px] text-foreground/85">{timing.headline}</p>
-        {timing.recommendations.length > 0 && (
-          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-            {timing.recommendations.slice(0, 6).map((r) => (
-              <TimingCard key={r.symbol} r={r} />
-            ))}
-          </ul>
-        )}
+        <MarketTimingPanel timing={timing} />
       </section>
 
       {/* ── Coach feed (the main read) ───────────────────────────── */}
@@ -525,6 +517,14 @@ function TimingCard({ r }: { r: TimingRecommendation }) {
             {r.regime && (
               <span className="text-[10px] uppercase tracking-wider opacity-70">{r.regime}</span>
             )}
+            {r.scanned_at && (
+              <span
+                className="ml-auto text-[10px] tabular-nums opacity-60"
+                title={new Date(r.scanned_at).toLocaleString()}
+              >
+                scanned {formatRelativeTime(r.scanned_at)}
+              </span>
+            )}
           </div>
           <ul className="mt-1 space-y-0.5 text-[11px] opacity-90">
             {r.reasons.slice(0, 2).map((reason, i) => (
@@ -539,6 +539,80 @@ function TimingCard({ r }: { r: TimingRecommendation }) {
         </div>
       </div>
     </li>
+  )
+}
+
+
+/** Market Timing panel — split the recommendations into two reads:
+ *  - "Actionable" cards: anywhere the user has trade history OR the
+ *    verdict is decisive (favorable / avoid). These are the trade
+ *    decisions for today.
+ *  - "Available regimes": engine-only data on pairs the user hasn't
+ *    journaled. Rendered as a compact chip strip so a 34-pair scan
+ *    universe doesn't dump 34 "Wait" cards on the user. */
+function MarketTimingPanel({ timing }: { timing: TimingReport }) {
+  const recos     = timing.recommendations
+  const decisive  = recos.filter((r) => r.verdict !== 'caution' || r.user_trades > 0)
+  const regimeOnly = recos.filter((r) => r.verdict === 'caution' && r.user_trades === 0)
+  const latestScan = recos
+    .map((r) => r.scanned_at)
+    .filter((s): s is string => Boolean(s))
+    .sort()
+    .at(-1)
+
+  return (
+    <>
+      <SectionHeader
+        icon={Radar}
+        title="Market timing"
+        subtitle={
+          latestScan
+            ? `Live regime × your edge · scanned ${formatRelativeTime(latestScan)}`
+            : `Live regime × your edge · ${recos.length} pair${recos.length === 1 ? '' : 's'}`
+        }
+      />
+      <p className="mt-1 text-[12px] text-foreground/85">{timing.headline}</p>
+
+      {decisive.length > 0 && (
+        <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+          {decisive.slice(0, 6).map((r) => (
+            <TimingCard key={r.symbol} r={r} />
+          ))}
+        </ul>
+      )}
+
+      {regimeOnly.length > 0 && (
+        <div className="mt-4 rounded-lg border border-border/40 bg-background/40 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Available regimes ({regimeOnly.length})
+            </span>
+            <span className="text-[10px] text-muted-foreground/60">
+              No edge data yet — log trades on these pairs to enable timing.
+            </span>
+          </div>
+          <ul className="mt-2 flex flex-wrap gap-1.5">
+            {regimeOnly.map((r) => (
+              <li key={r.symbol}>
+                <span
+                  className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/40 px-2 py-0.5 text-[10px]"
+                  title={r.scanned_at ? `${r.regime ?? '—'} · scanned ${new Date(r.scanned_at).toLocaleString()}` : (r.regime ?? '—')}
+                >
+                  <span className="font-mono font-semibold">{r.symbol}</span>
+                  {r.regime && <span className="text-muted-foreground/80">· {r.regime}</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {decisive.length === 0 && regimeOnly.length === 0 && (
+        <p className="mt-3 text-[12px] text-muted-foreground">
+          No regime scans available yet. The engine publishes regimes on its scan cadence — refresh in a minute.
+        </p>
+      )}
+    </>
   )
 }
 

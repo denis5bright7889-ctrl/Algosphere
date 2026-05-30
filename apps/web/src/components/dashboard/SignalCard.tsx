@@ -2,7 +2,7 @@ import type { Signal, SubscriptionTier } from '@/lib/types'
 import { canAccess } from '@/lib/admin'
 import { LIFECYCLE_LABELS, LIFECYCLE_COLORS } from '@/lib/signals/lifecycle'
 import { GRADE_COLORS } from '@/lib/signals/quality'
-import { cn, formatDate } from '@/lib/utils'
+import { cn, formatDateTime, formatRelativeTime } from '@/lib/utils'
 import LiveSignalProgress from '@/components/market/LiveSignalProgress'
 
 interface Props {
@@ -141,9 +141,12 @@ export default function SignalCard({ signal, userTier, userEmail }: Props) {
         </div>
       )}
 
-      {/* Footer */}
+      {/* Footer — day of week + time + freshness */}
       <div className="flex items-center justify-between text-xs text-muted-foreground pt-0.5">
-        <span>{formatDate(signal.published_at)}</span>
+        <span title={new Date(signal.published_at).toLocaleString()}>
+          {formatDateTime(signal.published_at)}
+          <span className="ml-1.5 text-[10px] opacity-70">({formatRelativeTime(signal.published_at)})</span>
+        </span>
         {signal.pips_gained != null && (
           <span className={cn('font-semibold', signal.pips_gained >= 0 ? 'text-green-600' : 'text-red-600')}>
             {signal.pips_gained >= 0 ? '+' : ''}{signal.pips_gained} pips

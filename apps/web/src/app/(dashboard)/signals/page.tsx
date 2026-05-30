@@ -3,8 +3,9 @@ import { isAdmin, canAccess } from '@/lib/admin'
 import { redactLockedSignal } from '@/lib/signal-abstraction'
 import { isDemo, effectiveTierForFeatures, demoTier } from '@/lib/demo'
 import { generateDemoSignals } from '@/lib/demo-data'
+import { getEngineStatus } from '@/lib/engine-client'
 import type { Signal, SubscriptionTier } from '@/lib/types'
-import SignalsFeed from './SignalsFeed'
+import SignalsFeed, { type EngineSnapshot } from './SignalsFeed'
 
 export const metadata = { title: 'Intelligence Feed' }
 export const dynamic = 'force-dynamic'
@@ -31,6 +32,8 @@ export default async function SignalsPage() {
   )
 
   let signals: Signal[]
+  let engineSnapshot: EngineSnapshot = null
+
   if (isDemo(accountType)) {
     const tier = demoTier(accountType)!
     const delay = tier === 'starter' ? STARTER_DEMO_DELAY_MIN : 0
@@ -41,17 +44,41 @@ export default async function SignalsPage() {
     // (feature_snapshot, component sub-scores, engine_version, admin_notes,
     // created_by, strategy_id). Select only client-safe columns. SignalsFeed
     // renders none of the excluded fields, so this is behaviour-preserving.
-    const { data } = await supabase
-      .from('signals')
-      .select(
-        'id,pair,direction,entry_price,stop_loss,take_profit_1,take_profit_2,' +
-        'take_profit_3,risk_reward,confidence_score,regime,session,status,result,' +
-        'pips_gained,tier_required,lifecycle_state,published_at,invalidated_at,' +
-        'tp1_hit_at,tp2_hit_at,tp3_hit_at,stopped_at',
-      )
-      .order('published_at', { ascending: false })
-      .limit(50)
-    signals = (data ?? []) as unknown as Signal[]
+    const [signalsRes, engineRes, latestRes] = await Promise.all([
+      supabase
+        .from('signals')
+        .select(
+          'id,pair,direction,entry_price,stop_loss,take_profit_1,take_profit_2,' +
+          'take_profit_3,risk_reward,confidence_score,regime,session,status,result,' +
+          'pips_gained,tier_required,lifecycle_state,published_at,invalidated_at,' +
+          'tp1_hit_at,tp2_hit_at,tp3_hit_at,stopped_at',
+        )
+        .order('published_at', { ascending: false })
+        .limit(50),
+      // Engine pulse — used to explain WHY the feed might be empty
+      // ("engine paused" vs "no provider configured" vs "engine running,
+      // no signals met confidence threshold this scan").
+      getEngineStatus(),
+      // Latest published signal across the platform (not just to this
+      // viewer) so we can show "last signal: 3h ago" honestly. Public
+      // by RLS.
+      supabase
+        .from('signals')
+        .select('published_at')
+        .order('published_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ])
+    signals = (signalsRes.data ?? []) as unknown as Signal[]
+    engineSnapshot = {
+      ok:       engineRes.ok,
+      enabled:  engineRes.ok ? engineRes.data.enabled : null,
+      provider: engineRes.ok ? engineRes.data.provider : null,
+      symbols:  engineRes.ok ? engineRes.data.symbols  : null,
+      lastTick: engineRes.ok ? engineRes.data.time     : null,
+      error:    engineRes.ok ? null : engineRes.error,
+      lastSignalAt: latestRes.data?.published_at ?? null,
+    }
   }
 
   // Authoritative tier gate: strip the edge (entry/SL/TP/RR/confidence) from
@@ -67,6 +94,7 @@ export default async function SignalsPage() {
       userTier={userTier}
       userEmail={user!.email ?? ''}
       isAdmin={admin}
+      engine={engineSnapshot}
     />
   )
 }

@@ -38,9 +38,17 @@ class Settings(BaseSettings):
     # Default scan universe — keep this in sync with the SYMBOLS env var in
     # production. TD-served symbols (forex / metals) each cost 1 credit per
     # scan; with the TwelveData Basic plan (800 credits/day, 8/min) the safe
-    # ceiling is ~5 TD symbols. Crypto via Coinbase is keyless and unmetered.
+    # ceiling is ~8 TD symbols at the current scan_interval_minutes=5.
+    # Crypto via Coinbase is keyless and unmetered, so we list them broadly.
+    #
+    # Forex coverage expanded 2026-05-30 to include the remaining majors
+    # (USDCHF / USDCAD / NZDUSD) plus the highest-volume yen cross (EURJPY).
+    # If the deploy's TwelveData plan can't sustain 9 symbols at this scan
+    # cadence, raise scan_interval_minutes to 8 or drop the cross before
+    # lowering the major coverage — majors are the platform's promise.
     symbols: str = (
-        'XAUUSD,EURUSD,GBPUSD,USDJPY,AUDUSD,'              # forex + gold (TD)
+        'XAUUSD,EURUSD,GBPUSD,USDJPY,AUDUSD,'              # original forex + gold (TD)
+        'USDCHF,USDCAD,NZDUSD,EURJPY,'                     # added majors + cross (TD)
         'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,ADAUSDT,'         # majors (Coinbase)
         'DOGEUSDT,AVAXUSDT,LINKUSDT,LTCUSDT,DOTUSDT'       # second tier (Coinbase)
     )
