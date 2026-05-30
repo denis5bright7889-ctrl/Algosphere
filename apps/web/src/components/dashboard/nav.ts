@@ -5,26 +5,47 @@
  * MobileBottomNav, and the ⌘K CommandPalette. Icons are Lucide
  * components — no emojis anywhere in the app chrome.
  *
- * Two cross-cutting concerns live here so every consumer behaves
- * identically:
- *   1. Taxonomy — institutional IA, intelligence-first:
- *      Intelligence / Markets / Execution / Portfolio / Research /
- *      Community / System. One route per real page; we never add a
- *      nav link to a route that doesn't exist (no dead links, ever).
- *   2. Role-based visibility — `minTier` gates institutional tools
- *      so lower tiers see a simpler nav (the page itself still
- *      enforces its own TierGate; this is purely declutter).
+ * ── IA (post-refocus V3, the "Trader Intelligence OS") ──────────────
+ *
+ * AlgoSphere is no longer a chart-first terminal — it is an AI-powered
+ * Trader Intelligence Operating System. The nav reflects the trader's
+ * journey: CONNECT → ANALYZE → IMPROVE → VALIDATE → EXECUTE.
+ *
+ *   Trader Intelligence — Dashboard + AI Coach + Psychology +
+ *                         Performance + Risk + Alerts. Who you are
+ *                         as a trader. The flagship surface.
+ *   Broker Connections — Connected accounts + Trade Journal. Data
+ *                        in, intelligence out (not execution-first).
+ *   Market Intelligence — Consolidated market view + Markets Explorer
+ *                         + AI Signals + Calendar + News + Chart
+ *                         Workspace (demoted from primary).
+ *   Strategy Lab — Quant Builder + Backtester + Calculators.
+ *   Automation — Auto Trading + Shadow + Monitor.
+ *   Portfolio — Watchlists.
+ *   Premium Community — Telegram Hub (curated only, no social).
+ *   Platform — API + Prop + Settings + Billing + Affiliate + Logout.
+ *
+ * Fragmented engine pages (Conviction / Momentum / Stress / Liquidity /
+ * Whale Flows / etc.) are kept as routes but removed from nav — they
+ * roll up into the Market Intelligence page. No dead links.
+ *
+ * Removed in earlier refocus passes (R1–R7): Copy Trading, Academy,
+ * Traders Room, Leaderboards, Social Feed, Strategy Marketplace,
+ * Communities (replaced with curated Telegram Hub), Launchpad,
+ * Verification.
+ *
+ * Role-based visibility — `minTier` gates institutional tools so lower
+ * tiers see a simpler nav (the page itself still enforces its own
+ * TierGate; this is purely declutter).
  */
 import {
-  LayoutDashboard, Activity, Radar, BarChart3, Bell,
-  Cpu, ShieldCheck, ShieldAlert, Landmark, FlaskConical, Ghost, Target,
+  LayoutDashboard, Activity, BarChart3, Bell,
+  Cpu, ShieldAlert, Landmark, FlaskConical, Ghost,
   CandlestickChart, CalendarDays, Newspaper, Brain,
-  Network, MessagesSquare, Repeat,
-  BookOpen, Calculator, Briefcase, BrainCircuit, KeyRound, Rocket,
-  Settings2, BadgeDollarSign, Handshake, LogOut,
-  LineChart, UserCog, Waves, PieChart,
-  Building2, Coins, TrendingUp, Grid3x3, Sparkles, Crown,
-  type LucideIcon,
+  BookOpen, Calculator, Briefcase, BrainCircuit, KeyRound,
+  UserCog, BadgeDollarSign, Handshake, LogOut,
+  LineChart, Eye, Globe2, Grid3x3, Sparkles, Crown,
+  Server, HeartPulse, FlaskRound, type LucideIcon,
 } from 'lucide-react'
 
 export type Tier = 'free' | 'starter' | 'premium' | 'vip'
@@ -51,100 +72,80 @@ export interface NavGroup {
 
 export const NAV_GROUPS: NavGroup[] = [
   {
-    // "What matters right now?" — the intelligence-first surface.
-    label: 'Intelligence',
-    icon: BrainCircuit,
+    // Who you are as a trader. The flagship surface — every other
+    // group exists to feed data into this one.
+    label: 'Trader Intelligence',
+    icon: Brain,
     items: [
-      { href: '/overview',  label: 'Dashboard',     icon: LayoutDashboard, keywords: 'home command center feed' },
-      // ── Trader Intelligence (Refocus R4) — about YOU, not the market ──
-      { href: '/intelligence/me', label: 'Trader Intelligence', icon: Brain,
-        keywords: 'coach behavior performance revenge overtrade consistency emotion analytics ai me self' },
-      { href: '/signals',   label: 'Market Feed',   icon: Activity,        keywords: 'signals intelligence feed' },
-      // ── Intelligence Core (universe-level institutional engines) ────
-      { href: '/intelligence/conviction',           label: 'Conviction',           icon: Target,     keywords: 'multi layer agreement bias bullish bearish high moderate confidence' },
-      { href: '/intelligence/momentum',             label: 'Momentum Phase',       icon: Rocket,     keywords: 'phase accumulation trending parabolic exhaustion distribution sustainability quality cross asset' },
-      { href: '/intelligence/stress',               label: 'Market Stress',        icon: ShieldAlert, keywords: 'environment volatility macro defensive aggressive risk posture systemic' },
-      { href: '/intelligence/participation',        label: 'Participation',        icon: PieChart,   keywords: 'who driving price smart money whales aggression retail imbalance' },
-      { href: '/intelligence/positioning',          label: 'Positioning',          icon: ShieldCheck, keywords: 'funding rate open interest crowded long short euphoric panic squeeze leverage' },
-      { href: '/intelligence/narrative',            label: 'Narrative',            icon: MessagesSquare, keywords: 'theme strength acceleration fatigue crowding institutional participation rotation ai defi meme rwa' },
-      { href: '/intelligence/liquidity',            label: 'Liquidity',            icon: Waves,      keywords: 'order book imbalance walls voids depth spread sweep risk execution slippage manipulation' },
-      { href: '/intelligence/attention',            label: 'Attention',            icon: MessagesSquare, keywords: 'social twitter x mentions narrative hype surging accelerating attention crowd' },
-      { href: '/intelligence/market-pulse',         label: 'Market Pulse',         icon: PieChart,   keywords: 'crypto dominance btc eth altcoin total market cap top gainers losers movers trending breadth risk on off coingecko' },
-      { href: '/intelligence/markets',              label: 'Markets Explorer',     icon: Grid3x3,    keywords: 'symbol registry catalog universe forex crypto indices metals commodities stocks search filter liquidity volatility sector tags institutional' },
-      { href: '/intelligence/sectors',              label: 'Sector Intelligence',  icon: Grid3x3,    keywords: 'sector rotation ai layer1 meme defi rwa infra strength breadth participation overheated accelerating capital flow' },
-      { href: '/intelligence/breadth',              label: 'Market Breadth',       icon: BarChart3,  keywords: 'advancing declining participation health risk on off narrow leadership broad thrust internals' },
-      { href: '/intelligence/dominance',            label: 'Dominance & Rotation', icon: PieChart,   keywords: 'btc eth altcoin dominance rotation leadership shift trending weakening sector capital concentration' },
-      { href: '/intelligence/correlations',         label: 'Correlations',         icon: Network,    keywords: 'rolling correlation matrix pearson inverse positive btc eth gold hedge diversification cross asset' },
-      { href: '/intelligence/volatility',           label: 'Volatility',           icon: Activity,   keywords: 'atr volatility ranking expansion high risk low stable tier engine measured catalog' },
-      { href: '/regime',    label: 'Market Regime', icon: Radar,           keywords: 'volatility trend bias regime' },
-      // ── On-chain Intelligence (per-token / per-flow surfaces) ───────
-      { href: '/intelligence/smart-money',          label: 'Smart Money',          icon: Sparkles,   keywords: 'wallet accumulation conviction onchain nansen' },
-      { href: '/intelligence/whale-flows',          label: 'Whale Flows',          icon: Waves,      keywords: 'large transfers accumulation distribution' },
-      { href: '/intelligence/exchange-flows',       label: 'Exchange Flows',       icon: Building2,  keywords: 'cex inflow outflow sell pressure' },
-      { href: '/intelligence/stablecoin-liquidity', label: 'Stablecoin Liquidity', icon: Coins,      keywords: 'usdt usdc mint burn dry powder' },
-      { href: '/intelligence/token-momentum',       label: 'Token Momentum',       icon: TrendingUp, keywords: 'volume holder growth trending crypto per token nansen on chain' },
-      { href: '/intelligence/market-rotation',      label: 'Market Rotation',      icon: Repeat,     keywords: 'sector capital flow narrative' },
-      { href: '/intelligence/heatmap',              label: 'On-Chain Heatmap',     icon: Grid3x3,    keywords: 'cross chain intensity liquidity activity' },
-      { href: '/whale',     label: 'Whale Analytics', icon: Waves, minTier: 'premium', keywords: 'smart money flows nansen onchain whales' },
-      { href: '/alerts',    label: 'Smart Alerts',  icon: Bell,            keywords: 'notifications push channels triggers' },
+      { href: '/overview',        label: 'Dashboard',        icon: LayoutDashboard, keywords: 'home command center ai trader score summary' },
+      { href: '/intelligence/me', label: 'AI Coach',         icon: Brain,           keywords: 'coach strengths weaknesses recommendations mentor evaluation grade advancement quality' },
+      { href: '/psychology',      label: 'Psychology',       icon: HeartPulse,      keywords: 'revenge fomo emotional discipline tilt overconfidence mindset behavior' },
+      { href: '/analytics',       label: 'Performance',      icon: BarChart3,       keywords: 'win rate profit factor sharpe drawdown expectancy consistency pair session day strategy' },
+      { href: '/risk',            label: 'Risk Intelligence', icon: ShieldAlert,    keywords: 'position sizing exposure drawdown risk drift consecutive losses analysis recommendations' },
+      { href: '/alerts',          label: 'Smart Alerts',     icon: Bell,            keywords: 'notifications push channels triggers psychology emotional' },
     ],
   },
   {
-    // Real market-data surfaces only. The brief lists Forex/Stocks/
-    // Futures/Crypto sub-pages — those routes don't exist, so no
-    // dead links are added; these are the genuine markets pages.
-    label: 'Markets',
-    icon: CandlestickChart,
+    // Data in, intelligence out. Broker connections feed the AI engines;
+    // execution is downstream of analysis, never the lead.
+    label: 'Broker Connections',
+    icon: Server,
     items: [
-      { href: '/market',   label: 'Market Tracker',    icon: CandlestickChart, keywords: 'prices quotes symbols forex stocks crypto futures' },
-      { href: '/calendar', label: 'Economic Calendar', icon: CalendarDays,     keywords: 'events nfp cpi macro' },
-      { href: '/news',     label: 'Market News',       icon: Newspaper,        keywords: 'headlines macro' },
+      { href: '/brokers',  label: 'Connected Accounts', icon: Landmark, keywords: 'binance bybit okx mt5 mt4 ctrader api keys connect balance equity sync' },
+      { href: '/journal',  label: 'Trade Journal',      icon: BookOpen, keywords: 'trade log diary entries imported notes screenshots ai observations coach' },
     ],
   },
   {
-    label: 'Execution',
-    icon: Cpu,
+    // Understand the market. Fragmented engines (Conviction/Momentum/
+    // Stress/Liquidity/Whale Flows/etc.) roll up into Market Overview;
+    // each remains a live route but no longer claims a nav slot.
+    label: 'Market Intelligence',
+    icon: Globe2,
     items: [
-      { href: '/workspace',  label: 'Chart Workspace',icon: CandlestickChart, keywords: 'multi chart tradingview workspace tabs layouts split quad compare overlay favorites recent persistent terminal bloomberg institutional ai rail' },
-      { href: '/algo',       label: 'Auto Trading',   icon: Cpu,         keywords: 'algo bot mt5 institutional execution gateway desk activate engine' },
-      // Refocus R7: /execution retired — its data source (copy_trades)
-      // is dropped. Autotrade observability will rebuild on PR #59B.
-      { href: '/brokers',    label: 'Brokers',        icon: Landmark,    keywords: 'binance bybit okx mt5 api keys connect' },
-      { href: '/risk',       label: 'Risk Engine',    icon: ShieldCheck, keywords: 'drawdown limits position size' },
-      { href: '/journal',    label: 'Trade Journal',  icon: BookOpen,    keywords: 'trade log diary' },
-      { href: '/shadow',     label: 'Shadow Mode',    icon: Ghost,       minTier: 'premium', keywords: 'paper validation simulation' },
-      { href: '/psychology', label: 'AI Psychology Coach', icon: Brain,  keywords: 'mindset tilt emotion discipline' },
+      { href: '/intelligence',          label: 'Market Overview',  icon: Sparkles,         keywords: 'unified dashboard pulse regime liquidity flows sentiment rotation momentum volatility stress consolidated' },
+      { href: '/intelligence/markets',  label: 'Markets Explorer', icon: Grid3x3,          keywords: 'symbol registry catalog universe forex crypto indices metals commodities stocks search filter sector' },
+      { href: '/signals',               label: 'AI Signals',       icon: Activity,         keywords: 'signals feed alerts trade opportunities ai generated' },
+      { href: '/calendar',              label: 'Economic Calendar',icon: CalendarDays,     keywords: 'events nfp cpi macro impact analysis' },
+      { href: '/news',                  label: 'Market News',      icon: Newspaper,        keywords: 'headlines macro ai summaries impact scoring' },
+      { href: '/workspace',             label: 'Chart Workspace',  icon: CandlestickChart, keywords: 'multi chart tradingview tabs layouts split quad compare overlay favorites recent persistent terminal' },
     ],
   },
   {
-    label: 'Portfolio',
-    icon: LineChart,
-    items: [
-      { href: '/watchlist', label: 'Watchlists',     icon: Bell,      keywords: 'pin instruments universe symbols favourites' },
-      { href: '/analytics', label: 'Performance',    icon: BarChart3, keywords: 'pnl stats win rate analytics equity curve' },
-      // Refocus R1: Copy Trading removed — platform pivots to trader
-      // intelligence; mirror execution is out of scope.
-    ],
-  },
-  {
-    // Research & strategy lab — building/validating an edge, not
-    // executing it. Split out of the old "Tools" grab-bag.
-    label: 'Research',
+    // Build and validate an edge. Charts and execution stay downstream
+    // of the lab — you don't deploy what you haven't tested.
+    label: 'Strategy Lab',
     icon: FlaskConical,
     items: [
-      { href: '/quant-builder', label: 'Quant Builder', icon: BrainCircuit,  minTier: 'premium', keywords: 'strategy algo no-code lab builder' },
-      { href: '/backtest',      label: 'Backtester',    icon: FlaskConical,  keywords: 'historical simulation strategy lab' },
-      { href: '/calculators',   label: 'Calculators',   icon: Calculator,    keywords: 'position size lot pip risk' },
-      // Refocus R1: Academy removed — focus shifts to AI-driven
-      // behavioral coaching, not curated lessons.
+      { href: '/quant-builder', label: 'Quant Builder', icon: BrainCircuit, minTier: 'premium', keywords: 'visual builder if conditions confirmations entry risk exit indicators smc session multi-timeframe ai no-code' },
+      { href: '/backtest',      label: 'Backtester',    icon: FlaskRound,   keywords: 'historical simulation monte carlo slippage spread commission tick candle replay ai explanation edge stability' },
+      { href: '/calculators',   label: 'Calculators',   icon: Calculator,   keywords: 'position size lot pip risk reward' },
     ],
   },
-  // Refocus R3: the public Community group is gone (forums, leaderboard,
-  // marketplace, etc. retired in R1+R2). A single curated entry remains
-  // — admin-managed Telegram destinations, browsed at /communities. No
-  // posting, no follows; AlgoSphere is a directory, not a forum.
   {
-    label: 'Community',
+    // Automation is the consequence of intelligence: Analyze → Optimize
+    // → Validate → Automate. Live execution is gated; shadow & monitor
+    // come first.
+    label: 'Automation',
+    icon: Cpu,
+    items: [
+      { href: '/algo',              label: 'Auto Trading',       icon: Cpu,       keywords: 'algo bot mt5 institutional execution gateway desk activate engine semi auto fully' },
+      { href: '/shadow',            label: 'Shadow Mode',        icon: Ghost,     minTier: 'premium', keywords: 'paper validation simulation forward test' },
+      { href: '/execution/monitor', label: 'Automation Monitor', icon: LineChart, keywords: 'running automations execution logs alerts open positions trades' },
+    ],
+  },
+  {
+    // Track outcomes. Watchlists are the only first-class surface here
+    // for now; portfolio performance lives under Trader Intelligence >
+    // Performance (same /analytics page, different lens).
+    label: 'Portfolio',
+    icon: Eye,
+    items: [
+      { href: '/watchlist', label: 'Watchlists', icon: Eye, keywords: 'pin instruments universe symbols favourites' },
+    ],
+  },
+  {
+    // A directory, not a forum. Admin-managed Telegram destinations only.
+    label: 'Premium Community',
     icon: Crown,
     items: [
       { href: '/communities', label: 'Telegram Hub', icon: Crown,
@@ -152,21 +153,16 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    // Platform & account chrome — notifications, developer access,
-    // billing, identity. Operational, not a feature surface.
-    label: 'System',
-    icon: Settings2,
+    // Platform & account chrome — operational, not a feature surface.
+    label: 'Platform',
+    icon: UserCog,
     items: [
-      { href: '/api-keys',     label: 'API Access',   icon: KeyRound,        minTier: 'premium', keywords: 'developer token rest webhook' },
-      { href: '/prop',         label: 'Prop Toolkit', icon: Briefcase,       minTier: 'premium', keywords: 'ftmo challenge funded' },
-      // Refocus R1: Token Launchpad removed — out of refocused scope.
-      { href: '/settings',     label: 'Settings',     icon: UserCog,         keywords: 'account security 2fa devices preferences' },
-      { href: '/upgrade',      label: 'Billing & Plan', icon: BadgeDollarSign, keywords: 'subscription billing plan renew upgrade' },
-      { href: '/referrals',    label: 'Affiliate',    icon: Handshake,       keywords: 'referral commission' },
-      // Refocus R7: /verification retired — its data sources are
-      // dropped alongside the leaderboard. Trader self-tracking lives
-      // on /intelligence/me now.
-      { action: 'logout',      label: 'Logout',       icon: LogOut,          keywords: 'sign out' },
+      { href: '/api-keys',  label: 'API Access',     icon: KeyRound,        minTier: 'premium', keywords: 'developer token rest webhook' },
+      { href: '/prop',      label: 'Prop Toolkit',   icon: Briefcase,       minTier: 'premium', keywords: 'ftmo challenge funded' },
+      { href: '/settings',  label: 'Settings',       icon: UserCog,         keywords: 'account security 2fa devices preferences profile notifications' },
+      { href: '/upgrade',   label: 'Billing & Plan', icon: BadgeDollarSign, keywords: 'subscription billing plan renew upgrade' },
+      { href: '/referrals', label: 'Affiliate',      icon: Handshake,       keywords: 'referral commission' },
+      { action: 'logout',   label: 'Logout',         icon: LogOut,          keywords: 'sign out' },
     ],
   },
 ]

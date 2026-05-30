@@ -3,25 +3,26 @@
 /**
  * Mobile bottom nav — fast, complete, no modes.
  *
- * Five tabs: Home · Chart · Trade · Journal · More. The first four are
- * the actions a trader needs instantly (execution is always one tap via
- * Trade); "More" opens the ⌘K command palette — the brain — so every
- * other page/action is reachable in two taps. Nothing is hidden.
+ * Five tabs: Home · Coach · Markets · Journal · More. The platform is
+ * an AI Trader Intelligence OS, not a chart-first terminal, so the
+ * thumb tabs lead with the trader (Home + Coach), the market (Markets),
+ * and the data feed (Journal). "More" opens the ⌘K command palette so
+ * every other page/action is reachable in two taps.
  */
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard, CandlestickChart, Cpu, BookOpen, Search, type LucideIcon,
+  LayoutDashboard, Brain, Globe2, BookOpen, Search, type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Tab { key: string; label: string; icon: LucideIcon; href?: string; action?: 'search' }
 
 const TABS: Tab[] = [
-  { key: 'home',    label: 'Home',    icon: LayoutDashboard,  href: '/overview' },
-  { key: 'chart',   label: 'Chart',   icon: CandlestickChart, href: '/workspace' },
-  { key: 'trade',   label: 'Trade',   icon: Cpu,              href: '/execution' },
-  { key: 'journal', label: 'Journal', icon: BookOpen,         href: '/journal' },
-  { key: 'more',    label: 'More',    icon: Search,           action: 'search' },
+  { key: 'home',    label: 'Home',    icon: LayoutDashboard, href: '/overview' },
+  { key: 'coach',   label: 'Coach',   icon: Brain,           href: '/intelligence/me' },
+  { key: 'markets', label: 'Markets', icon: Globe2,          href: '/intelligence' },
+  { key: 'journal', label: 'Journal', icon: BookOpen,        href: '/journal' },
+  { key: 'more',    label: 'More',    icon: Search,          action: 'search' },
 ]
 
 export default function MobileBottomNav() {
