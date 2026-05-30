@@ -7,7 +7,7 @@ import { cookies } from 'next/headers'
 // payloads that the existing codebase uses for service-role inserts).
 // Opt-in for callers that want typing:
 //   import type { Database } from '@/lib/supabase/database.types'
-//   type CopyJob = Database['public']['Tables']['copy_jobs']['Row']
+//   type Signal = Database['public']['Tables']['signals']['Row']
 
 export async function createClient() {
   const cookieStore = await cookies()
