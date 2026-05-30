@@ -89,10 +89,13 @@ const VOL_DEFAULT_BY_CLASS: Record<AssetClass, VolatilityTier> = {
   bonds: 'low', volatility: 'high',
 }
 
+// User-facing exchange/source labels. Internal provider keys stay
+// (twelvedata / finnhub / crypto-stream), but the displayed label
+// is rebranded so users see one cohesive data fabric, not a vendor list.
 const EXCHANGE_BY_PROVIDER: Record<NonNullable<Provider>, string> = {
-  'crypto-stream': 'Binance',
-  'twelvedata':    'Twelve Data',
-  'finnhub':       'Finnhub',
+  'crypto-stream': 'AlgoSphere',
+  'twelvedata':    'AlgoSphere',
+  'finnhub':       'AlgoSphere',
 }
 
 // ── Per-symbol overrides (curated institutional metadata) ───────────────

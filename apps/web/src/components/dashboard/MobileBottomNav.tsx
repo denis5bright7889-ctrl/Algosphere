@@ -3,26 +3,25 @@
 /**
  * Mobile bottom nav — fast, complete, no modes.
  *
- * Five tabs: Home · Coach · Markets · Journal · More. The platform is
- * an AI Trader Intelligence OS, not a chart-first terminal, so the
- * thumb tabs lead with the trader (Home + Coach), the market (Markets),
- * and the data feed (Journal). "More" opens the ⌘K command palette so
- * every other page/action is reachable in two taps.
+ * Four tabs: Home · Coach · Markets · Journal. The platform is an
+ * AI Trader Intelligence OS, so the thumb tabs lead with the trader
+ * (Home + Coach), the market (Markets), and the data feed (Journal).
+ * Anything else is reachable via the sidebar drawer; the ⌘K command
+ * palette stays available on desktop but no longer claims a thumb tab.
  */
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard, Brain, Globe2, BookOpen, Search, type LucideIcon,
+  LayoutDashboard, Brain, Globe2, BookOpen, type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-interface Tab { key: string; label: string; icon: LucideIcon; href?: string; action?: 'search' }
+interface Tab { key: string; label: string; icon: LucideIcon; href: string }
 
 const TABS: Tab[] = [
   { key: 'home',    label: 'Home',    icon: LayoutDashboard, href: '/overview' },
   { key: 'coach',   label: 'Coach',   icon: Brain,           href: '/intelligence/me' },
   { key: 'markets', label: 'Markets', icon: Globe2,          href: '/intelligence' },
   { key: 'journal', label: 'Journal', icon: BookOpen,        href: '/journal' },
-  { key: 'more',    label: 'More',    icon: Search,          action: 'search' },
 ]
 
 export default function MobileBottomNav() {
@@ -36,38 +35,22 @@ export default function MobileBottomNav() {
         'px-3 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-1',
       )}
     >
-      <ul className="mx-auto grid max-w-md grid-cols-5 rounded-2xl border border-border/70 glass-strong p-1 shadow-glow">
+      <ul className="mx-auto grid max-w-md grid-cols-4 rounded-2xl border border-border/70 glass-strong p-1 shadow-glow">
         {TABS.map((tab) => {
-          const active = !!tab.href && (pathname === tab.href || pathname.startsWith(`${tab.href}/`))
+          const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`)
           const Icon = tab.icon
           const cls = cn(
             'relative flex min-h-[52px] flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5',
             'text-[10px] font-medium leading-none touch-manipulation transition-all duration-200',
             active ? 'bg-gradient-primary text-black shadow-glow' : 'text-muted-foreground active:scale-95 active:bg-accent/40',
           )
-          const inner = (
-            <>
-              <Icon className={cn('h-5 w-5 shrink-0 transition-transform', active && 'scale-110')}
-                    strokeWidth={active ? 2.25 : 1.75} aria-hidden />
-              <span className="truncate">{tab.label}</span>
-            </>
-          )
           return (
             <li key={tab.key}>
-              {tab.action === 'search' ? (
-                <button
-                  type="button"
-                  onClick={() => window.dispatchEvent(new Event('open-command-palette'))}
-                  aria-label="Search everything"
-                  className={cn(cls, 'w-full')}
-                >
-                  {inner}
-                </button>
-              ) : (
-                <a href={tab.href} aria-current={active ? 'page' : undefined} className={cls}>
-                  {inner}
-                </a>
-              )}
+              <a href={tab.href} aria-current={active ? 'page' : undefined} className={cls}>
+                <Icon className={cn('h-5 w-5 shrink-0 transition-transform', active && 'scale-110')}
+                      strokeWidth={active ? 2.25 : 1.75} aria-hidden />
+                <span className="truncate">{tab.label}</span>
+              </a>
             </li>
           )
         })}

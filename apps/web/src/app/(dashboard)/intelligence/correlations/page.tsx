@@ -33,8 +33,8 @@ export default async function CorrelationsPage() {
       <section className="rounded-xl border border-border/60 bg-card/40 p-4 text-xs text-muted-foreground">
         <h2 className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Scope &amp; honesty</h2>
         <ul className="space-y-1.5">
-          <li>• Computed over the pairs we can source historical closes for on free tiers: crypto via Coinbase candles, gold/FX via Twelve Data.</li>
-          <li>• Equity-index / DXY / VIX correlations are intentionally omitted — no free historical feed serves them, and permanent nulls would mislead.</li>
+          <li>• Computed over the pairs the AlgoSphere data engine serves historical closes for. Some asset classes are intentionally excluded when reliable historicals aren&apos;t available.</li>
+          <li>• Equity-index / DXY / VIX correlations are intentionally omitted to avoid misleading permanent nulls.</li>
           <li>• We do <span className="font-semibold text-foreground/80">not</span> infer institutional positioning, dark-pool flow, or options exposure from correlation.</li>
         </ul>
         <p className="mt-3">

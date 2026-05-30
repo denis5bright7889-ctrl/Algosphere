@@ -571,7 +571,7 @@ async function fetchHistorical(symbol: string, interval: string, outputsize: num
     if (json.error) return { ok: false, error: `engine reported: ${json.error}` }
     const rows: Array<Partial<Bar>> = Array.isArray(json.bars) ? json.bars : []
     if (rows.length === 0) {
-      return { ok: false, error: `No historical bars for ${symbol} @ ${interval} — provider may not be configured.` }
+      return { ok: false, error: `No historical bars available for ${symbol} @ ${interval}. Try a different symbol or timeframe.` }
     }
     const bars: Bar[] = rows
       .map((b) => ({

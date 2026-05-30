@@ -173,7 +173,7 @@ export const MARKET_UNIVERSE: UniverseCategory[] = [
   {
     assetClass: 'crypto',
     label: 'Crypto',
-    blurb: 'Live via Binance → Coinbase fallback (public WS, no key required).',
+    blurb: 'Live crypto pricing via the AlgoSphere streaming feed.',
     instruments: CRYPTO,
   },
   {

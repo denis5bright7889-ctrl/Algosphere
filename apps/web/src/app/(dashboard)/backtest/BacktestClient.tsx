@@ -138,7 +138,7 @@ export default function BacktestClient({
       }
       const rows: Array<Partial<Bar>> = Array.isArray(json.bars) ? json.bars : []
       if (rows.length === 0) {
-        setError(`No historical bars for ${symbol} @ ${timeframe} — provider may not be configured on the engine.`)
+        setError(`No historical bars available for ${symbol} @ ${timeframe}. Try a different symbol or timeframe.`)
         return null
       }
       // Engine returns OhlcvBar with `volume`; Bar shape ignores it.
@@ -327,7 +327,7 @@ export default function BacktestClient({
             <Slider label={`Bars — ${histBars}`} min={100} max={500} step={50} value={histBars} onChange={setHistBars} />
             <p className="rounded-md border border-border bg-background/40 p-2 text-[10px] text-muted-foreground/80 inline-flex items-start gap-1.5">
               <Database className="h-3 w-3 shrink-0 mt-0.5" />
-              Bars come from the signal engine&apos;s provider chain (TwelveData → AlphaVantage; Coinbase for crypto). When the engine is keyless or unreachable the run fails honestly — no synthetic fallback.
+              Bars come from the AlgoSphere data engine. When data is unavailable the run fails honestly — no synthetic fallback.
             </p>
           </>
         )}
