@@ -327,7 +327,10 @@ export async function gatherDecisionContext(): Promise<DecisionContext> {
       note: 'Momentum: insufficient trajectory to classify the bellwether.' })
   }
 
-  // Smart money (market summary) — only when the provider really answered
+  // Smart money (market summary) — only when the provider really answered.
+  // The summary has rich shape (bias / conviction / participation /
+  // risk_appetite / rotation / concentration); we surface it as data
+  // so the card stops burying it in a single sentence.
   let smBias = 0
   if (smart && !smart.partial) {
     const s = smart.summary
@@ -337,13 +340,25 @@ export async function gatherDecisionContext(): Promise<DecisionContext> {
       engine: 'smartMoney', available: true, directional: true,
       lean: smBias * strength, strength,
       note: `Smart money: ${s.smart_money_bias.toLowerCase()} bias, ${s.participation_quality.toLowerCase()} participation, ${s.risk_appetite.toLowerCase()} risk appetite.`,
+      data: {
+        bias:                  s.smart_money_bias,
+        conviction:            Math.round(s.conviction),
+        conviction_level:      s.conviction_level,
+        participation_quality: s.participation_quality,
+        risk_appetite:         s.risk_appetite,
+        capital_concentration: s.capital_concentration,
+        dominant_rotation:     s.dominant_rotation,
+      },
     })
   } else {
     signals.push({ engine: 'smartMoney', available: false, directional: true, lean: 0, strength: 0,
       note: `Smart money: unavailable${smart?.reason ? ` (${smart.reason})` : ''} — excluded from the vote.` })
   }
 
-  // Whale flow (capital movement summary)
+  // Whale flow (capital movement summary). Same plumbing pattern — the
+  // engine's structured fields (movement_bias / dominant_movement /
+  // aggression / persistence / confidence_level) surface as data so
+  // the card can render them as a tile grid in the drawer.
   let whaleBias = 0
   if (whale && !whale.partial) {
     const w = whale.summary
@@ -353,6 +368,14 @@ export async function gatherDecisionContext(): Promise<DecisionContext> {
       engine: 'whaleFlow', available: true, directional: true,
       lean: whaleBias * strength, strength,
       note: `Whale flow: ${w.movement_bias.toLowerCase()} (${w.dominant_movement}), ${w.movement_aggression.toLowerCase()} aggression.`,
+      data: {
+        movement_bias:       w.movement_bias,
+        dominant_movement:   w.dominant_movement,
+        movement_aggression: w.movement_aggression,
+        capital_persistence: w.capital_persistence,
+        confidence:          Math.round(w.confidence),
+        conviction_level:    w.conviction_level,
+      },
     })
   } else {
     signals.push({ engine: 'whaleFlow', available: false, directional: true, lean: 0, strength: 0,
@@ -394,7 +417,8 @@ export async function gatherDecisionContext(): Promise<DecisionContext> {
       note: 'Breadth: unavailable.' })
   }
 
-  // Dominance sentiment
+  // Dominance sentiment — surface the BTC dominance number and the
+  // 24h cap change as structured data alongside the sentiment label.
   if (overview && overview.dominance) {
     const d = overview.dominance
     const lean = d.sentiment === 'Risk-On' ? 1 : d.sentiment === 'Risk-Off' ? -1 : 0
@@ -403,6 +427,11 @@ export async function gatherDecisionContext(): Promise<DecisionContext> {
       engine: 'dominance', available: true, directional: true,
       lean: lean * strength, strength,
       note: `Dominance: BTC ${d.btc_dominance}%, total cap ${d.mcap_change_24h >= 0 ? '+' : ''}${d.mcap_change_24h}% 24h (${d.sentiment}).`,
+      data: {
+        sentiment:           d.sentiment,
+        btc_dominance_pct:   Math.round(d.btc_dominance),
+        mcap_change_24h_pct: Math.round(d.mcap_change_24h * 100) / 100,
+      },
     })
   } else {
     signals.push({ engine: 'dominance', available: false, directional: true, lean: 0, strength: 0,
