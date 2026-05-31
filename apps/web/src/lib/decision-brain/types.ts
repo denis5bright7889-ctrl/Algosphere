@@ -62,6 +62,13 @@ export interface NormalizedSignal {
    *    breadth  → { advancers, decliners, breadth_score }
    *  Keep keys snake_case so the drawer can title-case them generically. */
   data?:     Record<string, string | number | boolean | null>
+  /** Where this signal came from.
+   *   'external'  — first-party engine read (default; omitted in legacy code)
+   *   'heuristic' — internal cross-engine fallback when externals are down.
+   *  The composer maps 'heuristic' to source_quality='fallback' and
+   *  userStatus='fallback' so the user sees an honest read instead of
+   *  the "recalibrating" placeholder when the external provider is out. */
+  provenance?: 'external' | 'heuristic'
 }
 
 /**

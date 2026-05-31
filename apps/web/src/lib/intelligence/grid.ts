@@ -64,16 +64,20 @@ function statusOf(s: NormalizedSignal): ModuleStatus {
 function toFreshModule(s: NormalizedSignal, generatedAt: string): IntelligenceModule {
   const ttl = ttlFor(s.engine)
   const ageMs = 0
+  const fromHeuristic = s.provenance === 'heuristic'
   const sourceQuality = deriveSourceQuality({
     available:  s.available,
     strength01: s.strength ?? 0,
     ageMs, ttlMs: ttl,
+    fromHeuristic,
   })
   return {
     key:             s.engine,
     name:            NAME[s.engine] ?? s.engine,
     status:          statusOf(s),
-    userStatus:      deriveUserStatus({ available: s.available, fromCache: false, ageMs, ttlMs: ttl }),
+    userStatus:      deriveUserStatus({
+      available: s.available, fromCache: false, fromHeuristic, ageMs, ttlMs: ttl,
+    }),
     confidence:      Math.round((s.strength ?? 0) * 100),
     lean:            s.lean ?? 0,
     directional:     s.directional,
@@ -142,10 +146,14 @@ export async function composeIntelligenceGrid(): Promise<GridPayload> {
     const signal = byKey.get(engine)
     if (signal && signal.available) {
       const fresh = toFreshModule(signal, now)
-      rememberModule(fresh)
+      // Heuristic reads are NEVER cached — caching a fallback as
+      // "high quality" later would corrupt the source_quality grade.
+      // External reads still flow into the reliability cache.
+      if (signal.provenance !== 'heuristic') rememberModule(fresh)
       modules.push(fresh)
       recordEngineEvent({
-        at: now, engine, outcome: 'live',
+        at: now, engine,
+        outcome:        signal.provenance === 'heuristic' ? 'heuristic' : 'live',
         source_quality: fresh.source_quality,
       })
       continue
@@ -174,11 +182,13 @@ export async function composeIntelligenceGrid(): Promise<GridPayload> {
   for (const s of ctx.signals) {
     if (ORDER.includes(s.engine)) continue
     const fresh = toFreshModule(s, now)
-    if (s.available) rememberModule(fresh)
+    if (s.available && s.provenance !== 'heuristic') rememberModule(fresh)
     modules.push(fresh)
     recordEngineEvent({
       at: now, engine: s.engine,
-      outcome:  s.available ? 'live' : 'building',
+      outcome: s.available
+        ? (s.provenance === 'heuristic' ? 'heuristic' : 'live')
+        : 'building',
       source_quality: fresh.source_quality,
       error_class:    s.available ? undefined : classifyError(s.note) ?? undefined,
     })
@@ -198,11 +208,20 @@ function buildVerdictHeader(
   decision: ReturnType<typeof buildMarketDecision>,
   modules:  IntelligenceModule[],
 ): GridVerdict {
+  // Coverage counts engines that produced a usable read this cycle —
+  // live, degraded, or internal-heuristic. Stale/building do not count.
+  // Reliability counts only high/medium source-quality reads; heuristic
+  // (source_quality: 'fallback') deliberately does NOT count, so
+  // reliability honestly drops when externals are down.
   const total = modules.length || 1
-  const liveOrDegraded = modules.filter((m) => m.userStatus === 'live' || m.userStatus === 'degraded').length
-  const highOrMedium   = modules.filter((m) => m.source_quality === 'high' || m.source_quality === 'medium').length
-  const coverage    = Math.round((liveOrDegraded / total) * 100)
-  const reliability = Math.round((highOrMedium   / total) * 100)
+  const usable = modules.filter((m) =>
+    m.userStatus === 'live' || m.userStatus === 'degraded' || m.userStatus === 'fallback',
+  ).length
+  const highOrMedium = modules.filter(
+    (m) => m.source_quality === 'high' || m.source_quality === 'medium',
+  ).length
+  const coverage    = Math.round((usable       / total) * 100)
+  const reliability = Math.round((highOrMedium / total) * 100)
   const dq: GridVerdict['data_quality'] =
     reliability >= 70 ? 'high' :
     reliability >= 40 ? 'medium' : 'low'

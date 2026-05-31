@@ -122,11 +122,16 @@ export function sanitizeReasoning(engine: string, rawNote: string): string {
  * 'medium'; explicitly fallback / heuristic is 'fallback'.
  */
 export function deriveSourceQuality(args: {
-  available:  boolean
-  strength01: number   // engine's own confidence in [0, 1]
-  ageMs:      number   // 0 for fresh; >TTL for stale
-  ttlMs:      number
+  available:      boolean
+  strength01:     number   // engine's own confidence in [0, 1]
+  ageMs:          number   // 0 for fresh; >TTL for stale
+  ttlMs:          number
+  /** True when the read came from an internal cross-engine heuristic.
+   *  Always returns 'fallback' regardless of strength — we never claim
+   *  a heuristic match institutional-grade provider confidence. */
+  fromHeuristic?: boolean
 }): SourceQuality {
+  if (args.fromHeuristic) return 'fallback'
   if (!args.available) return 'fallback'
   if (args.ageMs > args.ttlMs / 2) return 'low'
   if (args.strength01 >= 0.7) return 'high'
@@ -136,11 +141,15 @@ export function deriveSourceQuality(args: {
 
 /** Honest user-facing status taxonomy. */
 export function deriveUserStatus(args: {
-  available: boolean
-  fromCache: boolean
-  ageMs:     number
-  ttlMs:     number
+  available:      boolean
+  fromCache:      boolean
+  /** True when the read came from an internal cross-engine heuristic
+   *  rather than a first-party provider — surfaces as 'fallback'. */
+  fromHeuristic?: boolean
+  ageMs:          number
+  ttlMs:          number
 }): UserStatus {
+  if (args.fromHeuristic && args.available) return 'fallback'
   if (args.available && !args.fromCache) return 'live'
   if (args.fromCache && args.ageMs <= args.ttlMs) return 'stale'
   if (args.fromCache && args.ageMs > args.ttlMs)  return 'building'

@@ -226,6 +226,188 @@ async function aggregateCorrelation(): Promise<CorrelationAgg> {
 }
 
 
+// ── Internal heuristic engines ────────────────────────────────────────
+// When the external provider for Smart Money or Whale Flow is down
+// (credits exhausted, rate-limited, unconfigured), we run an internal
+// heuristic over engines we ALREADY have a read for. It never lies
+// about its source — the composer maps `provenance: 'heuristic'` to
+// `source_quality: 'fallback'` and `userStatus: 'fallback'` so the
+// card honestly says "internal model" instead of "recalibrating".
+//
+// Inputs are the signals array AFTER regime / breadth / dominance /
+// volatility have populated. The heuristics deliberately use multiple
+// inputs so a single weak signal can't drag the read.
+
+interface HeuristicInputs {
+  regime?:     NormalizedSignal
+  breadth?:    NormalizedSignal
+  dominance?:  NormalizedSignal
+  volatility?: NormalizedSignal
+}
+
+function pickInputs(signals: NormalizedSignal[]): HeuristicInputs {
+  return {
+    regime:     signals.find((s) => s.engine === 'regime'     && s.available),
+    breadth:    signals.find((s) => s.engine === 'breadth'    && s.available),
+    dominance:  signals.find((s) => s.engine === 'dominance'  && s.available),
+    volatility: signals.find((s) => s.engine === 'volatility' && s.available),
+  }
+}
+
+/** Smart Money heuristic — "is risk capital accumulating or distributing?"
+ *
+ * Combines: regime constructive/defensive share + breadth posture +
+ * dominance sentiment (mcap_change_24h), dampened by volatility stress.
+ * Returns null when too few inputs are present to produce a defensible
+ * read (the composer keeps the engine as 'building' in that case). */
+function smartMoneyHeuristic(inputs: HeuristicInputs): NormalizedSignal | null {
+  const present = [inputs.regime, inputs.breadth, inputs.dominance].filter(Boolean)
+  if (present.length < 2) return null  // need at least 2 of 3 for a defensible read
+
+  // regime: lean already in -1..+1
+  const regimeLean = inputs.regime?.lean ?? 0
+  // breadth: lean already in -1..+1 (postureLean * strength)
+  const breadthLean = inputs.breadth?.lean ?? 0
+  // dominance: lean already in -1..+1 (-1 risk-off, +1 risk-on, 0.5 scaled)
+  const domLean = inputs.dominance?.lean ?? 0
+
+  // Weighted average — regime is the heaviest single read.
+  const weights = { regime: 0.45, breadth: 0.35, dominance: 0.20 }
+  let wSum = 0, lSum = 0
+  if (inputs.regime)    { wSum += weights.regime;    lSum += weights.regime    * regimeLean }
+  if (inputs.breadth)   { wSum += weights.breadth;   lSum += weights.breadth   * breadthLean }
+  if (inputs.dominance) { wSum += weights.dominance; lSum += weights.dominance * domLean }
+  const composite = wSum > 0 ? lSum / wSum : 0
+
+  // Volatility dampener — high-vol environments make the read less
+  // reliable for slow-money intent (whales hide in chop).
+  const volStrength = inputs.volatility?.strength ?? 0
+  const damp = 1 - Math.min(0.4, volStrength * 0.5)
+  const lean = composite * damp
+
+  // Heuristic strength is capped at 0.60 — never claim high confidence
+  // from a fallback. Real Nansen/Glassnode reads earn 'high'; this earns
+  // 'fallback' on the source_quality pill.
+  const strength = Math.min(0.60, Math.abs(lean) * 0.9 + 0.20)
+
+  const bias: 'Bullish' | 'Bearish' | 'Neutral' =
+    lean >=  0.15 ? 'Bullish'
+    : lean <= -0.15 ? 'Bearish'
+    :                 'Neutral'
+  const conviction = Math.round(strength * 100)
+  const conviction_level: 'Low' | 'Moderate' | 'High' =
+    conviction >= 45 ? 'Moderate' : 'Low'
+
+  // Risk appetite + participation: derive from breadth + volatility
+  // rather than from a provider's wallet panel.
+  const risk_appetite: 'Risk-On' | 'Risk-Off' | 'Mixed' =
+    breadthLean >= 0.15 && regimeLean >= 0   ? 'Risk-On'
+    : breadthLean <= -0.15 && regimeLean <= 0 ? 'Risk-Off'
+    :                                            'Mixed'
+  const participation_quality: 'Broad' | 'Narrow' | 'Declining' =
+    Math.abs(breadthLean) >= 0.20 ? 'Broad'
+    : Math.abs(breadthLean) >= 0.05 ? 'Narrow'
+    :                                  'Declining'
+
+  const note = `Smart money read (internal model): ${bias.toLowerCase()} bias from cross-engine consensus (regime + breadth + dominance), ${risk_appetite.toLowerCase()} environment.`
+
+  return {
+    engine:      'smartMoney',
+    available:   true,
+    directional: true,
+    lean,
+    strength,
+    note,
+    provenance:  'heuristic',
+    data: {
+      bias,
+      conviction,
+      conviction_level,
+      participation_quality,
+      risk_appetite,
+      capital_concentration: 'Unknown',
+      dominant_rotation:     'Unknown',
+      source_basis:          'cross-engine consensus',
+    },
+  }
+}
+
+/** Whale Flow heuristic — "is large capital flowing in or out?"
+ *
+ * Whale prints leave footprints in breadth + volatility + dominance
+ * even without on-chain data. Accumulation correlates with broadening
+ * participation + calm volatility + falling dominance (rotation into
+ * mid-caps). Distribution correlates with narrowing breadth +
+ * elevated volatility + rising dominance (flight to BTC). Returns
+ * null when there isn't enough cross-engine context to lean. */
+function whaleFlowHeuristic(inputs: HeuristicInputs): NormalizedSignal | null {
+  // Need breadth + (vol or dominance) to call a movement read.
+  if (!inputs.breadth) return null
+  if (!inputs.volatility && !inputs.dominance) return null
+
+  const breadthLean = inputs.breadth.lean
+  const volStrength = inputs.volatility?.strength ?? 0
+  const domLean     = inputs.dominance?.lean ?? 0
+
+  // Volatility contribution: calm + bullish breadth → accumulation;
+  // elevated + bearish breadth → distribution. Volatility strength is
+  // the share of universe at elevated/high — so high == stressed.
+  const volContribution = volStrength >= 0.5
+    ? -0.3                         // stressed → distribution bias
+    : volStrength <= 0.20
+      ?  0.15                      // calm → accumulation bias
+      :  0
+  const composite = breadthLean * 0.5 + domLean * 0.3 + volContribution * 0.2
+  const lean = Math.max(-1, Math.min(1, composite))
+  const strength = Math.min(0.55, Math.abs(lean) * 0.85 + 0.20)
+
+  const movement_bias: 'Accumulation' | 'Distribution' | 'Neutral' =
+    lean >=  0.18 ? 'Accumulation'
+    : lean <= -0.18 ? 'Distribution'
+    :                 'Neutral'
+
+  // Aggression: volatility-driven. Elevated vol with directional lean
+  // signals aggressive movement; calm vol = passive.
+  const movement_aggression: 'Aggressive' | 'Moderate' | 'Passive' =
+    volStrength >= 0.5 && Math.abs(lean) >= 0.20 ? 'Aggressive'
+    : volStrength >= 0.30                          ? 'Moderate'
+    :                                                 'Passive'
+  const capital_persistence: 'Building' | 'Holding' | 'Unwinding' =
+    movement_bias === 'Accumulation' ? 'Building'
+    : movement_bias === 'Distribution' ? 'Unwinding'
+    :                                     'Holding'
+  const dominant_movement: 'Inflow' | 'Outflow' | 'Sideways' =
+    movement_bias === 'Accumulation' ? 'Inflow'
+    : movement_bias === 'Distribution' ? 'Outflow'
+    :                                     'Sideways'
+
+  const confidence = Math.round(strength * 100)
+  const conviction_level: 'Low' | 'Moderate' | 'High' =
+    confidence >= 45 ? 'Moderate' : 'Low'
+
+  const note = `Whale flow read (internal model): ${movement_bias.toLowerCase()} inferred from breadth + volatility + dominance footprint.`
+
+  return {
+    engine:      'whaleFlow',
+    available:   true,
+    directional: true,
+    lean,
+    strength,
+    note,
+    provenance:  'heuristic',
+    data: {
+      movement_bias,
+      dominant_movement,
+      movement_aggression,
+      capital_persistence,
+      confidence,
+      conviction_level,
+      source_basis: 'cross-engine footprint',
+    },
+  }
+}
+
+
 // ── Small mappers ────────────────────────────────────────────────────────
 
 const sign = (x: number, band = 0.15): number => (x > band ? 1 : x < -band ? -1 : 0)
@@ -504,6 +686,35 @@ export async function gatherDecisionContext(): Promise<DecisionContext> {
     note: executionNote,
   })
 
+  // ── Internal heuristics for unavailable provider engines ──────
+  // When Smart Money / Whale Flow externals are down (credits, rate
+  // limit, unconfigured), produce a defensible cross-engine read so
+  // the user-facing card never shows the "recalibrating" placeholder.
+  // The heuristic carries `provenance: 'heuristic'` — the composer
+  // tags those modules `source_quality: 'fallback'` so users see
+  // "internal model" instead of "Source · High". Composed BEFORE the
+  // regime augment so the regime signal already has its base data,
+  // and BEFORE flowBias so the heuristic feeds the brain too.
+  const heuristicInputs = pickInputs(signals)
+  const smartSig = signals.find((s) => s.engine === 'smartMoney')
+  if (smartSig && !smartSig.available) {
+    const h = smartMoneyHeuristic(heuristicInputs)
+    if (h) {
+      const ix = signals.indexOf(smartSig)
+      signals[ix] = h
+      smBias = h.lean > 0 ? 1 : h.lean < 0 ? -1 : 0
+    }
+  }
+  const whaleSig = signals.find((s) => s.engine === 'whaleFlow')
+  if (whaleSig && !whaleSig.available) {
+    const h = whaleFlowHeuristic(heuristicInputs)
+    if (h) {
+      const ix = signals.indexOf(whaleSig)
+      signals[ix] = h
+      whaleBias = h.lean > 0 ? 1 : h.lean < 0 ? -1 : 0
+    }
+  }
+
   // ── Augment the Regime signal with vol + liquidity sub-states ──
   // We compose these AFTER the vol + breadth reads so the regime card
   // can render a four-dimensional view (environment / trend / vol /
@@ -526,10 +737,14 @@ export async function gatherDecisionContext(): Promise<DecisionContext> {
     }
   }
 
-  // Flow bias (smart money + whale)
+  // Flow bias (smart money + whale) — uses whichever source produced
+  // a read this cycle (external OR internal heuristic). The brain
+  // doesn't care about provenance; the UI does.
   const flowSum = smBias + whaleBias
+  const smartHeuristic  = signals.find((s) => s.engine === 'smartMoney')?.provenance === 'heuristic'
+  const whaleHeuristic  = signals.find((s) => s.engine === 'whaleFlow')?.provenance === 'heuristic'
   const flowBias: FlowBias | null =
-    (smart && !smart.partial) || (whale && !whale.partial)
+    (smart && !smart.partial) || (whale && !whale.partial) || smartHeuristic || whaleHeuristic
       ? (flowSum > 0 ? 'ACCUMULATION' : flowSum < 0 ? 'DISTRIBUTION' : 'NEUTRAL')
       : null
 

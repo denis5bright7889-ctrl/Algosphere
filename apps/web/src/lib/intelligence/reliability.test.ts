@@ -147,6 +147,37 @@ test('userStatus: no cache + unavailable → "building" (NOT "awaiting")', () =>
 
 
 // ═══════════════════════════════════════════════════════════════════
+// 3b. Heuristic provenance overrides source quality + user status
+//     so internal-model reads never claim institutional-grade source.
+// ═══════════════════════════════════════════════════════════════════
+
+test('source_quality: heuristic provenance forces fallback even with high strength', () => {
+  const sq = deriveSourceQuality({
+    available: true, strength01: 0.95,
+    ageMs: 0, ttlMs: 30 * 60_000,
+    fromHeuristic: true,
+  })
+  assert.equal(sq, 'fallback', 'heuristic must never claim high source quality')
+})
+
+test('userStatus: heuristic + available → "fallback" (NOT "live")', () => {
+  const u = deriveUserStatus({
+    available: true, fromCache: false, fromHeuristic: true,
+    ageMs: 0, ttlMs: 30 * 60_000,
+  })
+  assert.equal(u, 'fallback')
+})
+
+test('userStatus: external read with fromHeuristic=false still resolves "live"', () => {
+  const u = deriveUserStatus({
+    available: true, fromCache: false, fromHeuristic: false,
+    ageMs: 0, ttlMs: 30 * 60_000,
+  })
+  assert.equal(u, 'live')
+})
+
+
+// ═══════════════════════════════════════════════════════════════════
 // 4. Freshness label
 // ═══════════════════════════════════════════════════════════════════
 

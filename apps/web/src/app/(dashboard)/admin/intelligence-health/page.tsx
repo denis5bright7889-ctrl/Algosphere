@@ -20,7 +20,7 @@
 import { notFound, redirect } from 'next/navigation'
 import {
   Activity, AlertOctagon, CheckCircle2, Clock, Database, Radar,
-  TrendingDown, type LucideIcon,
+  Sparkles, TrendingDown, type LucideIcon,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { isAdmin } from '@/lib/admin'
@@ -83,6 +83,9 @@ export default async function IntelligenceHealthPage() {
   const stalePct    = totalEvents > 0
     ? Math.round((all.filter((e) => e.outcome === 'stale').length / totalEvents) * 100)
     : 0
+  const heuristicPct = totalEvents > 0
+    ? Math.round((all.filter((e) => e.outcome === 'heuristic').length / totalEvents) * 100)
+    : 0
   const buildingPct = totalEvents > 0
     ? Math.round((all.filter((e) => e.outcome === 'building').length / totalEvents) * 100)
     : 0
@@ -109,11 +112,12 @@ export default async function IntelligenceHealthPage() {
             {totalEvents} events captured · last {recent.length} shown below
           </span>
         </header>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Tile label="Live %"     value={`${livePct}%`}     tone={livePct >= 70 ? 'emerald' : livePct >= 40 ? 'amber' : 'rose'} icon={CheckCircle2} />
-          <Tile label="Stale %"    value={`${stalePct}%`}    tone={stalePct < 20 ? 'emerald' : stalePct < 40 ? 'amber' : 'rose'} icon={Clock} />
-          <Tile label="Building %" value={`${buildingPct}%`} tone={buildingPct < 10 ? 'emerald' : buildingPct < 30 ? 'amber' : 'rose'} icon={Database} />
-          <Tile label="Errors"     value={String(errorEvents)} tone={errorEvents === 0 ? 'emerald' : errorEvents < 10 ? 'amber' : 'rose'} icon={AlertOctagon} />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <Tile label="Live %"      value={`${livePct}%`}     tone={livePct >= 70 ? 'emerald' : livePct >= 40 ? 'amber' : 'rose'} icon={CheckCircle2} />
+          <Tile label="Stale %"     value={`${stalePct}%`}    tone={stalePct < 20 ? 'emerald' : stalePct < 40 ? 'amber' : 'rose'} icon={Clock} />
+          <Tile label="Heuristic %" value={`${heuristicPct}%`} tone={heuristicPct < 10 ? 'emerald' : heuristicPct < 30 ? 'amber' : 'rose'} icon={Sparkles} />
+          <Tile label="Building %"  value={`${buildingPct}%`} tone={buildingPct < 10 ? 'emerald' : buildingPct < 30 ? 'amber' : 'rose'} icon={Database} />
+          <Tile label="Errors"      value={String(errorEvents)} tone={errorEvents === 0 ? 'emerald' : errorEvents < 10 ? 'amber' : 'rose'} icon={AlertOctagon} />
         </div>
       </section>
 
@@ -133,13 +137,14 @@ export default async function IntelligenceHealthPage() {
           </p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-[12px]">
+            <table className="w-full min-w-[720px] text-[12px]">
               <thead>
                 <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-muted-foreground">
                   <th className="py-2 pr-3">Engine</th>
                   <th className="py-2 pr-3 text-right">Events</th>
                   <th className="py-2 pr-3 text-right">Live</th>
                   <th className="py-2 pr-3 text-right">Stale</th>
+                  <th className="py-2 pr-3 text-right">Heuristic</th>
                   <th className="py-2 pr-3 text-right">Building</th>
                   <th className="py-2 pr-3">Top error</th>
                   <th className="py-2 pr-1">Last status</th>
@@ -207,8 +212,9 @@ function EngineRow({ row }: { row: EngineHealthRow }) {
     : 'text-rose-300'
   const last = row.latest
   const lastTone =
-    last?.outcome === 'live'     ? 'text-emerald-300'
-    : last?.outcome === 'stale'   ? 'text-amber-300'
+    last?.outcome === 'live'      ? 'text-emerald-300'
+    : last?.outcome === 'stale'    ? 'text-amber-300'
+    : last?.outcome === 'heuristic' ? 'text-cyan-300'
     : 'text-rose-300'
   return (
     <tr className="border-b border-border/50 last:border-0">
@@ -216,6 +222,7 @@ function EngineRow({ row }: { row: EngineHealthRow }) {
       <td className="py-2 pr-3 text-right tabular-nums">{row.events_seen}</td>
       <td className={cn('py-2 pr-3 text-right tabular-nums', liveTone)}>{row.live_rate_pct}%</td>
       <td className="py-2 pr-3 text-right tabular-nums text-amber-300/85">{row.stale_rate_pct}%</td>
+      <td className="py-2 pr-3 text-right tabular-nums text-cyan-300/85">{row.heuristic_rate_pct}%</td>
       <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">{row.building_rate_pct}%</td>
       <td className="py-2 pr-3 text-muted-foreground">
         {row.top_error_class ? ERROR_CLASS_LABEL[row.top_error_class] : '—'}
@@ -230,8 +237,9 @@ function EngineRow({ row }: { row: EngineHealthRow }) {
 
 function EventRow({ event }: { event: EngineEvent }) {
   const tone =
-    event.outcome === 'live'     ? 'border-emerald-500/30 bg-emerald-500/[0.04] text-emerald-200'
-    : event.outcome === 'stale'   ? 'border-amber-500/30 bg-amber-500/[0.04] text-amber-200'
+    event.outcome === 'live'      ? 'border-emerald-500/30 bg-emerald-500/[0.04] text-emerald-200'
+    : event.outcome === 'stale'    ? 'border-amber-500/30 bg-amber-500/[0.04] text-amber-200'
+    : event.outcome === 'heuristic' ? 'border-cyan-500/30 bg-cyan-500/[0.04] text-cyan-200'
     : 'border-rose-500/30 bg-rose-500/[0.04] text-rose-200'
   const cacheBit = event.cache_age_ms != null
     ? `· cache age ${Math.round(event.cache_age_ms / 60_000)}m`

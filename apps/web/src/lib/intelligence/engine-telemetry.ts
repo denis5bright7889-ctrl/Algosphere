@@ -28,7 +28,8 @@ import 'server-only'
 export type EngineOutcome =
   | 'live'        // engine returned current data → fresh module
   | 'stale'       // engine unavailable, served last successful from cache
-  | 'building'    // engine unavailable, no cache → placeholder
+  | 'heuristic'   // engine unavailable, served internal cross-engine model
+  | 'building'    // engine unavailable, no cache, no heuristic → placeholder
 
 /** Sanitized error class — never includes provider names or raw API
  *  payloads. Picked by classifyError() from the raw engine note. */
@@ -70,6 +71,8 @@ export interface EngineHealthRow {
   live_rate_pct:    number
   /** % with outcome='stale'. */
   stale_rate_pct:   number
+  /** % with outcome='heuristic' — internal model carrying the engine. */
+  heuristic_rate_pct: number
   /** % with outcome='building'. */
   building_rate_pct: number
   /** Most-frequent error_class over the window. */
@@ -149,6 +152,7 @@ export function aggregateHealth(opts: { perEngineLimit?: number } = {}): EngineH
     const total = events.length
     const live  = events.filter((e) => e.outcome === 'live').length
     const stale = events.filter((e) => e.outcome === 'stale').length
+    const heuristic = events.filter((e) => e.outcome === 'heuristic').length
     const building = events.filter((e) => e.outcome === 'building').length
     const errorsByClass: Partial<Record<ErrorClass, number>> = {}
     for (const e of events) {
@@ -163,13 +167,14 @@ export function aggregateHealth(opts: { perEngineLimit?: number } = {}): EngineH
     }
     rows.push({
       engine,
-      events_seen:        total,
-      live_rate_pct:      Math.round((live     / total) * 100),
-      stale_rate_pct:     Math.round((stale    / total) * 100),
-      building_rate_pct:  Math.round((building / total) * 100),
-      top_error_class:    topErrorClass,
-      errors_by_class:    errorsByClass,
-      latest:             events[0] ?? null,  // events is newest-first per the slice above
+      events_seen:         total,
+      live_rate_pct:       Math.round((live      / total) * 100),
+      stale_rate_pct:      Math.round((stale     / total) * 100),
+      heuristic_rate_pct:  Math.round((heuristic / total) * 100),
+      building_rate_pct:   Math.round((building  / total) * 100),
+      top_error_class:     topErrorClass,
+      errors_by_class:     errorsByClass,
+      latest:              events[0] ?? null,  // events is newest-first per the slice above
     })
   }
 
