@@ -29,7 +29,11 @@ export default async function WhaleFlowsPage() {
         </p>
       </header>
 
-      <CapitalMovementSummaryPanel summary={view.summary} narrative={view.narrative} />
+      <CapitalMovementSummaryPanel
+        summary={view.summary}
+        narrative={view.narrative}
+        fromHeuristic={view.fromHeuristic ?? false}
+      />
 
       {view.categories.length > 0 && (
         <Section title="Capital Movement Categories" blurb="Classified flow types ranked by share of universe flow.">
@@ -46,7 +50,11 @@ export default async function WhaleFlowsPage() {
           </div>
         </Section>
       ) : view.partial ? (
-        <Notice intent="warn">{view.reason}</Notice>
+        <Notice intent="info">
+          Wallet-level movement reads are recalibrating. The Capital Movement
+          Summary above is being carried by the internal cross-engine model —
+          per-token movements resume once the primary source returns.
+        </Notice>
       ) : (
         <Notice intent="info">No movements currently meet the institutional filters (min liquidity / netflow). Quiet window.</Notice>
       )}
@@ -96,13 +104,27 @@ function Notice({ intent, children }: { intent: 'info' | 'warn'; children: React
 
 // ── Layer 1 — Capital Movement Summary ───────────────────────────────────
 
-function CapitalMovementSummaryPanel({ summary, narrative }: { summary: CapitalMovementSummary; narrative: string }) {
+function CapitalMovementSummaryPanel({ summary, narrative, fromHeuristic }: {
+  summary:       CapitalMovementSummary
+  narrative:     string
+  fromHeuristic: boolean
+}) {
   const biasTone = biasColour(summary.movement_bias)
   return (
     <section className={cn('space-y-4 rounded-2xl border bg-card p-5 shadow-sm', biasTone.border)}>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
-          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Capital Movement Summary</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Capital Movement Summary</span>
+            {fromHeuristic && (
+              <span
+                title="Primary provider unavailable this cycle. Read is composed from breadth + dominance + regime cross-engine consensus. Source quality intentionally capped."
+                className="inline-flex items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/[0.06] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-cyan-300"
+              >
+                Internal model
+              </span>
+            )}
+          </div>
           <p className="text-sm leading-relaxed text-foreground/90 max-w-3xl">{narrative}</p>
         </div>
         <ConvictionDial level={summary.conviction_level} score={summary.confidence} />

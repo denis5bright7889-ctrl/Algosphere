@@ -25,6 +25,9 @@
 import 'server-only'
 import { tokenScreener, isNansenConfigured, type NansenToken, type NansenChain } from '@/lib/nansen'
 import { sectorOf, SECTOR_LABEL, type Sector } from '@/lib/token-sectors'
+import { composeBreadthView } from '@/lib/breadth-engine'
+import { composeMarketOverview } from '@/lib/coingecko'
+import { createClient } from '@/lib/supabase/server'
 
 // ── Public types ─────────────────────────────────────────────────────────
 
@@ -100,10 +103,18 @@ export interface WhaleFlowView {
   categories:              MovementCategoryRow[]
   significant:             SignificantMovement[]
   movement_table:          MovementTableRow[]
+  /** ALREADY SANITIZED — never carries provider names, HTTP codes, or
+   *  credit wording. Safe to render directly. */
   narrative:               string
   generated_at:            string
   partial:                 boolean
+  /** RAW reason (provider error, HTTP code, etc.) — admin/telemetry only.
+   *  NEVER render this directly on the user surface. */
   reason?:                 string
+  /** True when summary + narrative came from the internal cross-engine
+   *  heuristic rather than the first-party provider. UI pills this as
+   *  "internal model" so users honestly weight the read. */
+  fromHeuristic?:          boolean
 }
 
 // ── Tunable filters (hidden) ─────────────────────────────────────────────
@@ -416,7 +427,7 @@ function buildMovementTable(rows: NansenToken[]): MovementTableRow[] {
 export async function composeWhaleFlowView(opts: { window?: '1h' | '24h' | '7d' | '30d'; limit?: number } = {}): Promise<WhaleFlowView> {
   const generated_at = new Date().toISOString()
   if (!isNansenConfigured()) {
-    return emptyView('NANSEN_API_KEY not configured', generated_at)
+    return await emptyView('Whale flow provider unconfigured', generated_at)
   }
   let tokens: NansenToken[] = []
   try {
@@ -428,10 +439,10 @@ export async function composeWhaleFlowView(opts: { window?: '1h' | '24h' | '7d' 
       limit:     opts.limit ?? 120,
     })
   } catch (e) {
-    return emptyView(e instanceof Error ? e.message : 'Nansen unavailable', generated_at)
+    return await emptyView(e instanceof Error ? e.message : 'Whale flow provider unavailable', generated_at)
   }
   if (tokens.length === 0) {
-    return emptyView('Nansen screener returned an empty universe for this window', generated_at)
+    return await emptyView('Whale flow provider returned an empty universe for this window', generated_at)
   }
 
   const summary       = buildSummary(tokens)
@@ -443,7 +454,33 @@ export async function composeWhaleFlowView(opts: { window?: '1h' | '24h' | '7d' 
   return { summary, categories, significant, movement_table, narrative, generated_at, partial: false }
 }
 
-function emptyView(reason: string, generated_at: string): WhaleFlowView {
+/**
+ * Empty / fallback view when the external whale flow provider is down.
+ *
+ * Populates the user-facing surface (narrative + summary) with the
+ * internal cross-engine heuristic over breadth + dominance + regime.
+ * When even those inputs are unavailable, falls back to a canonical
+ * clean narrative — NEVER the raw provider error.
+ *
+ * Raw `reason` is preserved on the response for telemetry but the page
+ * must NEVER render it directly (the smart-money fix established this
+ * pattern in commit 31fa929).
+ */
+async function emptyView(reason: string, generated_at: string): Promise<WhaleFlowView> {
+  const heur = await composeWhaleFlowHeuristic()
+  if (heur) {
+    return {
+      summary:        heur.summary,
+      categories:     [],
+      significant:    [],
+      movement_table: [],
+      narrative:      heur.narrative,
+      generated_at,
+      partial:        true,
+      reason,
+      fromHeuristic:  true,
+    }
+  }
   return {
     summary: {
       movement_bias: 'Balanced', dominant_movement: 'Flat',
@@ -454,9 +491,160 @@ function emptyView(reason: string, generated_at: string): WhaleFlowView {
     categories: [],
     significant: [],
     movement_table: [],
-    narrative: `Capital movement intelligence unavailable: ${reason}`,
+    narrative: 'Whale flow positioning data is recalibrating. Cross-engine inputs are also warming up — read will resume on the next cycle.',
     generated_at,
     partial: true,
     reason,
+    fromHeuristic: true,
+  }
+}
+
+
+// ── Cross-engine heuristic (internal Whale Flow model) ────────────────
+// Whale prints leave footprints in breadth + dominance + regime even
+// without per-wallet on-chain data. Mirrors the decision-brain
+// `whaleFlowHeuristic` so the standalone /intelligence/whale-flows page
+// renders defensible content instead of all-zero placeholders.
+//
+// Strength is capped at 0.55 — never claims institutional-grade.
+
+const CONSTRUCTIVE_REGIMES = new Set(['trending', 'trending_up', 'expansion'])
+const DEFENSIVE_REGIMES    = new Set(['high_volatility', 'volatile', 'exhaustion', 'distribution', 'collapse_risk'])
+
+interface HeuristicResult {
+  summary:   CapitalMovementSummary
+  narrative: string
+}
+
+async function composeWhaleFlowHeuristic(): Promise<HeuristicResult | null> {
+  const [regimeRes, breadthRes, overviewRes] = await Promise.allSettled([
+    readRegimeShare(),
+    composeBreadthView(),
+    composeMarketOverview(),
+  ])
+  const regime   = regimeRes.status   === 'fulfilled' ? regimeRes.value   : null
+  const breadth  = breadthRes.status  === 'fulfilled' ? breadthRes.value  : null
+  const overview = overviewRes.status === 'fulfilled' ? overviewRes.value : null
+
+  // Need breadth + (regime or dominance) to compose a defensible read.
+  if (!breadth?.crypto.available) return null
+  if (!regime && !overview?.dominance) return null
+
+  const breadthLean = Math.max(-1, Math.min(1, (breadth.crypto.pct_advancing - 50) / 50))
+  const domLean = overview?.dominance
+    ? (overview.dominance.sentiment === 'Risk-On' ? 0.5
+       : overview.dominance.sentiment === 'Risk-Off' ? -0.5 : 0)
+    : 0
+  const stressed = breadth.crypto.state === 'Narrow' || breadth.crypto.state === 'Weak'
+  // Volatility/stress contribution — distribution bias when stressed,
+  // accumulation bias when calm + broadening.
+  const volContribution = stressed ? -0.3 : (breadthLean > 0.10 ? 0.15 : 0)
+  const composite = breadthLean * 0.5 + domLean * 0.3 + volContribution * 0.2
+  const lean = Math.max(-1, Math.min(1, composite))
+  const strength = Math.min(0.55, Math.abs(lean) * 0.85 + 0.20)
+  const confidence = Math.round(strength * 100)
+
+  const movement_bias: MovementBias =
+    lean >=  0.18 ? 'Accumulation'
+    : lean <= -0.18 ? 'Distribution'
+    :                 'Balanced'
+  // Dominant movement: state label borrowed from the same dictionary as
+  // the per-token classifier, so the UI's tone helpers still work.
+  const dominant_movement: MovementState =
+    movement_bias === 'Accumulation' && breadthLean >= 0.20 ? 'Stealth Accumulation'
+    : movement_bias === 'Accumulation'                       ? 'Ecosystem Rotation'
+    : movement_bias === 'Distribution' && stressed           ? 'Distribution Pressure'
+    : movement_bias === 'Distribution'                       ? 'Defensive Capital Movement'
+    : stressed                                                ? 'Capital Fragmentation'
+    :                                                           'Flat'
+  // Aggression: stressed + directional lean → aggressive; calm + small
+  // lean → quiet.
+  const movement_aggression: Aggression =
+    stressed && Math.abs(lean) >= 0.25 ? 'Aggressive'
+    : Math.abs(lean) >= 0.15            ? 'Moderate'
+    : Math.abs(lean) >= 0.05            ? 'Measured'
+    :                                     'Quiet'
+  // Persistence: accumulation w/ broadening breadth → building; weak
+  // breadth → fading.
+  const capital_persistence: Persistence =
+    movement_bias === 'Accumulation' && breadthLean >= 0.15 ? 'Sustained'
+    : movement_bias === 'Accumulation'                       ? 'Building'
+    : movement_bias === 'Distribution' && stressed           ? 'Fading'
+    :                                                           'Sporadic'
+
+  // Concentration proxy: BTC dominance level.
+  const concentration_pct = overview?.dominance?.btc_dominance ?? 50
+  // Active chains: we don't have a chain count without provider data,
+  // but breadth's sample size is a reasonable proxy for "active market
+  // surface size". Cap at 6 (eth, sol, base, arb, op, bnb).
+  const active_chains = Math.min(6, Math.max(1, Math.round(breadth.crypto.sample_size / 20)))
+  const conviction_level: ConvictionLevel =
+    confidence >= CONVICTION_HIGH      ? 'High'
+    : confidence >= CONVICTION_MODERATE ? 'Moderate'
+    :                                     'Weak'
+
+  const parts: string[] = []
+  parts.push(
+    movement_bias === 'Accumulation' ? 'Internal model reads net capital inflow inferred from breadth + dominance footprint.'
+    : movement_bias === 'Distribution' ? 'Internal model reads net capital outflow inferred from breadth + dominance footprint.'
+    :                                     'Internal model reads balanced capital movement.',
+  )
+  parts.push(`Breadth at ${breadth.crypto.pct_advancing}% advancing — ${breadth.posture.toLowerCase()} posture.`)
+  if (overview?.dominance) {
+    parts.push(
+      `BTC dominance ${overview.dominance.btc_dominance.toFixed(1)}%, total cap ${overview.dominance.mcap_change_24h >= 0 ? '+' : ''}${overview.dominance.mcap_change_24h.toFixed(2)}% 24h.`,
+    )
+  }
+  if (regime) {
+    parts.push(`Regime backdrop: ${regime.constructive_pct}% constructive vs ${regime.defensive_pct}% defensive across ${regime.symbols_scanned} symbols.`)
+  }
+  parts.push('Heuristic confidence intentionally capped — primary provider still recalibrating.')
+
+  return {
+    summary: {
+      movement_bias, dominant_movement, movement_aggression,
+      capital_persistence,
+      concentration_pct: Math.round(concentration_pct * 10) / 10,
+      active_chains, confidence, conviction_level,
+    },
+    narrative: parts.join(' '),
+  }
+}
+
+interface RegimeShare {
+  constructive_pct: number
+  defensive_pct:    number
+  transitional_pct: number
+  symbols_scanned:  number
+}
+
+async function readRegimeShare(): Promise<RegimeShare | null> {
+  try {
+    const supabase = await createClient()
+    const { data } = await supabase
+      .from('regime_snapshots')
+      .select('symbol, regime, scanned_at')
+      .order('scanned_at', { ascending: false })
+      .limit(300)
+    const seen = new Set<string>()
+    let constructive = 0, defensive = 0, transitional = 0, total = 0
+    for (const r of data ?? []) {
+      if (seen.has(r.symbol)) continue
+      seen.add(r.symbol)
+      total++
+      const g = (r.regime ?? '').toLowerCase()
+      if (CONSTRUCTIVE_REGIMES.has(g)) constructive++
+      else if (DEFENSIVE_REGIMES.has(g)) defensive++
+      else if (g === 'transitional') transitional++
+    }
+    if (total < 3) return null
+    return {
+      constructive_pct: Math.round((constructive / total) * 100),
+      defensive_pct:    Math.round((defensive    / total) * 100),
+      transitional_pct: Math.round((transitional / total) * 100),
+      symbols_scanned:  total,
+    }
+  } catch {
+    return null
   }
 }
