@@ -40,7 +40,11 @@ export default async function SmartMoneyPage() {
       </header>
 
       {/* ── LAYER 1 — Market Flow Summary ───────────────────────────────── */}
-      <MarketFlowSummaryPanel summary={view.summary} narrative={view.narrative} />
+      <MarketFlowSummaryPanel
+        summary={view.summary}
+        narrative={view.narrative}
+        fromHeuristic={view.fromHeuristic ?? false}
+      />
 
       {/* ── LAYER 2 — Sector & Narrative Rotation ────────────────────────── */}
       {view.sectors.length > 0 && (
@@ -61,7 +65,11 @@ export default async function SmartMoneyPage() {
           </div>
         </Section>
       ) : view.partial ? (
-        <Notice intent="warn">{view.reason}</Notice>
+        <Notice intent="info">
+          High-conviction wallet-level reads are recalibrating. The Market Flow
+          Summary above is being carried by the internal cross-engine model —
+          per-wallet flows resume once the primary source returns.
+        </Notice>
       ) : (
         <Notice intent="info">No flows currently meet the institutional filters (min liquidity / volume / netflow). Quiet window — check back in a few minutes.</Notice>
       )}
@@ -113,14 +121,28 @@ function Notice({ intent, children }: { intent: 'info' | 'warn'; children: React
 
 // ── Layer 1 — Market Flow Summary panel ──────────────────────────────────
 
-function MarketFlowSummaryPanel({ summary, narrative }: { summary: MarketFlowSummary; narrative: string }) {
+function MarketFlowSummaryPanel({ summary, narrative, fromHeuristic }: {
+  summary:       MarketFlowSummary
+  narrative:     string
+  fromHeuristic: boolean
+}) {
   const biasTone = biasColour(summary.smart_money_bias)
   return (
     <section className={cn('space-y-4 rounded-2xl border bg-card p-5 shadow-sm', biasTone.border)}>
       {/* Top strip — institutional narrative + composite conviction */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
-          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Market Flow Summary</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Market Flow Summary</span>
+            {fromHeuristic && (
+              <span
+                title="Primary provider unavailable this cycle. Read is composed from regime + breadth + dominance cross-engine consensus. Source quality intentionally capped."
+                className="inline-flex items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/[0.06] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-cyan-300"
+              >
+                Internal model
+              </span>
+            )}
+          </div>
           <p className="text-sm leading-relaxed text-foreground/90 max-w-3xl">{narrative}</p>
         </div>
         <ConvictionDial level={summary.conviction_level} score={summary.conviction} />

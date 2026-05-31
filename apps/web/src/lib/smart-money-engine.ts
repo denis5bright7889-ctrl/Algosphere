@@ -27,6 +27,9 @@ import 'server-only'
 import { tokenScreener, isNansenConfigured, type NansenToken, type NansenChain } from '@/lib/nansen'
 import { sectorOf, SECTOR_LABEL, type Sector } from '@/lib/token-sectors'
 import { composeMomentumView, type MomentumView, type MomentumPhase } from '@/lib/momentum-engine'
+import { composeBreadthView } from '@/lib/breadth-engine'
+import { composeMarketOverview } from '@/lib/coingecko'
+import { createClient } from '@/lib/supabase/server'
 import { logDecision, fingerprint } from '@/lib/intel-memory'
 
 // ── Public types ─────────────────────────────────────────────────────────
@@ -117,11 +120,19 @@ export interface SmartMoneyFlowView {
   sectors:                 SectorRotationRow[]
   high_conviction:         HighConvictionFlow[]
   flow_table:              FlowIntelligenceRow[]
-  /** Top-of-page institutional AI narrative — composed from summary + sector signals. */
+  /** Top-of-page institutional AI narrative — composed from summary + sector signals.
+   *  ALREADY SANITIZED — never carries provider names, HTTP codes, or credit wording.
+   *  Safe to render directly. */
   narrative:               string
   generated_at:            string
   partial:                 boolean
-  reason?:                 string                  // explained when Nansen unconfigured / down
+  /** RAW reason (provider error, HTTP code, etc.) — for admin/telemetry only.
+   *  NEVER render this directly on the user surface. */
+  reason?:                 string
+  /** True when summary + narrative came from the internal cross-engine
+   *  heuristic rather than the first-party provider. UI should pill this
+   *  as "internal model" so users honestly weight the read. */
+  fromHeuristic?:          boolean
 }
 
 // ── Tunable filters (live here, not exposed in response) ────────────────
@@ -554,7 +565,7 @@ function shortNarrative(state: FlowState, sus: FlowSustainability): string {
 export async function composeSmartMoneyFlow(opts: { window?: '1h' | '24h' | '7d' | '30d'; limit?: number } = {}): Promise<SmartMoneyFlowView> {
   const generated_at = new Date().toISOString()
   if (!isNansenConfigured()) {
-    return emptyView('NANSEN_API_KEY not configured', generated_at)
+    return await emptyView('Smart money provider unconfigured', generated_at)
   }
   let tokens: NansenToken[] = []
   try {
@@ -566,10 +577,10 @@ export async function composeSmartMoneyFlow(opts: { window?: '1h' | '24h' | '7d'
       limit:     opts.limit ?? 100,
     })
   } catch (e) {
-    return emptyView(e instanceof Error ? e.message : 'Nansen unavailable', generated_at)
+    return await emptyView(e instanceof Error ? e.message : 'Smart money provider unavailable', generated_at)
   }
   if (tokens.length === 0) {
-    return emptyView('Nansen screener returned an empty universe for this window', generated_at)
+    return await emptyView('Smart money provider returned an empty universe for this window', generated_at)
   }
 
   // Pre-compute SM quality once per token (used in all layers).
@@ -595,7 +606,36 @@ export async function composeSmartMoneyFlow(opts: { window?: '1h' | '24h' | '7d'
   return { summary, sectors, high_conviction: highConv, flow_table, narrative, generated_at, partial: false }
 }
 
-function emptyView(reason: string, generated_at: string): SmartMoneyFlowView {
+/**
+ * Empty / fallback view when the external Smart Money provider is down.
+ *
+ * The user-facing surface (narrative + summary) is populated by an
+ * internal cross-engine heuristic over regime + breadth + dominance —
+ * the same shape used by the Decision-Brain composer. When even the
+ * cross-engine inputs are unavailable, we fall back to a clean
+ * canonical narrative (NEVER the raw provider error).
+ *
+ * Raw `reason` is preserved on the response for telemetry, but it must
+ * NEVER reach the user UI — the page renders `narrative` only.
+ */
+async function emptyView(reason: string, generated_at: string): Promise<SmartMoneyFlowView> {
+  const heur = await composeSmartMoneyHeuristic()
+  if (heur) {
+    return {
+      summary:         heur.summary,
+      sectors:         [],
+      high_conviction: [],
+      flow_table:      [],
+      narrative:       heur.narrative,
+      generated_at,
+      partial:         true,    // still partial — heuristic, not provider
+      reason,                   // raw — admin/telemetry only, not rendered
+      fromHeuristic:   true,
+    }
+  }
+  // Heuristic inputs also unavailable — fall back to canonical
+  // narrative. The page still pills "internal model" so the user knows
+  // this is a defensible fallback, not a fake "everything ok" read.
   return {
     summary: {
       smart_money_bias: 'Neutral', dominant_rotation: 'Other',
@@ -606,9 +646,179 @@ function emptyView(reason: string, generated_at: string): SmartMoneyFlowView {
     sectors: [],
     high_conviction: [],
     flow_table: [],
-    narrative: `Smart money flow intelligence unavailable: ${reason}`,
+    narrative: 'Large-wallet positioning data is recalibrating. Cross-engine inputs are also warming up — read will resume on the next cycle.',
     generated_at,
     partial: true,
     reason,
+    fromHeuristic: true,
+  }
+}
+
+
+// ── Cross-engine heuristic (internal Smart Money model) ──────────────
+// Mirrors the composer in `lib/decision-brain/engine.ts` so the
+// standalone /intelligence/smart-money page renders a defensible read
+// instead of zero-default placeholders when the provider is unavailable.
+// Honest about provenance — caller marks `fromHeuristic: true` and the
+// UI surfaces "internal model" rather than "Source · High".
+
+const CONSTRUCTIVE_REGIMES = new Set(['trending', 'trending_up', 'expansion'])
+const DEFENSIVE_REGIMES    = new Set(['high_volatility', 'volatile', 'exhaustion', 'distribution', 'collapse_risk'])
+
+interface HeuristicResult {
+  summary:   MarketFlowSummary
+  narrative: string
+}
+
+async function composeSmartMoneyHeuristic(): Promise<HeuristicResult | null> {
+  // Pull regime + breadth + dominance in parallel. None throw — failures
+  // collapse to null and we degrade rather than fabricate.
+  const [regimeRes, breadthRes, overviewRes] = await Promise.allSettled([
+    readRegimeShare(),
+    composeBreadthView(),
+    composeMarketOverview(),
+  ])
+  const regime   = regimeRes.status   === 'fulfilled' ? regimeRes.value   : null
+  const breadth  = breadthRes.status  === 'fulfilled' ? breadthRes.value  : null
+  const overview = overviewRes.status === 'fulfilled' ? overviewRes.value : null
+
+  // Need at least two inputs to compose a defensible read.
+  const presentCount = [regime, breadth?.crypto.available, overview?.dominance].filter(Boolean).length
+  if (presentCount < 2) return null
+
+  // Each component lean is in -1..+1.
+  const regimeLean   = regime ? regime.constructive_pct / 100 - regime.defensive_pct / 100 : 0
+  const breadthLean  = breadth && breadth.crypto.available
+    ? Math.max(-1, Math.min(1, (breadth.crypto.pct_advancing - 50) / 50))
+    : 0
+  const domLean = overview && overview.dominance
+    ? (overview.dominance.sentiment === 'Risk-On' ? 0.5
+       : overview.dominance.sentiment === 'Risk-Off' ? -0.5 : 0)
+    : 0
+
+  const weights = { regime: 0.45, breadth: 0.35, dominance: 0.20 }
+  let wSum = 0, lSum = 0
+  if (regime)                         { wSum += weights.regime;    lSum += weights.regime    * regimeLean }
+  if (breadth?.crypto.available)      { wSum += weights.breadth;   lSum += weights.breadth   * breadthLean }
+  if (overview?.dominance)            { wSum += weights.dominance; lSum += weights.dominance * domLean }
+  const composite = wSum > 0 ? lSum / wSum : 0
+
+  // Volatility/stress dampener via breadth state when extreme.
+  // Narrow / Weak breadth states proxy distribution/exhaustion conditions.
+  const stressed = breadth?.crypto.state === 'Narrow' || breadth?.crypto.state === 'Weak'
+  const lean = stressed ? composite * 0.7 : composite
+  // Cap conviction at 60 — heuristic is never institutional-grade.
+  const conviction = Math.min(60, Math.round(Math.abs(lean) * 100 * 0.85 + 20))
+
+  const smart_money_bias: SmartMoneyBias =
+    lean >=  0.15 ? 'Bullish'
+    : lean <= -0.15 ? 'Bearish'
+    :                 'Neutral'
+  const conviction_level: ConvictionLevel =
+    conviction >= 50 ? 'Moderate' : 'Weak'
+
+  // Risk appetite: derive from breadth + regime.
+  const risk_appetite: RiskAppetite =
+    breadthLean >= 0.25 && regimeLean >= 0.10  ? 'Aggressive'
+    : breadthLean >= 0.10 && regimeLean >= 0   ? 'Elevated'
+    : breadthLean <= -0.10                      ? 'Defensive'
+    :                                             'Measured'
+  // Participation quality: breadth magnitude.
+  const participation_quality: ParticipationQuality =
+    Math.abs(breadthLean) >= 0.30 ? 'Strong'
+    : Math.abs(breadthLean) >= 0.10 ? 'Moderate'
+    : breadth?.crypto.available    ? 'Weak'
+    :                                 'N/A'
+  // Capital concentration: BTC dominance level.
+  const btcDom = overview?.dominance?.btc_dominance ?? 50
+  const capital_concentration: MarketFlowSummary['capital_concentration'] =
+    btcDom >= 55 ? 'Concentrated'
+    : btcDom >= 45 ? 'Balanced'
+    :                'Dispersed'
+  // Flow sustainability: regime trend strength + breadth direction.
+  const flow_sustainability: FlowSustainability =
+    Math.abs(lean) >= 0.35 && breadthLean >= 0.15 ? 'High'
+    : Math.abs(lean) >= 0.20                       ? 'Moderate'
+    : stressed                                     ? 'Weakening'
+    :                                                 'Fragile'
+  // Aggression: mcap 24h move magnitude.
+  const mcapMove = overview?.dominance?.mcap_change_24h ?? 0
+  const market_aggression = Math.min(100, Math.round(Math.abs(mcapMove) * 20))
+
+  // Dominant rotation: borrow breadth posture as the rotation label.
+  const dominant_rotation: string =
+    breadth?.posture === 'Risk-On'  ? 'Major / Layer 1s'
+    : breadth?.posture === 'Risk-Off' ? 'Defensive / Stables'
+    :                                    'Mixed'
+
+  const narrativeParts: string[] = []
+  narrativeParts.push(
+    smart_money_bias === 'Bullish'  ? 'Internal model reads constructive positioning.'
+    : smart_money_bias === 'Bearish' ? 'Internal model reads defensive positioning.'
+    :                                   'Internal model reads balanced positioning.',
+  )
+  if (regime) {
+    narrativeParts.push(
+      `Regime shows ${regime.constructive_pct}% constructive vs ${regime.defensive_pct}% defensive across ${regime.symbols_scanned} symbols.`,
+    )
+  }
+  if (breadth?.crypto.available) {
+    narrativeParts.push(
+      `Breadth at ${breadth.crypto.pct_advancing}% advancing — ${breadth.posture.toLowerCase()} posture.`,
+    )
+  }
+  if (overview?.dominance) {
+    narrativeParts.push(
+      `BTC dominance ${overview.dominance.btc_dominance.toFixed(1)}%, total cap ${overview.dominance.mcap_change_24h >= 0 ? '+' : ''}${overview.dominance.mcap_change_24h.toFixed(2)}% 24h.`,
+    )
+  }
+  narrativeParts.push('Heuristic confidence intentionally capped — primary provider still recalibrating.')
+  const narrative = narrativeParts.join(' ')
+
+  return {
+    summary: {
+      smart_money_bias, dominant_rotation, capital_concentration,
+      participation_quality, risk_appetite, conviction, conviction_level,
+      flow_sustainability, market_aggression,
+    },
+    narrative,
+  }
+}
+
+interface RegimeShare {
+  constructive_pct: number
+  defensive_pct:    number
+  transitional_pct: number
+  symbols_scanned:  number
+}
+
+async function readRegimeShare(): Promise<RegimeShare | null> {
+  try {
+    const supabase = await createClient()
+    const { data } = await supabase
+      .from('regime_snapshots')
+      .select('symbol, regime, scanned_at')
+      .order('scanned_at', { ascending: false })
+      .limit(300)
+    const seen = new Set<string>()
+    let constructive = 0, defensive = 0, transitional = 0, total = 0
+    for (const r of data ?? []) {
+      if (seen.has(r.symbol)) continue
+      seen.add(r.symbol)
+      total++
+      const g = (r.regime ?? '').toLowerCase()
+      if (CONSTRUCTIVE_REGIMES.has(g)) constructive++
+      else if (DEFENSIVE_REGIMES.has(g)) defensive++
+      else if (g === 'transitional') transitional++
+    }
+    if (total < 3) return null
+    return {
+      constructive_pct: Math.round((constructive / total) * 100),
+      defensive_pct:    Math.round((defensive    / total) * 100),
+      transitional_pct: Math.round((transitional / total) * 100),
+      symbols_scanned:  total,
+    }
+  } catch {
+    return null
   }
 }

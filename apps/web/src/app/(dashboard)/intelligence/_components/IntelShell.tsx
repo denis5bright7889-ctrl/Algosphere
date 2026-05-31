@@ -8,8 +8,7 @@ import { Clock, ShieldAlert } from 'lucide-react'
  * their visualisation in as children.
  */
 export default function IntelShell({
-  icon: Icon, title, subtitle, band, delayed, delayMinutes,
-  source, children,
+  icon: Icon, title, subtitle, band, delayed, delayMinutes, children,
 }: {
   icon:         LucideIcon
   title:        string
@@ -17,7 +16,10 @@ export default function IntelShell({
   band:         'FREE' | 'PRO' | 'ELITE' | 'INSTITUTIONAL'
   delayed:      boolean
   delayMinutes: number
-  source:       string
+  /** Deprecated — kept on the prop type only so existing callers don't
+   *  break. Provider name is intentionally no longer rendered; operators
+   *  see the actual source in /admin/intelligence-health. */
+  source?:      string
   children:     React.ReactNode
 }) {
   const bandCls =
@@ -55,10 +57,13 @@ export default function IntelShell({
 
       {children}
 
+      {/* Data-source pill is intentionally abstracted — the user surface
+          MUST NEVER expose provider names. Operators can read the actual
+          source in /admin/intelligence-health. */}
       <p className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
         <ShieldAlert className="h-3 w-3" strokeWidth={1.75} aria-hidden />
-        Provider: <span className="font-mono">{source}</span> · categorical signal, not financial
-        advice. Data source abstracted — swappable without UI change.
+        Categorical signal, not financial advice. Data sources are abstracted
+        and swappable without UI change.
       </p>
     </div>
   )
