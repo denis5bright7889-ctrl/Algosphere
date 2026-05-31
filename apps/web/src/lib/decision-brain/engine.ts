@@ -134,6 +134,98 @@ async function aggregateRegime(): Promise<RegimeAgg> {
   }
 }
 
+// ── Correlation: regime-agreement across an anchor panel ──────────
+// Wires the correlation card (previously a permanent fallback) with a
+// real read. We score how many of the major regime-snapshot symbols
+// share BTC's risk posture — high agreement → Risk-On/Off correlation
+// regime, mixed agreement → Neutral. This is the founder spec's
+// 5-asset panel with the symbols we actually have data for.
+
+interface CorrelationAgg {
+  available: boolean
+  lean:      number          // BTC's risk lean (anchors the regime)
+  strength:  number          // 0..1, agreement strength
+  note:      string
+  data?: {
+    correlation_regime: 'Risk-On' | 'Risk-Off' | 'Neutral'
+    btc_anchor:         string   // human regime label for BTC
+    agreement_pct:      number   // % of panel that agrees with BTC
+    panel_size:         number
+    panel:              string   // comma-list of symbols actually read
+  }
+}
+
+const CORRELATION_PANEL = [
+  'BTCUSDT', 'ETHUSDT', 'XAUUSD', 'EURUSD', 'NAS100', 'SPX500',
+] as const
+
+async function aggregateCorrelation(): Promise<CorrelationAgg> {
+  try {
+    const supabase = await createClient()
+    const { data } = await supabase
+      .from('regime_snapshots')
+      .select('symbol, regime, scanned_at')
+      .in('symbol', CORRELATION_PANEL as unknown as string[])
+      .order('scanned_at', { ascending: false })
+      .limit(120)
+    if (!data || data.length === 0) {
+      return { available: false, lean: 0, strength: 0,
+        note: 'Cross-asset correlations are recomputing across the BTC / ETH / DXY / Gold / SP500 / NAS100 panel.' }
+    }
+    // Latest regime per symbol.
+    const latest = new Map<string, string>()
+    for (const r of data) {
+      if (!latest.has(r.symbol)) latest.set(r.symbol, (r.regime ?? '').toLowerCase())
+    }
+    const btcRegime = latest.get('BTCUSDT')
+    if (!btcRegime) {
+      return { available: false, lean: 0, strength: 0,
+        note: 'Cross-asset correlations are recomputing — BTC anchor not yet observed in this window.' }
+    }
+    const btcRiskOn  = CONSTRUCTIVE.has(btcRegime)
+    const btcRiskOff = DEFENSIVE.has(btcRegime)
+    // For each non-BTC member of the panel, decide whether it agrees
+    // with BTC's risk posture (risk-on/off/neutral).
+    let agree = 0, total = 0
+    for (const [sym, reg] of latest) {
+      if (sym === 'BTCUSDT') continue
+      total++
+      const symRiskOn  = CONSTRUCTIVE.has(reg)
+      const symRiskOff = DEFENSIVE.has(reg)
+      if (btcRiskOn && symRiskOn)      agree++
+      else if (btcRiskOff && symRiskOff) agree++
+      else if (!btcRiskOn && !btcRiskOff && !symRiskOn && !symRiskOff) agree++
+    }
+    if (total === 0) {
+      return { available: false, lean: 0, strength: 0,
+        note: 'Cross-asset correlations are recomputing — anchor panel still warming up.' }
+    }
+    const agreement_pct = Math.round((agree / total) * 100)
+    const correlation_regime: NonNullable<CorrelationAgg['data']>['correlation_regime'] =
+      agreement_pct >= 70 && btcRiskOn  ? 'Risk-On'
+      : agreement_pct >= 70 && btcRiskOff ? 'Risk-Off'
+      :                                     'Neutral'
+    const lean = btcRiskOn ? +1 : btcRiskOff ? -1 : 0
+    const strength = agree / total
+    const btcAnchorLabel = btcRiskOn ? 'risk-on' : btcRiskOff ? 'risk-off' : btcRegime
+    const note = `Cross-asset agreement with BTC: ${agreement_pct}% of ${total} (${correlation_regime.toLowerCase()}).`
+    return {
+      available: true, lean: lean * 0.5, strength, note,
+      data: {
+        correlation_regime,
+        btc_anchor:    btcAnchorLabel,
+        agreement_pct,
+        panel_size:    total + 1,
+        panel:         [...latest.keys()].join(' · '),
+      },
+    }
+  } catch {
+    return { available: false, lean: 0, strength: 0,
+      note: 'Cross-asset correlations are recomputing — read returns on the next cycle.' }
+  }
+}
+
+
 // ── Small mappers ────────────────────────────────────────────────────────
 
 const sign = (x: number, band = 0.15): number => (x > band ? 1 : x < -band ? -1 : 0)
@@ -156,7 +248,7 @@ function momentumPhaseToState(phase: string): MomentumState | null {
 export async function gatherDecisionContext(): Promise<DecisionContext> {
   const generated_at = new Date().toISOString()
 
-  const [regime, momentumR, smartR, whaleR, breadthR, overviewR, volR, execStatusR, riskR, breakersR] =
+  const [regime, momentumR, smartR, whaleR, breadthR, overviewR, volR, execStatusR, riskR, breakersR, correlationR] =
     await Promise.allSettled([
       aggregateRegime(),
       composeMomentumView(MOMENTUM_PROXY),
@@ -168,6 +260,7 @@ export async function gatherDecisionContext(): Promise<DecisionContext> {
       getEngineStatus(),
       getRiskTelemetry(),
       getCircuitBreakers(),
+      aggregateCorrelation(),
     ])
 
   const val = <T,>(r: PromiseSettledResult<T>): T | null => (r.status === 'fulfilled' ? r.value : null)
@@ -182,6 +275,7 @@ export async function gatherDecisionContext(): Promise<DecisionContext> {
   const execStatus = val(execStatusR)
   const risk      = val(riskR)
   const breakers  = val(breakersR)
+  const correlation = val(correlationR)
 
   const signals: NormalizedSignal[] = []
 
@@ -265,17 +359,35 @@ export async function gatherDecisionContext(): Promise<DecisionContext> {
       note: 'Whale flow: unavailable — excluded from the vote.' })
   }
 
-  // Breadth → participation + directional posture
+  // Breadth → participation + directional posture. The crypto slice's
+  // rich shape (advancers / decliners / flat / pct_advancing / state)
+  // is surfaced on data so the IntelligenceCard renders the structured
+  // grid the founder spec asked for, not a buried sentence.
   let participation: Participation | null = null
   if (breadth && breadth.crypto.available) {
-    const pct = breadth.crypto.pct_advancing
+    const c = breadth.crypto
+    const pct = c.pct_advancing
     participation = pct >= 55 ? 'BROAD' : pct >= DECISION_CONFIG.thresholds.decliningParticipationPct ? 'NARROW' : 'DECLINING'
     const postureLean = breadth.posture === 'Risk-On' ? 1 : breadth.posture === 'Risk-Off' ? -1 : 0
     const strength = Math.max(0, Math.min(1, Math.abs(pct - 50) / 50 + 0.2))
+    // Breadth score: distance from 50 mapped to 0..100. A 50/50 split
+    // is "0" breadth (no edge); 75 or 25 is "50" (clear bias).
+    const breadth_score = Math.round(Math.min(100, Math.abs(pct - 50) * 2))
     signals.push({
       engine: 'breadth', available: true, directional: true,
       lean: postureLean * strength, strength,
-      note: `Breadth: ${breadth.crypto.state} (${pct}% of ${breadth.crypto.sample_size} advancing), posture ${breadth.posture}.`,
+      note: `Breadth: ${c.state} (${pct}% of ${c.sample_size} advancing), posture ${breadth.posture}.`,
+      data: {
+        state:           c.state,
+        posture:         breadth.posture,
+        pct_advancing:   pct,
+        advancers:       c.advancing,
+        decliners:       c.declining,
+        flat:            c.flat,
+        sample_size:     c.sample_size,
+        breadth_score,
+        participation:   participation,
+      },
     })
   } else {
     signals.push({ engine: 'breadth', available: false, directional: true, lean: 0, strength: 0,
@@ -313,11 +425,24 @@ export async function gatherDecisionContext(): Promise<DecisionContext> {
       note: 'Volatility: no live engine readings.' })
   }
 
-  // Correlation — listed input not yet wired into the brain; honest about it.
-  signals.push({
-    engine: 'correlation', available: false, directional: false, lean: 0, strength: 0,
-    note: 'Correlation breakdown detection is not yet wired into the brain — it does not affect this decision.',
-  })
+  // Correlation — wired via aggregateCorrelation() which computes
+  // regime agreement across the BTC anchor panel from regime_snapshots.
+  // Risk-only (directional: false) for now — it informs the verdict
+  // explanation but does not vote on direction; that's the safer
+  // first wiring while the rolling-Pearson upgrade (full price-series
+  // correlation) lands in a follow-up.
+  if (correlation && correlation.available) {
+    signals.push({
+      engine: 'correlation', available: true, directional: false,
+      lean: 0, strength: correlation.strength, note: correlation.note,
+      data:  correlation.data,
+    })
+  } else {
+    signals.push({
+      engine: 'correlation', available: false, directional: false, lean: 0, strength: 0,
+      note: correlation?.note ?? 'Cross-asset correlations are recomputing across the BTC / ETH / DXY / Gold / SP500 / NAS100 panel.',
+    })
+  }
 
   // Execution health — distinguish UNVERIFIED from UNSTABLE.
   let executionStable = true
