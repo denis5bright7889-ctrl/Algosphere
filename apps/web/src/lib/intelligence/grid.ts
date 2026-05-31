@@ -30,6 +30,7 @@ import {
   freshnessLabel, ttlFor,
 } from './reliability'
 import { rememberModule, recallModule } from './reliability-cache'
+import { recordEngineEvent, classifyError } from './engine-telemetry'
 
 // Display names for the Bloomberg-style card headers.
 const NAME: Record<string, string> = {
@@ -132,29 +133,55 @@ export async function composeIntelligenceGrid(): Promise<GridPayload> {
   // For each engine in our canonical order, prefer the fresh signal;
   // fall back to the cache if the engine reported unavailable; finally
   // synthesize a 'building' placeholder so the card never goes blank.
+  // Each resolution emits a telemetry event so the admin observability
+  // page can show provider health, fallback activation, and recent
+  // error classes.
+  const now = ctx.generated_at
   const modules: IntelligenceModule[] = []
   for (const engine of ORDER) {
     const signal = byKey.get(engine)
     if (signal && signal.available) {
-      const fresh = toFreshModule(signal, ctx.generated_at)
+      const fresh = toFreshModule(signal, now)
       rememberModule(fresh)
       modules.push(fresh)
+      recordEngineEvent({
+        at: now, engine, outcome: 'live',
+        source_quality: fresh.source_quality,
+      })
       continue
     }
+    const errClass = signal ? classifyError(signal.note) ?? undefined : undefined
     const cached = recallModule(engine)
     if (cached) {
       modules.push(toStaleModule(cached.module, cached.ageMs))
+      recordEngineEvent({
+        at: now, engine, outcome: 'stale',
+        source_quality: 'low',
+        error_class: errClass,
+        cache_age_ms: cached.ageMs,
+      })
       continue
     }
-    modules.push(toBuildingModule(engine, ctx.generated_at))
+    modules.push(toBuildingModule(engine, now))
+    recordEngineEvent({
+      at: now, engine, outcome: 'building',
+      source_quality: 'fallback',
+      error_class: errClass,
+    })
   }
   // Engines outside the canonical ORDER (rare — future additions) are
-  // appended fresh-or-building.
+  // appended fresh-or-building, and still recorded.
   for (const s of ctx.signals) {
     if (ORDER.includes(s.engine)) continue
-    const fresh = toFreshModule(s, ctx.generated_at)
+    const fresh = toFreshModule(s, now)
     if (s.available) rememberModule(fresh)
     modules.push(fresh)
+    recordEngineEvent({
+      at: now, engine: s.engine,
+      outcome:  s.available ? 'live' : 'building',
+      source_quality: fresh.source_quality,
+      error_class:    s.available ? undefined : classifyError(s.note) ?? undefined,
+    })
   }
 
   return {

@@ -168,6 +168,22 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    // Admin-only operations group — diagnostic surfaces that must NEVER
+    // appear in a regular user sidebar per the founder rule
+    // ([[feedback_admin_vs_user_surfaces]]). The Automation Monitor
+    // lives under Automation as an adminOnly item (so it stays in its
+    // semantic group for admins); the Intelligence Health page is
+    // structurally an ops surface so it groups here.
+    label: 'Operations',
+    icon: ShieldAlert,
+    adminOnly: true,
+    items: [
+      { href: '/admin/intelligence-health', label: 'Intelligence Health', icon: Activity,
+        adminOnly: true,
+        keywords: 'admin ops observability provider health credits fallback cache telemetry intelligence engines' },
+    ],
+  },
+  {
     // Platform & account chrome — operational, not a feature surface.
     label: 'Platform',
     icon: UserCog,
