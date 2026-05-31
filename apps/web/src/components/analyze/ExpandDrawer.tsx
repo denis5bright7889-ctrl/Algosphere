@@ -18,6 +18,74 @@ import SignalMeter from './SignalMeter'
 import SourceQualityPill from './SourceQualityPill'
 import FreshnessPill from './FreshnessPill'
 
+
+/** Render an engine's structured sub-dimensions as a tile grid. Keys
+ *  are snake_case in the data payload; we title-case them for display.
+ *  Numeric percentages (keys ending in `_pct`) get the % suffix. */
+function DimensionsBlock({ data }: {
+  data: NonNullable<IntelligenceModule['data']>
+}) {
+  const entries = Object.entries(data).filter(([, v]) => v != null)
+  if (entries.length === 0) return null
+  return (
+    <div>
+      <p className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">Dimensions</p>
+      <ul className="grid grid-cols-2 gap-2">
+        {entries.map(([rawKey, value]) => {
+          const label = titleCase(rawKey)
+          const displayValue = formatDimensionValue(rawKey, value as string | number | boolean)
+          const tone = toneFor(rawKey, value as string | number | boolean)
+          return (
+            <li
+              key={rawKey}
+              className="rounded-lg border border-border/60 bg-muted/10 p-2.5"
+            >
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+              <p className={cn('mt-0.5 text-sm font-semibold tabular-nums', tone)}>
+                {displayValue}
+              </p>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+function titleCase(key: string): string {
+  return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function formatDimensionValue(key: string, value: string | number | boolean): string {
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (typeof value === 'number') {
+    if (key.endsWith('_pct')) return `${Math.round(value)}%`
+    return String(value)
+  }
+  // Strings are usually enums emitted by the engine — render verbatim.
+  return value
+}
+
+function toneFor(key: string, value: string | number | boolean): string {
+  // Risk-On / Strong / High → emerald
+  // Risk-Off / Weak / Extreme / Low → rose / orange
+  // Mixed / Moderate / Transitional → amber
+  if (typeof value !== 'string') return ''
+  const v = value.toLowerCase()
+  if (['risk-on', 'strong', 'high', 'calm', 'sustainable', 'broad'].includes(v)) {
+    return 'text-emerald-300'
+  }
+  if (['risk-off', 'weak', 'extreme', 'low', 'declining', 'collapse'].includes(v)) {
+    return 'text-rose-300'
+  }
+  if (['mixed', 'moderate', 'transitional', 'elevated', 'fading'].includes(v)) {
+    return 'text-amber-300'
+  }
+  // Special-case for percentage-style numeric strings if any leak through
+  void key
+  return ''
+}
+
 export default function ExpandDrawer({ module, onClose }: {
   module: IntelligenceModule | null
   onClose: () => void
@@ -103,6 +171,13 @@ export default function ExpandDrawer({ module, onClose }: {
                 {module.reasoning}
               </p>
             </div>
+
+            {/* Structured dimensions — engine-specific sub-states the
+                IntelligenceModule has chosen to surface. Renders a tile
+                grid only when the engine actually populates data. */}
+            {module.data && Object.keys(module.data).length > 0 && (
+              <DimensionsBlock data={module.data} />
+            )}
 
             {/* Meta */}
             <div className="border-t border-border/50 pt-3 text-[11px] text-muted-foreground">

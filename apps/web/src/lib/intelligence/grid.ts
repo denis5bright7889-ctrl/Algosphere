@@ -82,6 +82,7 @@ function toFreshModule(s: NormalizedSignal, generatedAt: string): IntelligenceMo
     source_quality:  sourceQuality,
     freshness:       freshnessLabel(generatedAt),
     updatedAt:       generatedAt,
+    data:            s.data,
   }
 }
 

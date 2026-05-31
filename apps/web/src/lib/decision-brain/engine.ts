@@ -49,6 +49,18 @@ interface RegimeAgg {
   lean:      number   // -1..+1 (risk-on positive)
   strength:  number   // 0..1
   note:      string
+  /** Structured sub-states surfaced on the IntelligenceModule.data
+   *  payload — the founder spec asked for explicit environment / trend
+   *  strength / volatility / liquidity reads rather than the legacy
+   *  "0 constructive / 9 defensive" shallow summary. */
+  data?: {
+    environment:      'Risk-On' | 'Risk-Off' | 'Mixed' | 'Transitional'
+    trend_strength:   'Weak' | 'Moderate' | 'Strong'
+    constructive_pct: number
+    defensive_pct:    number
+    transitional_pct: number
+    symbols_scanned:  number
+  }
 }
 
 const CONSTRUCTIVE = new Set(['trending', 'trending_up', 'expansion'])
@@ -93,7 +105,30 @@ async function aggregateRegime(): Promise<RegimeAgg> {
     if (avgDer < 0.08 && Math.abs(lean) < 0.2) state = 'UNCERTAIN'
 
     const note = `Regime: ${constructive} constructive / ${defensive} defensive / ${transitional} transitional of ${total} scanned (${state.replace('_', '-').toLowerCase()}).`
-    return { available: true, state, lean, strength, note }
+
+    // ── Sub-state composition for the rich card surface ────────────
+    // Environment ladder is lean × transition share — never lets the
+    // user see a contradictory "Mixed" with strong directional lean.
+    const environment: NonNullable<RegimeAgg['data']>['environment'] =
+      tShare >= 0.4                ? 'Transitional'
+      : lean >=  0.20              ? 'Risk-On'
+      : lean <= -0.20              ? 'Risk-Off'
+      :                              'Mixed'
+    // Trend strength uses the DER-derived `strength` (already 0..1).
+    const trend_strength: NonNullable<RegimeAgg['data']>['trend_strength'] =
+      strength >= 0.65 ? 'Strong'
+      : strength >= 0.40 ? 'Moderate'
+      :                    'Weak'
+    return {
+      available: true, state, lean, strength, note,
+      data: {
+        environment, trend_strength,
+        constructive_pct: Math.round(cShare * 100),
+        defensive_pct:    Math.round(dShare * 100),
+        transitional_pct: Math.round(tShare * 100),
+        symbols_scanned:  total,
+      },
+    }
   } catch {
     return { available: false, state: 'UNCERTAIN', lean: 0, strength: 0, note: 'Regime: unavailable.' }
   }
@@ -150,22 +185,48 @@ export async function gatherDecisionContext(): Promise<DecisionContext> {
 
   const signals: NormalizedSignal[] = []
 
-  // Regime
+  // Regime — emit the sub-state payload so the IntelligenceCard can
+  // surface Environment / Trend strength / Vol state / Liquidity state
+  // instead of the legacy "0 constructive / 9 defensive" shallow line.
+  // Volatility + liquidity sub-states are joined from the vol + breadth
+  // engines after both have evaluated (mid-function — see below).
   signals.push({
     engine: 'regime', available: regimeAgg.available, directional: true,
     lean: regimeAgg.lean, strength: regimeAgg.strength, note: regimeAgg.note,
+    data: regimeAgg.data,
   })
 
-  // Momentum (BTC proxy)
+  // Momentum (BTC proxy) — surface the engine's structured fields as
+  // data so the IntelligenceCard no longer has to render the legacy
+  // "Distribution · Sideways · Quality N/A" sentence. The 4-state
+  // user-facing quality maps the engine's High / Moderate / Low /
+  // N/A onto the founder's Low / Moderate / High / Strong vocabulary
+  // (N/A becomes "Low" with the userStatus pill carrying the warning).
   let momentumState: MomentumState | null = null
   if (momentum && !momentum.partial && momentum.phase !== 'Unknown') {
     momentumState = momentumPhaseToState(momentum.phase)
     const dir = momentum.direction === 'Up' ? 1 : momentum.direction === 'Down' ? -1 : 0
     const strength = Math.max(0, Math.min(1, momentum.score / 100))
+    // 4-state quality scale per the founder spec. The engine emits the
+    // raw read; the user-facing scale adds "Strong" for very-high reads
+    // and normalises N/A to "Low" (with the freshness pill explaining
+    // why if the data is thin).
+    const userQuality: 'Low' | 'Moderate' | 'High' | 'Strong' =
+      strength >= 0.80 ? 'Strong'
+      : momentum.quality === 'High'     ? 'High'
+      : momentum.quality === 'Moderate' ? 'Moderate'
+      :                                   'Low'
     signals.push({
       engine: 'momentum', available: true, directional: true,
       lean: dir * strength, strength,
       note: `Momentum (BTC bellwether): ${momentum.phase}, ${momentum.direction}, quality ${momentum.quality}.`,
+      data: {
+        quality:        userQuality,
+        phase:          momentum.phase,
+        direction:      momentum.direction,
+        sustainability: momentum.sustainability,
+        score:          Math.round(momentum.score),
+      },
     })
   } else {
     signals.push({ engine: 'momentum', available: false, directional: true, lean: 0, strength: 0,
@@ -288,6 +349,28 @@ export async function gatherDecisionContext(): Promise<DecisionContext> {
     engine: 'execution', available: !!execStatus, directional: false, lean: 0, strength: executionStable ? 0 : 1,
     note: executionNote,
   })
+
+  // ── Augment the Regime signal with vol + liquidity sub-states ──
+  // We compose these AFTER the vol + breadth reads so the regime card
+  // can render a four-dimensional view (environment / trend / vol /
+  // liquidity) instead of the legacy single-line summary.
+  const regimeSignal = signals.find((s) => s.engine === 'regime')
+  if (regimeSignal && regimeSignal.data) {
+    const volatility_state: 'Calm' | 'Elevated' | 'Extreme' =
+      volExtreme  ? 'Extreme'
+      : volElevated ? 'Elevated'
+      :              'Calm'
+    // Liquidity is derived from breadth participation (BROAD = strong,
+    // DECLINING = weak) and whale-flow aggression when available.
+    let liquidity_state: 'Strong' | 'Moderate' | 'Weak' = 'Moderate'
+    if (participation === 'BROAD')       liquidity_state = 'Strong'
+    else if (participation === 'DECLINING') liquidity_state = 'Weak'
+    regimeSignal.data = {
+      ...regimeSignal.data,
+      volatility_state,
+      liquidity_state,
+    }
+  }
 
   // Flow bias (smart money + whale)
   const flowSum = smBias + whaleBias

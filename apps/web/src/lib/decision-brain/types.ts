@@ -55,6 +55,13 @@ export interface NormalizedSignal {
   lean:      number      // -1..+1
   strength:  number      // 0..1
   note:      string      // human descriptor for the explanation log
+  /** Optional structured sub-dimensions specific to this engine.
+   *  Surface via IntelligenceModule.data on the UI side. Examples:
+   *    regime   → { environment, trend_strength, volatility_state, liquidity_state }
+   *    momentum → { quality, phase, direction }
+   *    breadth  → { advancers, decliners, breadth_score }
+   *  Keep keys snake_case so the drawer can title-case them generically. */
+  data?:     Record<string, string | number | boolean | null>
 }
 
 /**

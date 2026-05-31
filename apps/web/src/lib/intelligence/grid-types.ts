@@ -61,6 +61,11 @@ export interface IntelligenceModule {
   /** Human-readable freshness — "just now", "12m ago", "2h ago". */
   freshness:   string
   updatedAt:   string
+  /** Structured engine-specific dimensions (Regime sub-states, Momentum
+   *  quality breakdown, Correlation panel, etc.). Optional — engines
+   *  that haven't been expanded yet simply don't emit it. The drawer
+   *  renders a Dimensions block when present. */
+  data?:       Record<string, string | number | boolean | null>
 }
 
 export interface GridVerdict {
