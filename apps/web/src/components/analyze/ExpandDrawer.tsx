@@ -15,6 +15,8 @@ import { cn } from '@/lib/utils'
 import type { IntelligenceModule } from '@/lib/intelligence/grid-types'
 import StatusIndicator from './StatusIndicator'
 import SignalMeter from './SignalMeter'
+import SourceQualityPill from './SourceQualityPill'
+import FreshnessPill from './FreshnessPill'
 
 export default function ExpandDrawer({ module, onClose }: {
   module: IntelligenceModule | null
@@ -71,14 +73,20 @@ export default function ExpandDrawer({ module, onClose }: {
 
             {/* Status + confidence */}
             <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-muted/10 p-3">
-              <StatusIndicator status={module.status} />
+              <StatusIndicator status={module.status} userStatus={module.userStatus} />
               <span className="font-mono text-sm tabular-nums">
-                {module.available ? `${module.confidence}% confidence` : 'Awaiting data'}
+                {module.userStatus === 'building' ? '—' : `${module.confidence}% confidence`}
               </span>
             </div>
 
+            {/* Source + freshness affordances — same vocabulary as the card */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <SourceQualityPill quality={module.source_quality} />
+              <FreshnessPill freshness={module.freshness} userStatus={module.userStatus} />
+            </div>
+
             {/* Directional lean */}
-            {module.directional && module.available && (
+            {module.directional && module.userStatus !== 'building' && (
               <div>
                 <p className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">Directional lean</p>
                 <SignalMeter lean={module.lean} strength={module.confidence / 100} directional available />
@@ -88,17 +96,23 @@ export default function ExpandDrawer({ module, onClose }: {
               </div>
             )}
 
-            {/* Reasoning trace */}
+            {/* Sanitized reasoning — never the raw `insight` here either */}
             <div>
-              <p className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">AI reasoning</p>
+              <p className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">Reasoning</p>
               <p className="rounded-xl border border-border/60 bg-muted/10 p-3 text-sm leading-relaxed">
-                {module.insight}
+                {module.reasoning}
               </p>
             </div>
 
             {/* Meta */}
             <div className="border-t border-border/50 pt-3 text-[11px] text-muted-foreground">
-              <p>Updated {new Date(module.updatedAt).toLocaleString()}</p>
+              <p>
+                {module.userStatus === 'stale'
+                  ? `Last successful read ${module.freshness}.`
+                  : module.userStatus === 'building'
+                  ? 'Warming up — this engine has not produced data yet.'
+                  : `Updated ${module.freshness} (${new Date(module.updatedAt).toLocaleString()}).`}
+              </p>
               {!module.directional && (
                 <p className="mt-1">Risk-only engine — contributes to risk &amp; sizing, not the directional vote.</p>
               )}

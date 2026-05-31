@@ -1,16 +1,21 @@
 /**
- * Analyze-Mode intelligence grid — server composer.
+ * Analyze-Mode intelligence grid — server composer (Reliability v2).
  *
- * Reuses the Decision Brain's existing consolidation: one
- * `gatherDecisionContext()` pass runs every engine (regime, momentum,
- * breadth, smart money, whale flow, dominance, volatility, correlation,
- * execution), and `buildMarketDecision()` derives the consolidated
- * verdict from the SAME context — so the grid and the verdict can never
- * disagree, and we pay for the engines only once.
+ * Same Decision-Brain ingest as before, but the output is wrapped by
+ * the reliability layer so user-facing surfaces NEVER expose:
  *
- * Each engine's `NormalizedSignal` (available / lean / strength / note)
- * maps 1:1 to an `IntelligenceModule`. Nothing is fabricated: unavailable
- * engines are flagged so the card renders honestly.
+ *   - "Nansen 403: Insufficient credits"
+ *   - "fetch failed: ECONNREFUSED"
+ *   - "Awaiting" / "Unavailable" / "Excluded from vote"
+ *
+ * Instead each module carries `userStatus`, `source_quality`,
+ * `freshness`, and a sanitized `reasoning` string. When an engine
+ * fails on this pass, we serve the last successfully-cached read with
+ * `userStatus: 'stale'` so the grid never goes blank.
+ *
+ * Engine internals (raw notes, provider names, error codes) are still
+ * available on `module.insight` for the admin-side observability page
+ * — those NEVER reach the user UI per the founder rule.
  */
 import 'server-only'
 import {
@@ -18,8 +23,13 @@ import {
 } from '@/lib/decision-brain'
 import { DECISION_CONFIG } from '@/lib/decision-brain/config'
 import type {
-  GridPayload, IntelligenceModule, ModuleStatus,
+  GridPayload, GridVerdict, IntelligenceModule, ModuleStatus,
 } from './grid-types'
+import {
+  sanitizeReasoning, deriveSourceQuality, deriveUserStatus,
+  freshnessLabel, ttlFor,
+} from './reliability'
+import { rememberModule, recallModule } from './reliability-cache'
 
 // Display names for the Bloomberg-style card headers.
 const NAME: Record<string, string> = {
@@ -43,49 +53,142 @@ const ORDER = [
 
 function statusOf(s: NormalizedSignal): ModuleStatus {
   if (!s.available) return 'unavailable'
-  if (!s.directional) return 'neutral'           // vol/execution carry no lean
+  if (!s.directional) return 'neutral'
   const band = DECISION_CONFIG.thresholds.neutralBand
   if (s.lean >  band) return 'bullish'
   if (s.lean < -band) return 'bearish'
   return 'neutral'
 }
 
-function toModule(s: NormalizedSignal, generatedAt: string): IntelligenceModule {
+function toFreshModule(s: NormalizedSignal, generatedAt: string): IntelligenceModule {
+  const ttl = ttlFor(s.engine)
+  const ageMs = 0
+  const sourceQuality = deriveSourceQuality({
+    available:  s.available,
+    strength01: s.strength ?? 0,
+    ageMs, ttlMs: ttl,
+  })
   return {
-    key:         s.engine,
-    name:        NAME[s.engine] ?? s.engine,
-    status:      statusOf(s),
-    confidence:  Math.round((s.strength ?? 0) * 100),
-    lean:        s.lean ?? 0,
-    directional: s.directional,
-    available:   s.available,
-    insight:     s.note,
-    updatedAt:   generatedAt,
+    key:             s.engine,
+    name:            NAME[s.engine] ?? s.engine,
+    status:          statusOf(s),
+    userStatus:      deriveUserStatus({ available: s.available, fromCache: false, ageMs, ttlMs: ttl }),
+    confidence:      Math.round((s.strength ?? 0) * 100),
+    lean:            s.lean ?? 0,
+    directional:     s.directional,
+    available:       s.available,
+    insight:         s.note,                              // raw — admin only
+    reasoning:       sanitizeReasoning(s.engine, s.note),  // user-facing
+    source_quality:  sourceQuality,
+    freshness:       freshnessLabel(generatedAt),
+    updatedAt:       generatedAt,
   }
 }
+
+/** Re-stamp a cached module for display: keep its data + reasoning,
+ *  but mark it 'stale' and recompute its freshness label against now.
+ *  The cache TTL gate already happened in `recallModule`. */
+function toStaleModule(m: IntelligenceModule, ageMs: number): IntelligenceModule {
+  const ttl = ttlFor(m.key)
+  return {
+    ...m,
+    userStatus:     deriveUserStatus({ available: false, fromCache: true, ageMs, ttlMs: ttl }),
+    source_quality: deriveSourceQuality({
+      available:  true, strength01: m.confidence / 100,
+      ageMs, ttlMs: ttl,
+    }),
+    freshness:      freshnessLabel(m.updatedAt),
+  }
+}
+
+/** Synthesize a 'building' module for an engine we've never seen.
+ *  Keeps the grid populated rather than dropping an empty card. */
+function toBuildingModule(engine: string, generatedAt: string): IntelligenceModule {
+  return {
+    key:             engine,
+    name:            NAME[engine] ?? engine,
+    status:          'unavailable',
+    userStatus:      'building',
+    confidence:      0,
+    lean:            0,
+    directional:     true,
+    available:       false,
+    insight:         '',                                    // empty raw
+    reasoning:       sanitizeReasoning(engine, ''),         // canonical fallback
+    source_quality:  'fallback',
+    freshness:       freshnessLabel(generatedAt),
+    updatedAt:       generatedAt,
+  }
+}
+
 
 export async function composeIntelligenceGrid(): Promise<GridPayload> {
   const ctx = await gatherDecisionContext()
   const decision = buildMarketDecision(ctx)
 
   const byKey = new Map<string, NormalizedSignal>(ctx.signals.map((s) => [s.engine, s]))
-  const ordered = [
-    ...ORDER.filter((k) => byKey.has(k)).map((k) => byKey.get(k)!),
-    ...ctx.signals.filter((s) => !ORDER.includes(s.engine)),
-  ]
+
+  // For each engine in our canonical order, prefer the fresh signal;
+  // fall back to the cache if the engine reported unavailable; finally
+  // synthesize a 'building' placeholder so the card never goes blank.
+  const modules: IntelligenceModule[] = []
+  for (const engine of ORDER) {
+    const signal = byKey.get(engine)
+    if (signal && signal.available) {
+      const fresh = toFreshModule(signal, ctx.generated_at)
+      rememberModule(fresh)
+      modules.push(fresh)
+      continue
+    }
+    const cached = recallModule(engine)
+    if (cached) {
+      modules.push(toStaleModule(cached.module, cached.ageMs))
+      continue
+    }
+    modules.push(toBuildingModule(engine, ctx.generated_at))
+  }
+  // Engines outside the canonical ORDER (rare — future additions) are
+  // appended fresh-or-building.
+  for (const s of ctx.signals) {
+    if (ORDER.includes(s.engine)) continue
+    const fresh = toFreshModule(s, ctx.generated_at)
+    if (s.available) rememberModule(fresh)
+    modules.push(fresh)
+  }
 
   return {
-    verdict: {
-      marketState:     decision.market_state,
-      directionBias:   decision.direction_bias,
-      confidence:      decision.confidence,
-      riskLevel:       decision.risk_level,
-      tradePermission: decision.trade_permission,
-      mds:             decision.mds,
-      explanation:     decision.explanation,
-    },
-    modules:        ordered.map((s) => toModule(s, ctx.generated_at)),
-    availableCount: ctx.availableCount,
+    verdict: buildVerdictHeader(decision, modules),
+    modules,
+    availableCount: modules.filter((m) => m.userStatus === 'live').length,
     generatedAt:    ctx.generated_at,
+  }
+}
+
+
+/** Coverage / Reliability / Data-Quality derived from the module set. */
+function buildVerdictHeader(
+  decision: ReturnType<typeof buildMarketDecision>,
+  modules:  IntelligenceModule[],
+): GridVerdict {
+  const total = modules.length || 1
+  const liveOrDegraded = modules.filter((m) => m.userStatus === 'live' || m.userStatus === 'degraded').length
+  const highOrMedium   = modules.filter((m) => m.source_quality === 'high' || m.source_quality === 'medium').length
+  const coverage    = Math.round((liveOrDegraded / total) * 100)
+  const reliability = Math.round((highOrMedium   / total) * 100)
+  const dq: GridVerdict['data_quality'] =
+    reliability >= 70 ? 'high' :
+    reliability >= 40 ? 'medium' : 'low'
+
+  return {
+    marketState:     decision.market_state,
+    directionBias:   decision.direction_bias,
+    confidence:      decision.confidence,
+    riskLevel:       decision.risk_level,
+    tradePermission: decision.trade_permission,
+    mds:             decision.mds,
+    explanation:     decision.explanation,
+    coverage,
+    reliability,
+    data_quality:    dq,
   }
 }

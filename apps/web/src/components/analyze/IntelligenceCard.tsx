@@ -3,12 +3,11 @@
 /**
  * IntelligenceCard — one live intelligence unit in the Analyze grid.
  *
- * Scannable in <3s: header (title + status + confidence), a micro
- * lean/heat meter, and a single-line institutional insight. Click opens
- * the right-side ExpandDrawer (no page navigation — Analyze Mode rule).
- *
- * "Changed since last poll" is highlighted with a subtle gold ring (no
- * flashing), satisfying the live-update UX rule.
+ * V2 (Reliability layer): the card now consumes the SANITIZED user-
+ * facing fields (`reasoning`, `source_quality`, `freshness`,
+ * `userStatus`) and never the raw `insight`. Provider names + HTTP
+ * codes + credit/quota wording can no longer reach the screen — they
+ * stay on `module.insight` for the admin diagnostics surface only.
  */
 import {
   Radar, Rocket, BarChart3, Sparkles, Waves, PieChart, Activity, Network, Cpu, BrainCircuit,
@@ -19,6 +18,8 @@ import type { IntelligenceModule } from '@/lib/intelligence/grid-types'
 import StatusIndicator from './StatusIndicator'
 import ConfidenceBadge from './ConfidenceBadge'
 import SignalMeter from './SignalMeter'
+import SourceQualityPill from './SourceQualityPill'
+import FreshnessPill from './FreshnessPill'
 
 const ICON: Record<string, LucideIcon> = {
   regime: Radar, momentum: Rocket, breadth: BarChart3, smartMoney: Sparkles,
@@ -45,13 +46,13 @@ export default function IntelligenceCard({
         changed ? 'border-primary/50 ring-1 ring-primary/30' : 'border-border/70',
       )}
     >
-      {/* Header */}
+      {/* Header — name + direction status */}
       <div className="flex items-start justify-between gap-2">
         <span className="flex min-w-0 items-center gap-2">
           <Icon className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-foreground" strokeWidth={1.75} aria-hidden />
           <span className="truncate text-sm font-semibold">{module.name}</span>
         </span>
-        <StatusIndicator status={module.status} />
+        <StatusIndicator status={module.status} userStatus={module.userStatus} />
       </div>
 
       {/* Micro-viz + confidence */}
@@ -64,10 +65,18 @@ export default function IntelligenceCard({
         <ConfidenceBadge value={module.confidence} available={module.available} />
       </div>
 
-      {/* Insight — one line, clamped */}
+      {/* Sanitized reasoning — never raw provider error text */}
       <p className="line-clamp-2 text-xs leading-snug text-muted-foreground">
-        {module.insight}
+        {module.reasoning}
       </p>
+
+      {/* Footer — source quality + freshness affordances. Per the founder
+          rule, this row is how users learn to weight the read — without
+          ever seeing provider names. */}
+      <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-1">
+        <SourceQualityPill quality={module.source_quality} />
+        <FreshnessPill freshness={module.freshness} userStatus={module.userStatus} />
+      </div>
     </button>
   )
 }

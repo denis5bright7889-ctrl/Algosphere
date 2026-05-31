@@ -219,9 +219,12 @@ export default function IntelligenceGrid() {
       </header>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-xl border border-rose-500/30 bg-rose-500/[0.06] px-3 py-2.5 text-xs text-rose-200">
+        <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2.5 text-xs text-amber-200">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
-          <span>Intelligence feed unavailable: {error}. Retrying on the next poll.</span>
+          <span>
+            Live intelligence feed is recalibrating. Cards below show the most
+            recent validated read — they will refresh automatically on the next poll.
+          </span>
         </div>
       )}
 
@@ -349,7 +352,21 @@ function VerdictBanner({ data }: { data: GridPayload }) {
         <Stat label="Confidence" value={`${Math.round(v.confidence)}%`} />
         <Stat label="Risk" value={v.riskLevel} />
         <Stat label="Action" value={v.tradePermission} />
-        <Stat label="Engines live" value={`${data.availableCount}/${data.modules.length}`} />
+        {/* Reliability tile group — replaces "Engines live X/Y" so
+            users see how MUCH of the universe the read covers, how
+            trustworthy the sources are, and the overall data-quality
+            grade. Per the founder rule, no raw engine counts. */}
+        <Stat label="Coverage"     value={`${v.coverage}%`}    />
+        <Stat label="Reliability"  value={`${v.reliability}%`} />
+        <Stat
+          label="Data quality"
+          value={v.data_quality.charAt(0).toUpperCase() + v.data_quality.slice(1)}
+          tone={
+            v.data_quality === 'high'   ? 'text-emerald-300'
+            : v.data_quality === 'medium' ? 'text-amber-300'
+            : 'text-orange-300'
+          }
+        />
         <p className="ml-auto hidden max-w-xs text-[11px] leading-snug text-muted-foreground lg:block">
           {v.explanation[0] ?? '—'}
         </p>
@@ -358,11 +375,11 @@ function VerdictBanner({ data }: { data: GridPayload }) {
   )
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
     <div>
       <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</p>
-      <p className="font-mono text-sm font-bold tabular-nums">{value}</p>
+      <p className={cn('font-mono text-sm font-bold tabular-nums', tone)}>{value}</p>
     </div>
   )
 }
