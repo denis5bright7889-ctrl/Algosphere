@@ -34,6 +34,7 @@ import { analyzePerformance } from '@/lib/intelligence/performance'
 import { generateInsights, type CoachInsight } from '@/lib/intelligence/coach'
 import { generateTiming, type RegimeSnapshot, type TimingRecommendation } from '@/lib/intelligence/timing'
 import type { JournalEntry } from '@/lib/types'
+import BrokerAccessPanel, { type BrokerConn } from './BrokerAccessPanel'
 
 export const metadata = { title: 'Command Center — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'
@@ -109,9 +110,16 @@ export default async function OverviewPage() {
       .select('symbol, regime, scanned_at')
       .order('scanned_at', { ascending: false })
       .limit(120),
+    // SECURITY: this row is serialized into <BrokerAccessPanel> (a client
+    // component), so it crosses to the browser. NEVER add the encrypted
+    // credential columns (api_key_enc / api_secret_enc / passphrase_enc /
+    // access_token_enc / metaapi_token_enc) to this select, and never use
+    // select('*') here — only the engine (server-side) may read those.
     supabase.from('broker_connections')
-      .select('broker, status, is_live, equity_usd, equity_updated_at')
-      .eq('user_id', user.id),
+      .select('id, broker, label, account_id, is_live, is_testnet, status, equity_usd, equity_updated_at, last_synced_at')
+      .eq('user_id', user.id)
+      .order('is_default', { ascending: false })
+      .order('created_at', { ascending: false }),
   ])
 
   let entries = (entriesRes.data ?? []) as unknown as JournalEntry[]
@@ -141,12 +149,7 @@ export default async function OverviewPage() {
     .filter((i) => i.severity === 'warn' || i.severity === 'critical')
     .slice(0, 2)
 
-  const brokers = (brokersRes.data ?? []) as Array<{
-    broker: string; status: string; is_live: boolean | null;
-    equity_usd: number | null; equity_updated_at: string | null;
-  }>
-  const connectedBrokers = brokers.filter((b) => b.status === 'connected')
-  const totalEquity = connectedBrokers.reduce((s, b) => s + (b.equity_usd ?? 0), 0)
+  const brokers = (brokersRes.data ?? []) as unknown as BrokerConn[]
 
   const overallBand = bandTone(scores.overall)
 
@@ -198,6 +201,20 @@ export default async function OverviewPage() {
           </div>
         </div>
       </section>
+
+      {/* ── Broker Access — operational gateway to connected accounts ─ */}
+      {brokers.length > 0 ? (
+        <BrokerAccessPanel initial={brokers} />
+      ) : (
+        <section className="surface mb-5 p-5">
+          <SectionHeader icon={Landmark} title="Broker Access" subtitle="No accounts connected" cta={{ href: '/brokers', label: 'Connect' }} />
+          <p className="mt-2 text-xs text-muted-foreground">
+            Connect a broker (MT4 / MT5 / Binance / Bybit / OKX / OANDA / cTrader) to reach
+            your account portal and platform in one click — and let the coach ingest your full
+            execution history, not just journal entries.
+          </p>
+        </section>
+      )}
 
       {/* ── Top coach insight ─────────────────────────────────────── */}
       {lead && (
@@ -257,49 +274,18 @@ export default async function OverviewPage() {
         )}
       </section>
 
-      {/* ── Broker status + Chart workspace CTA ───────────────────── */}
-      <section className="grid gap-4 lg:grid-cols-2">
-        <div className="surface p-5">
-          <SectionHeader icon={Landmark} title="Broker connections" subtitle={`${connectedBrokers.length} connected`} cta={{ href: '/brokers', label: 'Manage' }} />
-          {brokers.length === 0 ? (
-            <p className="mt-2 text-xs text-muted-foreground">
-              Connect a broker (MT4 / MT5 / Binance / Bybit / OKX) so the coach can ingest your full execution history — not just journal entries.
-            </p>
-          ) : (
-            <ul className="mt-3 space-y-2">
-              {brokers.slice(0, 4).map((b) => (
-                <li key={`${b.broker}-${b.status}-${b.equity_updated_at ?? ''}`} className="flex items-center justify-between rounded-md border border-border/40 bg-background/40 px-3 py-2 text-[12px]">
-                  <div className="flex items-center gap-2 font-mono uppercase">
-                    <span className={cn(
-                      'inline-block h-2 w-2 rounded-full',
-                      b.status === 'connected' ? 'bg-emerald-400' : b.status === 'failed' ? 'bg-rose-400' : 'bg-amber-400',
-                    )} aria-hidden />
-                    {b.broker}
-                    {b.is_live && <span className="rounded bg-amber-500/15 px-1 text-[9px] font-bold uppercase tracking-wider text-amber-300">live</span>}
-                  </div>
-                  <div className="text-right tabular-nums">
-                    {b.equity_usd != null ? fmtCurrency(b.equity_usd) : '—'}
-                  </div>
-                </li>
-              ))}
-              {connectedBrokers.length > 1 && (
-                <li className="pt-1 text-[11px] text-muted-foreground">Total equity · <span className="font-semibold tabular-nums text-foreground/80">{fmtCurrency(totalEquity)}</span></li>
-              )}
-            </ul>
-          )}
-        </div>
-        <div className="surface p-5">
-          <SectionHeader icon={CandlestickChart} title="Chart workspace" subtitle="TradingView · multi-chart" cta={{ href: '/workspace', label: 'Open' }} />
-          <p className="mt-2 text-[12px] text-foreground/85">
-            Charts are a tool, not the lead. Open the workspace when you want to validate an opportunity visually — the coach already filtered the universe for you.
-          </p>
-          <a
-            href="/workspace"
-            className="mt-3 inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[12px] font-semibold text-amber-300 transition hover:bg-amber-500/15"
-          >
-            Open workspace <ArrowRight className="h-3 w-3" strokeWidth={2.5} />
-          </a>
-        </div>
+      {/* ── Chart workspace CTA ───────────────────────────────────── */}
+      <section className="surface p-5">
+        <SectionHeader icon={CandlestickChart} title="Chart workspace" subtitle="TradingView · multi-chart" cta={{ href: '/workspace', label: 'Open' }} />
+        <p className="mt-2 text-[12px] text-foreground/85">
+          Charts are a tool, not the lead. Open the workspace when you want to validate an opportunity visually — the coach already filtered the universe for you.
+        </p>
+        <a
+          href="/workspace"
+          className="mt-3 inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[12px] font-semibold text-amber-300 transition hover:bg-amber-500/15"
+        >
+          Open workspace <ArrowRight className="h-3 w-3" strokeWidth={2.5} />
+        </a>
       </section>
     </div>
   )
