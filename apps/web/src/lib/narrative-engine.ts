@@ -230,7 +230,7 @@ function composeThemeNarrative(v: {
 }
 
 function buildHeadline(themes: NarrativeView[]): string {
-  if (themes.length === 0) return 'No narrative read available — Nansen returned an empty universe.'
+  if (themes.length === 0) return 'No narrative read available — the universe returned empty for this window.'
   const dominant = themes[0]!
   const accelerating = themes.find((t) => t.acceleration === 'Accelerating' && t.theme !== dominant.theme)
   const exhausting   = themes.find((t) => t.fatigue === 'Exhausted')
@@ -248,7 +248,7 @@ function buildHeadline(themes: NarrativeView[]): string {
 export async function composeNarrativeBoard(opts: { window?: '1h' | '24h' | '7d' | '30d' } = {}): Promise<NarrativeBoard> {
   const generated_at = new Date().toISOString()
   if (!isNansenConfigured()) {
-    return emptyBoard('NANSEN_API_KEY not configured', generated_at)
+    return emptyBoard('Narrative provider unconfigured', generated_at)
   }
   let tokens: NansenToken[] = []
   try {
@@ -260,10 +260,10 @@ export async function composeNarrativeBoard(opts: { window?: '1h' | '24h' | '7d'
       limit:     150,
     })
   } catch (e) {
-    return emptyBoard(e instanceof Error ? e.message : 'Nansen unavailable', generated_at)
+    return emptyBoard(e instanceof Error ? e.message : 'Narrative provider unavailable', generated_at)
   }
   if (tokens.length === 0) {
-    return emptyBoard('Nansen screener returned an empty universe for this window', generated_at)
+    return emptyBoard('Narrative provider returned an empty universe for this window', generated_at)
   }
 
   const buckets = bucketize(tokens)
@@ -292,10 +292,21 @@ export async function composeNarrativeBoard(opts: { window?: '1h' | '24h' | '7d'
   }
 }
 
+/**
+ * Empty fallback when the external narrative provider is down.
+ *
+ * `headline` is sanitized — never embeds raw provider errors or names.
+ * `reason` is preserved on the response for admin/telemetry but the
+ * page must NEVER render it directly (smart-money + whale-flows
+ * established this pattern in commits 31fa929 / a8e4873).
+ *
+ * Theme-level heuristics are infeasible without on-chain token data,
+ * so themes stay empty and the page shows a clean canonical message.
+ */
 function emptyBoard(reason: string, generated_at: string): NarrativeBoard {
   return {
     themes:             [],
-    headline:           `Narrative intelligence unavailable: ${reason}`,
+    headline:           'Narrative landscape is recalibrating. Theme reads resume on the next provider cycle.',
     dominant_theme:     '—',
     accelerating_theme: null,
     exhausting_theme:   null,

@@ -135,10 +135,10 @@ function volatilityLayer(r: RegimeSnap | null): ConvictionLayer {
 
 async function smartMoneyLayer(symbol: string, asset: ConvictionView['asset_class']): Promise<ConvictionLayer> {
   if (asset !== 'crypto') {
-    return { name: 'Smart Money', bias: 'N/A', strength: 0, signal: 'Crypto-only signal (Nansen)', source: 'nansen' }
+    return { name: 'Smart Money', bias: 'N/A', strength: 0, signal: 'Crypto-only signal', source: 'nansen' }
   }
   if (!isNansenConfigured()) {
-    return { name: 'Smart Money', bias: 'N/A', strength: 0, signal: 'Nansen not configured', source: 'nansen' }
+    return { name: 'Smart Money', bias: 'N/A', strength: 0, signal: 'Layer recalibrating', source: 'nansen' }
   }
   try {
     const tokenBase = symbol.toUpperCase().replace(/USDT$/, '')
@@ -163,7 +163,7 @@ async function smartMoneyLayer(symbol: string, asset: ConvictionView['asset_clas
       : 'Net distribution (smart-money sells exceed buys)'
     return { name: 'Smart Money', bias, strength: Math.min(5, strength), signal, source: 'nansen' }
   } catch {
-    return { name: 'Smart Money', bias: 'N/A', strength: 0, signal: 'Nansen unavailable', source: 'nansen' }
+    return { name: 'Smart Money', bias: 'N/A', strength: 0, signal: 'Layer recalibrating', source: 'nansen' }
   }
 }
 
@@ -172,7 +172,7 @@ async function participationLayer(symbol: string, asset: ConvictionView['asset_c
     return { name: 'Participation', bias: 'N/A', strength: 0, signal: 'Crypto-only signal (whale flows)', source: 'nansen' }
   }
   if (!isNansenConfigured()) {
-    return { name: 'Participation', bias: 'N/A', strength: 0, signal: 'Nansen not configured', source: 'nansen' }
+    return { name: 'Participation', bias: 'N/A', strength: 0, signal: 'Layer recalibrating', source: 'nansen' }
   }
   try {
     const tokenBase = symbol.toUpperCase().replace(/USDT$/, '')
@@ -193,13 +193,13 @@ async function participationLayer(symbol: string, asset: ConvictionView['asset_c
     const signal = flow > 0 ? 'Whales accumulating' : flow < 0 ? 'Whales distributing' : 'Whale flow flat'
     return { name: 'Participation', bias, strength: intensity, signal, source: 'nansen' }
   } catch {
-    return { name: 'Participation', bias: 'N/A', strength: 0, signal: 'Nansen unavailable', source: 'nansen' }
+    return { name: 'Participation', bias: 'N/A', strength: 0, signal: 'Layer recalibrating', source: 'nansen' }
   }
 }
 
 async function macroLayer(asset: ConvictionView['asset_class']): Promise<ConvictionLayer> {
   if (!isAlphaVantageConfigured()) {
-    return { name: 'Macro', bias: 'N/A', strength: 0, signal: 'Macro layer not configured', source: 'alphavantage' }
+    return { name: 'Macro', bias: 'N/A', strength: 0, signal: 'Macro layer recalibrating', source: 'alphavantage' }
   }
   try {
     const snap = await getMacroSnapshot()
@@ -232,7 +232,7 @@ async function macroLayer(asset: ConvictionView['asset_class']): Promise<Convict
     }
     return { name: 'Macro', bias, strength: bias === 'Neutral' ? 2 : 3, signal, source: 'alphavantage' }
   } catch {
-    return { name: 'Macro', bias: 'N/A', strength: 0, signal: 'Macro snapshot unavailable', source: 'alphavantage' }
+    return { name: 'Macro', bias: 'N/A', strength: 0, signal: 'Macro layer recalibrating', source: 'alphavantage' }
   }
 }
 

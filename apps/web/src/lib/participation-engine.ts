@@ -164,8 +164,11 @@ function buildNarrative(p: {
 
 /** Composes the participation view for the top N tokens by smart-money buy volume. */
 export async function composeParticipationBoard(opts: { window?: '1h'|'24h'|'7d'|'30d'; limit?: number } = {}): Promise<{ views: ParticipationView[]; partial: boolean; reason?: string }> {
+  // `reason` is SANITIZED — never carries provider names, HTTP codes, or
+  // credit wording. Pages must not render the raw `reason` string;
+  // operators see the real provider error in /admin/intelligence-health.
   if (!isNansenConfigured()) {
-    return { views: [], partial: true, reason: 'NANSEN_API_KEY not configured — Participation needs on-chain data' }
+    return { views: [], partial: true, reason: 'Participation provider unconfigured — on-chain data unavailable' }
   }
   try {
     const tokens = await tokenScreener({
@@ -189,7 +192,7 @@ export async function composeParticipationBoard(opts: { window?: '1h'|'24h'|'7d'
         volume:            t.volume,
       }))
     return { views, partial: true }
-  } catch (e) {
-    return { views: [], partial: true, reason: e instanceof Error ? e.message : 'Nansen unavailable' }
+  } catch {
+    return { views: [], partial: true, reason: 'Participation provider recalibrating — read resumes on the next cycle' }
   }
 }

@@ -23,20 +23,20 @@ export default async function ParticipationPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Participation</h1>
         <p className="text-sm text-muted-foreground">
           Who is driving price — smart money, whales, and aggression by asset.
-          Crypto universe via Nansen; equities/FX participation needs
-          exchange-side aggregates not yet wired.
+          Equities/FX participation requires exchange-side aggregates and
+          surfaces once wired.
         </p>
       </header>
 
       {board.reason && (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+        <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/[0.06] px-4 py-3 text-xs text-cyan-200">
           {board.reason}
         </div>
       )}
 
       {sorted.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
-          No active participation in the 24h window yet — Nansen returned an empty screener.
+          No active participation in the 24h window yet — the screener returned an empty universe.
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">

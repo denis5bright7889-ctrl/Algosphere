@@ -36,9 +36,11 @@ export default async function NarrativeIntelligencePage() {
 
       {board.themes.length === 0 ? (
         <p className={cn('rounded-xl border px-4 py-3 text-xs',
-          board.partial ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+          board.partial ? 'border-cyan-500/30 bg-cyan-500/[0.06] text-cyan-200'
                         : 'border-border bg-muted/10 text-muted-foreground')}>
-          {board.reason ?? 'No themes available for this window.'}
+          {board.partial
+            ? 'Theme intelligence is recalibrating — read resumes on the next provider cycle.'
+            : 'No themes available for this window.'}
         </p>
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">

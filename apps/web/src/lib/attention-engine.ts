@@ -281,20 +281,29 @@ export async function composeAttentionBoard(): Promise<AttentionBoard> {
   return { views, headline: buildHeadline(views, dominant, surging, active), dominant, surging, active_sources: active, available: true, generated_at }
 }
 
-function buildHeadline(views: AttentionView[], dominant: string | null, surging: string | null, sources: AttentionSource[]): string {
+function buildHeadline(views: AttentionView[], dominant: string | null, surging: string | null, _sources: AttentionSource[]): string {
   if (views.length === 0) return 'No attention data available.'
   const parts: string[] = []
   if (dominant) parts.push(`${dominant} leads social attention (${views[0]!.share_of_attention_pct.toFixed(0)}% share).`)
   if (surging && surging !== dominant) parts.push(`${surging} surging beneath it.`)
   const cooling = views.find((v) => v.state === 'Cooling')
   if (cooling) parts.push(`${cooling.label} cooling.`)
-  parts.push(`Live via ${sources.join(' + ') || 'no source'}.`)
+  // Sources intentionally NOT mentioned — provider names stay off the
+  // user surface ([[feedback_admin_vs_user_surfaces]]). Operators read
+  // active sources in /admin/intelligence-health.
   return parts.join(' ')
 }
 
+/**
+ * Empty fallback when ALL social sources fail (rate-limit, auth, etc).
+ *
+ * Headline is canonical — never embeds raw provider errors. `reason` is
+ * preserved on the response for admin/telemetry only.
+ */
 function emptyBoard(reason: string, generated_at: string): AttentionBoard {
   return {
-    views: [], headline: `Attention intelligence unavailable: ${reason}`,
+    views: [],
+    headline: 'Social attention is recalibrating — read resumes on the next cycle.',
     dominant: null, surging: null, active_sources: [], available: false, reason, generated_at,
   }
 }

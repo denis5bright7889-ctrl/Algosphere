@@ -29,12 +29,11 @@ export default async function AttentionPage() {
       </header>
 
       {!board.available ? (
-        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-4 text-sm text-amber-200">
-          <p className="font-semibold">Attention feed unavailable</p>
+        <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/[0.06] px-4 py-4 text-sm text-cyan-200">
+          <p className="font-semibold">Attention feed recalibrating</p>
           <p className="mt-1 text-xs">
-            {board.reason}. Reddit (free) is the baseline source — set REDDIT_CLIENT_ID /
-            REDDIT_CLIENT_SECRET to enable it; X enriches when its metered credits are available.
-            The engine degrades to whichever source responds.
+            Social attention data is warming up — read resumes on the next cycle. The
+            engine degrades transparently across configured social sources.
           </p>
         </div>
       ) : (
@@ -42,8 +41,13 @@ export default async function AttentionPage() {
           <section className="rounded-2xl border border-violet-500/25 bg-card p-5 shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Attention Landscape</span>
+              {/* Provider count is shown without naming them — keeps the
+                  "is the engine live" pulse without leaking which APIs
+                  are wired ([[feedback_admin_vs_user_surfaces]]). */}
               <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
-                live via {board.active_sources.join(' + ') || '—'}
+                {board.active_sources.length > 0
+                  ? `live · ${board.active_sources.length} source${board.active_sources.length === 1 ? '' : 's'}`
+                  : '—'}
               </span>
             </div>
             <p className="mt-1 text-sm leading-relaxed text-foreground/90">{board.headline}</p>
@@ -94,7 +98,12 @@ function AttentionCard({ view }: { view: AttentionView }) {
       <div className="mt-3 flex items-center justify-between border-t border-border/50 pt-2 text-[10px] text-muted-foreground">
         <span>Mentions 24h: <span className="tabular-nums text-foreground/80">{view.mentions_24h.toLocaleString()}</span></span>
         <span>Share: <span className="tabular-nums text-foreground/80">{view.share_of_attention_pct.toFixed(1)}%</span></span>
-        {view.sources.length > 0 && <span className="uppercase tracking-wider">{view.sources.join('+')}</span>}
+        {/* Per-card source list is intentionally abstracted into a count. */}
+        {view.sources.length > 0 && (
+          <span className="uppercase tracking-wider">
+            {view.sources.length} source{view.sources.length === 1 ? '' : 's'}
+          </span>
+        )}
       </div>
     </section>
   )
