@@ -7,6 +7,16 @@ import type {
   RiskLevel, TradePermission, DirectionBias, TimeHorizon,
 } from './config'
 
+/** Suggested Position Size Environment — V3 Phase 7
+ *  ([[market_intel_v3_spec]]). Institutional sizing label only; never
+ *  raw R values. UI translates this to whatever %-of-equity language
+ *  fits the consumer surface. */
+export type PositionSize = 'Avoid' | 'Reduced' | 'Standard' | 'Scaled'
+
+/** Recommended Aggressiveness — V3 Phase 7. Execution posture across
+ *  the entry/stop continuum. */
+export type Aggressiveness = 'Defensive' | 'Measured' | 'Active' | 'Aggressive'
+
 /**
  * The strict consolidated output. This is the ONLY thing the brain
  * exposes — no raw indicators, no engine internals.
@@ -21,6 +31,12 @@ export interface DecisionObject {
   trade_permission: TradePermission
   direction_bias:   DirectionBias
   time_horizon:     TimeHorizon
+  /** V3 Phase 7 — Recommended Exposure as % of base capital (0..100). */
+  recommended_exposure:    number
+  /** V3 Phase 7 — Suggested Position Size Environment. */
+  suggested_position_size: PositionSize
+  /** V3 Phase 7 — Recommended Aggressiveness for execution posture. */
+  aggressiveness:          Aggressiveness
   /** Market Decision Score — weighted Σ(engine_score × adaptive_weight), 0..1 (0.5 = neutral). */
   mds:              number
   explanation:      string[]         // short institutional reasoning lines

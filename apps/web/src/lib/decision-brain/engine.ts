@@ -36,7 +36,10 @@ import { DECISION_CONFIG, type EngineName,
 } from './config'
 import { regimeAdaptedWeights, type BriefEngine, type WeightVector } from './weights'
 import { logDecision, fingerprint } from '@/lib/intel-memory'
-import type { DecisionObject, DecisionContext, NormalizedSignal, StrictDecision } from './types'
+import type {
+  DecisionObject, DecisionContext, NormalizedSignal, StrictDecision,
+  PositionSize, Aggressiveness,
+} from './types'
 
 /** Crypto bellwether used as the market-momentum proxy (labelled in output). */
 const MOMENTUM_PROXY = 'BTCUSDT'
@@ -853,6 +856,23 @@ export function buildMarketDecision(ctx: DecisionContext): DecisionObject {
 
   const time_horizon = computeHorizon(momentum_state, ctx.raw.volExtreme, confidence, trade_permission)
 
+  // ── V3 Phase 7 — Recommended Exposure / Position Size / Aggressiveness ──
+  // Derived purely from existing decision state; no new sources required.
+  // The trio represents the same intuitive read as the verdict ladder but
+  // mapped to actionable execution language so the user knows HOW MUCH
+  // and HOW HARD, not just WHETHER.
+  const recommended_exposure = computeExposure({
+    confidence, risk_level, trade_permission, contradiction,
+    volExtreme: ctx.raw.volExtreme, participation,
+  })
+  const suggested_position_size = computePositionSize({
+    confidence, risk_level, trade_permission, momentum_state, participation,
+  })
+  const aggressiveness = computeAggressiveness({
+    confidence, risk_level, trade_permission, contradiction,
+    momentum_state, participation, volExtreme: ctx.raw.volExtreme,
+  })
+
   const explanation = buildExplanation({
     ctx, netLean, confidence, contradiction, contradictionCount,
     trade_permission, market_state, momentum_state, risk_level,
@@ -870,6 +890,7 @@ export function buildMarketDecision(ctx: DecisionContext): DecisionObject {
   return {
     market_state, momentum_state, flow_bias, participation,
     confidence, risk_level, trade_permission, direction_bias, time_horizon,
+    recommended_exposure, suggested_position_size, aggressiveness,
     mds: Number(mds.toFixed(3)), explanation, strict,
   }
 }
@@ -987,6 +1008,86 @@ function computeHorizon(
   if (momentum === 'TRENDING') return 'SWING'
   if (momentum === 'EXPANSION') return 'INTRADAY'
   return 'INTRADAY'
+}
+
+// ── V3 Phase 7 derivations ──────────────────────────────────────────────
+// Recommended Exposure, Suggested Position Size, Recommended Aggressiveness.
+// All three derive from existing decision state — no new inputs. They
+// translate the verdict into actionable execution language so the user
+// learns HOW MUCH and HOW HARD to commit, not just WHETHER.
+
+/** Recommended exposure as a % of the trader's base capital deployed.
+ *  Caps:
+ *   AVOID → 0
+ *   REDUCE → max 50%
+ *   ALLOW → scales with confidence × risk discount × structural penalties */
+function computeExposure(a: {
+  confidence: number; risk_level: RiskLevel; trade_permission: TradePermission
+  contradiction: boolean; volExtreme: boolean; participation: Participation
+}): number {
+  if (a.trade_permission === 'AVOID') return 0
+  // Base envelope by permission.
+  const ceiling = a.trade_permission === 'REDUCE' ? 50 : 100
+  // Risk discount — each rung above LOW shaves the envelope.
+  const riskMul =
+    a.risk_level === 'LOW'    ? 1.00
+    : a.risk_level === 'MEDIUM' ? 0.65
+    : a.risk_level === 'HIGH'   ? 0.35
+    :                              0.00 // EXTREME
+  // Structural penalties — contradiction + extreme vol both shave further.
+  const contradictMul = a.contradiction ? 0.70 : 1.00
+  const volMul        = a.volExtreme    ? 0.70 : 1.00
+  const partMul       = a.participation === 'BROAD' ? 1.00
+                       : a.participation === 'NARROW' ? 0.85
+                       :                                 0.60
+  // Confidence-driven scaling on the discounted envelope.
+  const confidenceFrac = Math.max(0, Math.min(1, a.confidence / 100))
+  const exposure =
+    ceiling * riskMul * contradictMul * volMul * partMul * confidenceFrac
+  return Math.max(0, Math.min(100, Math.round(exposure)))
+}
+
+/** Suggested Position Size Environment — the institutional sizing label. */
+function computePositionSize(a: {
+  confidence: number; risk_level: RiskLevel; trade_permission: TradePermission
+  momentum_state: MomentumState; participation: Participation
+}): PositionSize {
+  if (a.trade_permission === 'AVOID' || a.risk_level === 'EXTREME') return 'Avoid'
+  if (a.trade_permission === 'REDUCE') return 'Reduced'
+  if (a.risk_level === 'HIGH') return 'Reduced'
+  // ALLOW + reasonable risk — distinguish Scaled (lean in) vs Standard.
+  const trendingPhase =
+    a.momentum_state === 'EXPANSION' || a.momentum_state === 'TRENDING'
+  if (
+    a.confidence >= DECISION_CONFIG.thresholds.minConfidenceToAllow + 10 &&
+    a.risk_level === 'LOW' &&
+    trendingPhase &&
+    a.participation === 'BROAD'
+  ) {
+    return 'Scaled'
+  }
+  return 'Standard'
+}
+
+/** Recommended Aggressiveness — execution posture. */
+function computeAggressiveness(a: {
+  confidence: number; risk_level: RiskLevel; trade_permission: TradePermission
+  contradiction: boolean; momentum_state: MomentumState
+  participation: Participation; volExtreme: boolean
+}): Aggressiveness {
+  if (a.trade_permission === 'AVOID' || a.risk_level === 'EXTREME' || a.volExtreme) return 'Defensive'
+  if (a.contradiction || a.risk_level === 'HIGH' || a.trade_permission === 'REDUCE') return 'Measured'
+  const trendingPhase =
+    a.momentum_state === 'EXPANSION' || a.momentum_state === 'TRENDING'
+  if (
+    a.confidence >= 80 &&
+    a.risk_level === 'LOW' &&
+    trendingPhase &&
+    a.participation === 'BROAD'
+  ) {
+    return 'Aggressive'
+  }
+  return 'Active'
 }
 
 function buildExplanation(a: {

@@ -75,6 +75,16 @@ export default function DecisionBrainCard() {
             <Chip label="Risk"          value={d.risk_level} tone={riskTone(d.risk_level)} />
           </div>
 
+          {/* V3 Phase 7 — Recommended Exposure / Position Size / Aggressiveness.
+              These translate the verdict into HOW MUCH and HOW HARD,
+              not just WHETHER. Always rendered so the user can read the
+              execution posture at a glance. */}
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3 border-t border-border/50 pt-3">
+            <Chip label="Recommended Exposure"  value={`${d.recommended_exposure}%`}        tone={exposureTone(d.recommended_exposure)} />
+            <Chip label="Position Size"         value={d.suggested_position_size}            tone={sizeTone(d.suggested_position_size)} />
+            <Chip label="Aggressiveness"        value={d.aggressiveness}                    tone={aggressivenessTone(d.aggressiveness)} />
+          </div>
+
           {/* Institutional reasoning */}
           {d.explanation.length > 0 && (
             <ul className="mt-4 space-y-1 border-t border-border/50 pt-3">
@@ -133,6 +143,21 @@ function permTone(p: DecisionObject['trade_permission']): { pill: string; border
 }
 function riskTone(r: DecisionObject['risk_level']): string {
   return r === 'EXTREME' ? 'text-rose-400' : r === 'HIGH' ? 'text-amber-400' : r === 'MEDIUM' ? 'text-amber-300/80' : 'text-emerald-400'
+}
+function exposureTone(n: number): string {
+  return n >= 70 ? 'text-emerald-400' : n >= 35 ? 'text-amber-300' : n > 0 ? 'text-amber-400' : 'text-rose-400'
+}
+function sizeTone(s: DecisionObject['suggested_position_size']): string {
+  return s === 'Scaled' ? 'text-emerald-400'
+    : s === 'Standard' ? 'text-sky-300'
+    : s === 'Reduced' ? 'text-amber-300'
+    :                   'text-rose-400'
+}
+function aggressivenessTone(a: DecisionObject['aggressiveness']): string {
+  return a === 'Aggressive' ? 'text-emerald-400'
+    : a === 'Active'      ? 'text-sky-300'
+    : a === 'Measured'    ? 'text-amber-300'
+    :                       'text-rose-400'
 }
 function marketLabel(s: DecisionObject['market_state']): string {
   return s === 'RISK_ON' ? 'Risk-On' : s === 'RISK_OFF' ? 'Risk-Off' : titleCase(s)
