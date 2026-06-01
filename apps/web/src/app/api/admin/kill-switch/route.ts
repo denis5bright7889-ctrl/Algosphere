@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as serviceClient } from '@supabase/supabase-js'
 import { isAdmin } from '@/lib/admin'
+import { notify, EMBED_COLOR } from '@/lib/notifications/discord'
 
 /**
  * GET  /api/admin/kill-switch — current state.
@@ -63,6 +64,24 @@ export async function POST(req: Request) {
     resource_type: 'global_risk_state', resource_id: null,
     after_state: { active: body.active, reason: body.reason ?? null },
   }).then(() => {}, () => {})
+
+  // Ops alert — kill-switch flips are critical events the on-call
+  // channel must see immediately. Fire-and-forget: a Discord failure
+  // must never block the kill-switch flip itself.
+  notify.admin(
+    body.active
+      ? `🛑 **KILL SWITCH ACTIVATED**\n${body.reason ?? '(no reason given)'}\nby ${user.email ?? 'admin'}`
+      : `✅ **Kill switch cleared** by ${user.email ?? 'admin'}`,
+    {
+      embed: {
+        title:       body.active ? 'Kill switch ACTIVATED' : 'Kill switch CLEARED',
+        description: body.active ? (body.reason ?? '(no reason given)') : 'All systems resumed.',
+        color:       body.active ? EMBED_COLOR.critical : EMBED_COLOR.ok,
+        fields:      [{ name: 'Actor', value: user.email ?? user.id, inline: true }],
+        timestamp:   new Date().toISOString(),
+      },
+    },
+  ).catch(() => { /* swallow — alert is best-effort */ })
 
   return NextResponse.json({ ok: true, active: body.active })
 }

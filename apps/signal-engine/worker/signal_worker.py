@@ -288,6 +288,19 @@ class SignalWorker:
                 f"[{symbol}] RISK GATE BLOCKED: failed=[{','.join(risk_decision.gates_failed)}] "
                 f"reasons=[{' | '.join(risk_decision.reasons)}]"
             )
+            # Discord transparency channel — show users that the engine
+            # actively refuses trades that don't pass the gates.
+            try:
+                from notify_discord import notify_rejection, fire as _fire_discord
+                _fire_discord(notify_rejection(
+                    symbol=symbol,
+                    reason=' | '.join(risk_decision.reasons),
+                    gate=','.join(risk_decision.gates_failed) or 'risk_gate',
+                    proposed_direction=proposal.direction,
+                    proposed_entry=proposal.entry,
+                ))
+            except Exception as e:
+                logger.warning(f"[{symbol}] Discord rejection-notify failed (non-fatal): {e}")
             return
 
         logger.info(
@@ -316,6 +329,29 @@ class SignalWorker:
             # 11. WebSocket broadcast
             if self._ws_broadcast_fn:
                 await self._ws_broadcast_fn(symbol, signal_id, gate.tier_required)
+
+            # 12. Discord notification — fire-and-forget. Tier → channel
+            # (free | premium | whales). Failure is logged, never raised.
+            try:
+                from notify_discord import notify_signal, fire as _fire_discord
+                tier_label = (
+                    'whales'  if confidence.tier in ('institutional', 'whale')
+                    else 'premium' if confidence.tier in ('high', 'premium')
+                    else 'free'
+                )
+                _fire_discord(notify_signal(
+                    tier=tier_label,
+                    symbol=symbol,
+                    direction=proposal.direction,
+                    entry=proposal.entry,
+                    stop_loss=proposal.stop_loss,
+                    take_profit_1=proposal.take_profit_1,
+                    risk_reward=proposal.risk_reward,
+                    confidence=confidence.score,
+                    regime=regime.regime.value,
+                ))
+            except Exception as e:
+                logger.warning(f"[{symbol}] Discord notify failed (non-fatal): {e}")
 
     # ─── Database operations ──────────────────────────────────────────────
 
