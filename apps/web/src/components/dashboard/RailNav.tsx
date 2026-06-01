@@ -109,9 +109,22 @@ function FlyoutRow({ item, active }: { item: NavItem; active: boolean }) {
 export default function RailNav({ admin = false }: { admin?: boolean }) {
   const pathname = usePathname() ?? ''
   const active = useMemo(() => activeHref(pathname), [pathname])
+
+  // adminOnly groups/items (e.g. Operations → Intelligence Health) are
+  // operator/diagnostic surfaces — they must NEVER appear in a regular
+  // user's rail ([[feedback_admin_vs_user_surfaces]]). This mirrors the
+  // admin filter in visibleNav(); tier filtering stays off here so the
+  // rail keeps surfacing every feature (pages enforce their own gates).
+  const groups = useMemo(
+    () => NAV_GROUPS
+      .filter((g) => admin || !g.adminOnly)
+      .map((g) => ({ ...g, items: g.items.filter((i) => admin || !i.adminOnly) }))
+      .filter((g) => g.items.length > 0),
+    [admin],
+  )
   const activeGroup = useMemo(
-    () => NAV_GROUPS.find((g) => g.items.some((i) => i.href === active))?.label ?? null,
-    [active],
+    () => groups.find((g) => g.items.some((i) => i.href === active))?.label ?? null,
+    [groups, active],
   )
 
   return (
@@ -131,7 +144,7 @@ export default function RailNav({ admin = false }: { admin?: boolean }) {
 
       {/* One icon per section; hover opens the flyout */}
       <nav className="flex flex-1 flex-col items-center gap-1.5" aria-label="Sections">
-        {NAV_GROUPS.map((group) => {
+        {groups.map((group) => {
           const GroupIcon = group.icon
           const isActive = group.label === activeGroup
           return (
