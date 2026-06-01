@@ -307,6 +307,7 @@ export default function HomePage() {
         <div className="mt-2 flex justify-center gap-4">
           <a href="/terms" className="hover:underline">Terms</a>
           <a href="/privacy" className="hover:underline">Privacy</a>
+          <a href="/data-deletion" className="hover:underline">Data Deletion</a>
         </div>
       </footer>
 
