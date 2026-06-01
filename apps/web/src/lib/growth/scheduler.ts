@@ -44,15 +44,15 @@ export interface PublishOutcome {
 async function postViaAdapter(
   channel: Channel,
   text:    string,
-  hero?:   string | null,
+  ctx:     { hero?: string | null; kind?: string },
 ): Promise<AdapterResult> {
   switch (channel) {
     case 'telegram':         return postToTelegram(text)
-    case 'discord':          return postToDiscord(text)
+    case 'discord':          return postToDiscord(text, { contentKind: ctx.kind })
     case 'x':                return postToX(text)
     case 'linkedin':         return postToLinkedIn(text)
     case 'facebook':         return postToFacebook(text)
-    case 'instagram':        return postToInstagram(text, hero ?? undefined)
+    case 'instagram':        return postToInstagram(text, ctx.hero ?? undefined)
     case 'instagram_reels':  return postToInstagramReels(text)
     case 'youtube':          return postToYouTube(text)
     case 'youtube_shorts':   return postToYouTubeShorts(text)
@@ -115,7 +115,11 @@ export async function publishOne(scheduledId: string): Promise<PublishOutcome> {
 
   const formatted = formatForChannel(sched.channel as Channel, ci, bi)
   const heroUrl   = sched.hero_image_url ?? content.hero_image_url ?? null
-  const adapter   = await postViaAdapter(sched.channel as Channel, formatted.text, heroUrl)
+  const adapter   = await postViaAdapter(
+    sched.channel as Channel,
+    formatted.text,
+    { hero: heroUrl, kind: content.kind },
+  )
   const durationMs = Date.now() - startedAt
   const nextAttempt = (sched.attempts ?? 0) + 1
 
