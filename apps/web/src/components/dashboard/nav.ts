@@ -45,7 +45,8 @@ import {
   BookOpen, Calculator, Briefcase, BrainCircuit, KeyRound,
   UserCog, BadgeDollarSign, Handshake, LogOut,
   LineChart, Eye, Globe2, Grid3x3, Sparkles, Crown,
-  Server, HeartPulse, FlaskRound, type LucideIcon,
+  Server, HeartPulse, FlaskRound, Waves, MessagesSquare,
+  Repeat, Rocket, type LucideIcon,
 } from 'lucide-react'
 
 export type Tier = 'free' | 'starter' | 'premium' | 'vip'
@@ -116,6 +117,61 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/calendar',              label: 'Economic Calendar',icon: CalendarDays,     keywords: 'events nfp cpi macro impact analysis' },
       { href: '/news',                  label: 'Market News',      icon: Newspaper,        keywords: 'headlines macro ai summaries impact scoring' },
       { href: '/workspace',             label: 'Chart Workspace',  icon: CandlestickChart, keywords: 'multi chart tradingview tabs layouts split quad compare overlay favorites recent persistent terminal' },
+    ],
+  },
+  {
+    // V3 Intelligence hub — Capital Flows. Parent overview + 4 deep
+    // pages. Sidebar IA collapse per the V3 spec
+    // ([[market_intel_v3_spec]]): users see the overview first; the
+    // deep specialist surfaces remain accessible as detail views.
+    label: 'Capital Flows',
+    icon: Waves,
+    items: [
+      { href: '/intelligence/capital-flows',       label: 'Overview',             icon: Waves,    keywords: 'capital flows overview hub consolidated smart money whale exchange stablecoin' },
+      { href: '/intelligence/smart-money',         label: 'Smart Money',          icon: BrainCircuit, keywords: 'institutional capital flow conviction wallet rotation accumulation distribution bias' },
+      { href: '/intelligence/whale-flows',         label: 'Whale Flows',          icon: Activity, keywords: 'whale movement accumulation distribution institutional capital netflow' },
+      { href: '/intelligence/stablecoin-liquidity',label: 'Stablecoin Liquidity', icon: Landmark, keywords: 'stablecoin liquidity dry powder market cap usdt usdc dai' },
+      { href: '/intelligence/exchange-flows',      label: 'Exchange Flows',       icon: BarChart3, keywords: 'exchange inflow outflow netflow sell pressure accumulation' },
+    ],
+  },
+  {
+    // V3 Intelligence hub — Market Sentiment. Crowd behaviour: what is
+    // being talked about, where attention is concentrating, who is
+    // participating ([[market_intel_v3_spec]]).
+    label: 'Market Sentiment',
+    icon: MessagesSquare,
+    items: [
+      { href: '/intelligence/sentiment',    label: 'Overview',      icon: MessagesSquare, keywords: 'sentiment overview hub crowd narrative attention participation' },
+      { href: '/intelligence/narrative',    label: 'Narrative',     icon: Brain,          keywords: 'theme narrative landscape ai defi memes l1 acceleration fatigue crowding' },
+      { href: '/intelligence/attention',    label: 'Attention',     icon: Sparkles,       keywords: 'social attention mentions surge cooling narrative dominance' },
+      { href: '/intelligence/participation', label: 'Participation', icon: HeartPulse,    keywords: 'participation quality whale smart money aggression imbalance by asset' },
+    ],
+  },
+  {
+    // V3 Intelligence hub — Market Structure. Where capital is rotating,
+    // breadth and dominance ([[market_intel_v3_spec]]).
+    label: 'Market Structure',
+    icon: Repeat,
+    items: [
+      { href: '/intelligence/structure',      label: 'Overview',             icon: Repeat,    keywords: 'structure overview hub dominance breadth rotation sectors' },
+      { href: '/intelligence/dominance',      label: 'Dominance & Rotation', icon: Globe2,    keywords: 'btc dominance market cap risk-on risk-off rotation eth alt' },
+      { href: '/intelligence/sectors',        label: 'Sector Intelligence',  icon: Grid3x3,   keywords: 'sectors performance defi infrastructure l1 memes ai gaming rwa' },
+      { href: '/intelligence/breadth',        label: 'Market Breadth',       icon: BarChart3, keywords: 'breadth advancers decliners participation broad narrow' },
+      { href: '/intelligence/market-rotation',label: 'Market Rotation',      icon: Activity,  keywords: 'rotation sectors momentum capital flow leadership' },
+    ],
+  },
+  {
+    // V3 Intelligence hub — Momentum. Per-symbol conviction + phase +
+    // positioning. The existing /intelligence/momentum is the deep
+    // "Phase" view; the hub overview lives at /intelligence/momentum-hub
+    // ([[market_intel_v3_spec]]).
+    label: 'Momentum',
+    icon: Rocket,
+    items: [
+      { href: '/intelligence/momentum-hub', label: 'Overview',       icon: Rocket,        keywords: 'momentum overview hub conviction phase positioning' },
+      { href: '/intelligence/conviction',   label: 'Conviction',     icon: BrainCircuit,  keywords: 'conviction multi-layer agreement momentum regime volatility smart money macro' },
+      { href: '/intelligence/momentum',     label: 'Momentum Phase', icon: Activity,      keywords: 'momentum phase trending expansion exhaustion accumulation parabolic quality sustainability' },
+      { href: '/intelligence/positioning',  label: 'Positioning',    icon: LineChart,     keywords: 'positioning leverage funding open interest crowding liquidation risk' },
     ],
   },
   {
