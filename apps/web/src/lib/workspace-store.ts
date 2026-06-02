@@ -103,9 +103,41 @@ export function loadState(): WorkspaceState {
     if (!raw) return defaultState()
     const parsed = JSON.parse(raw) as Partial<WorkspaceState>
     if (parsed.version !== SCHEMA_VERSION) return defaultState()
-    // Light shape check — bail to defaults if anything's off rather than crash.
     if (!Array.isArray(parsed.tabs) || parsed.tabs.length === 0) return defaultState()
-    return { ...defaultState(), ...parsed } as WorkspaceState
+
+    // Deep shape repair. The provider derives `activeTab.panels[0]!` and
+    // `activePanel`, so a legacy/corrupt tab with an empty or malformed
+    // `panels` array (or a dangling activePanelId/activeTab) would crash
+    // the whole route. Sanitize every tab to a valid shape instead of
+    // trusting stored JSON — repair in place, no data loss for good tabs.
+    const tabs: WorkspaceTab[] = parsed.tabs
+      .filter((t): t is WorkspaceTab => !!t && typeof t.id === 'string')
+      .map((t) => {
+        const rawPanels = Array.isArray(t.panels) ? t.panels : []
+        const panels: ChartPanelState[] = rawPanels
+          .filter((p): p is ChartPanelState =>
+            !!p && typeof p.id === 'string' && typeof p.symbol === 'string')
+          .map((p) => ({
+            ...p,
+            interval:    typeof p.interval === 'string' ? p.interval : DEFAULT_INTERVAL,
+            compareWith: Array.isArray(p.compareWith) ? p.compareWith : [],
+          }))
+        const safePanels = panels.length > 0 ? panels : [makePanel('BTCUSDT', 'crypto')]
+        const activePanelId = safePanels.some((p) => p.id === t.activePanelId)
+          ? t.activePanelId
+          : safePanels[0]!.id
+        return {
+          id:     t.id,
+          name:   typeof t.name === 'string' && t.name ? t.name : 'Workspace',
+          layout: (['single', 'split-h', 'split-v', 'quad'] as const).includes(t.layout) ? t.layout : 'single',
+          panels: safePanels,
+          activePanelId,
+        }
+      })
+    if (tabs.length === 0) return defaultState()
+    const activeTab = tabs.some((t) => t.id === parsed.activeTab) ? parsed.activeTab! : tabs[0]!.id
+
+    return { ...defaultState(), ...parsed, tabs, activeTab } as WorkspaceState
   } catch {
     return defaultState()
   }
