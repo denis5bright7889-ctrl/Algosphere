@@ -19,8 +19,14 @@ const SHORT_DESC: Record<string, string> = {
 
 export default function PricingCard({ plan }: Props) {
   const isFree    = plan.id === 'free'
+  const isStarter = plan.id === 'starter'
   const isPremium = plan.id === 'premium'   // marked "Most popular"
   const isVip     = plan.id === 'vip'
+
+  // Beta launch: only Starter is open — it's free entry so users can test
+  // the platform. Pro + VIP are not yet available, so their cards show a
+  // disabled "Coming Soon" with no path to signup/checkout.
+  const comingSoon = isPremium || isVip
 
   // VIP gets a richer treatment (gradient border) but Pro keeps the
   // "Most popular" badge.
@@ -63,9 +69,11 @@ export default function PricingCard({ plan }: Props) {
             'text-4xl font-extrabold tabular-nums',
             (isPremium || isVip) && 'text-gradient',
           )}>
-            {plan.price === 0 ? 'Free' : `$${plan.price}`}
+            {/* Starter is free entry during beta, so it reads "Free" here
+                regardless of its configured price. */}
+            {isFree || isStarter ? 'Free' : `$${plan.price}`}
           </span>
-          {plan.price > 0 && (
+          {!isFree && !isStarter && plan.price > 0 && (
             <span className="mb-1 text-sm text-muted-foreground">/month</span>
           )}
         </div>
@@ -80,25 +88,41 @@ export default function PricingCard({ plan }: Props) {
         ))}
       </ul>
 
-      {isFree ? (
-        <a href="/signup" className="btn-glass w-full justify-center">
-          Start free
-        </a>
-      ) : (
+      {comingSoon ? (
+        // Pro + VIP: not available yet. No href — clicking does nothing, so
+        // there's no route to signup/login/checkout for these tiers.
         <div className="space-y-2">
-          <a
-            href={`/demo/${plan.id}`}
-            className={cn(
-              'block w-full text-center text-sm',
-              (isPremium || isVip) ? 'btn-premium' : 'btn-glass justify-center',
-            )}
+          <span
+            role="button"
+            aria-disabled="true"
+            tabIndex={-1}
+            className="pointer-events-none block w-full cursor-not-allowed select-none rounded-xl border border-border bg-muted/30 px-4 py-2.5 text-center text-sm font-semibold text-muted-foreground"
           >
-            {CTA_LABEL[plan.id] ?? 'Choose plan'}
-          </a>
+            Coming Soon
+          </span>
           <p className="text-center text-[11px] text-muted-foreground">
-            Try the demo first — pay with USDT TRC20 when ready.
+            Not yet available — Starter is open for everyone to test.
           </p>
         </div>
+      ) : isFree || isStarter ? (
+        // Starter is free entry during beta so users can test the platform.
+        <div className="space-y-2">
+          <a href="/signup" className={cn('block w-full text-center text-sm', isStarter ? 'btn-premium' : 'btn-glass justify-center')}>
+            {isStarter ? 'Start Free' : 'Start free'}
+          </a>
+          {isStarter && (
+            <p className="text-center text-[11px] text-muted-foreground">
+              Free access during beta — no payment required.
+            </p>
+          )}
+        </div>
+      ) : (
+        <a
+          href={`/demo/${plan.id}`}
+          className="btn-glass block w-full justify-center text-center text-sm"
+        >
+          {CTA_LABEL[plan.id] ?? 'Choose plan'}
+        </a>
       )}
     </div>
   )
