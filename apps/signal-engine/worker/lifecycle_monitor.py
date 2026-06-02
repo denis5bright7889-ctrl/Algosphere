@@ -11,6 +11,7 @@ from loguru import logger
 from supabase import create_client, Client
 
 from config import get_settings
+import system_events as obs
 
 
 TERMINAL_STATES = {'tp1_hit', 'tp2_hit', 'tp3_hit', 'stopped', 'breakeven', 'invalidated', 'expired'}
@@ -42,6 +43,12 @@ class LifecycleMonitor:
 
     async def check_all(self) -> None:
         """Fetch all active engine signals and check their levels."""
+        # Heartbeat upfront so the diagnostics endpoint can answer
+        # "is the lifecycle monitor actually firing?" — the bug that
+        # caused the 2026-06 signal-silence incident was lifecycle
+        # monitor silent-failing for days.
+        obs.heartbeat('lifecycle_monitor', status='live')
+
         try:
             result = (
                 self.db().table('signals')
@@ -54,6 +61,8 @@ class LifecycleMonitor:
             signals = result.data or []
         except Exception as e:
             logger.error(f"Lifecycle monitor fetch failed: {e}")
+            obs.health_alert('lifecycle_monitor',
+                             f'fetch failed: {str(e)[:200]}')
             return
 
         if not signals:
@@ -61,22 +70,42 @@ class LifecycleMonitor:
 
         logger.debug(f"Lifecycle monitor: checking {len(signals)} active signal(s)")
 
+        # CRITICAL: previously used return_exceptions=True without
+        # ITERATING the results — every per-signal exception (including
+        # the schema mismatch that caused the production outage) was
+        # silently swallowed. Now we surface exceptions to the operator.
         tasks = [self._check_signal(sig) for sig in signals]
-        await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for sig, result in zip(signals, results):
+            if isinstance(result, Exception):
+                logger.error(
+                    f"[{sig['pair']}:{sig['id'][:8]}] lifecycle check raised: {result}"
+                )
+                obs.emit('engine_event', payload={
+                    'event':    'lifecycle_check_raised',
+                    'signal_id': sig['id'],
+                    'pair':      sig['pair'],
+                    'error':     str(result)[:200],
+                }, status='failed', error_class='lifecycle_error')
 
     async def _check_signal(self, sig: dict) -> None:
         symbol = sig['pair']
         sid    = sig['id'][:8]
 
-        # Check expiry first (time-based)
+        # Check expiry first (time-based). The outer `except: pass` that
+        # used to wrap this whole block silently swallowed parse failures
+        # — replaced with narrow exception handling so genuine parse
+        # errors get logged, and the transition still happens.
         try:
             published = datetime.fromisoformat(sig['published_at'].replace('Z', '+00:00'))
-            age_hours = (datetime.now(timezone.utc) - published).total_seconds() / 3600
-            if age_hours >= SIGNAL_EXPIRY_HOURS:
-                await self._transition(sig['id'], symbol, 'expired', f"Signal expired after {age_hours:.1f}h")
-                return
-        except Exception:
-            pass
+        except (ValueError, KeyError, AttributeError) as e:
+            logger.warning(f"[{symbol}:{sid}] could not parse published_at: {e}")
+            return
+        age_hours = (datetime.now(timezone.utc) - published).total_seconds() / 3600
+        if age_hours >= SIGNAL_EXPIRY_HOURS:
+            await self._transition(sig['id'], symbol, 'expired',
+                                   f"Signal expired after {age_hours:.1f}h")
+            return
 
         if not self._provider:
             return
@@ -130,9 +159,13 @@ class LifecycleMonitor:
     async def _transition(self, signal_id: str, symbol: str, new_state: str, reason: str) -> None:
         try:
             is_terminal = new_state in TERMINAL_STATES
+            # NOTE: signals table has no `updated_at` column. The earlier
+            # version of this code set it anyway, which caused PostgREST
+            # to reject EVERY UPDATE silently. The lifecycle monitor was
+            # effectively a no-op for days. Removed — do not re-add
+            # without verifying the schema first.
             update: dict = {
                 'lifecycle_state': new_state,
-                'updated_at': datetime.now(timezone.utc).isoformat(),
             }
 
             if is_terminal:
@@ -146,7 +179,29 @@ class LifecycleMonitor:
             elif new_state == 'breakeven':
                 update['result'] = 'breakeven'
 
-            self.db().table('signals').update(update).eq('id', signal_id).execute()
+            res = self.db().table('signals').update(update).eq('id', signal_id).execute()
+            updated_rows = len(res.data) if res.data else 0
+            if updated_rows == 0:
+                # An UPDATE that touched 0 rows is the prior silent
+                # failure signature. Surface it loudly so the next
+                # schema-drift bug can't hide for days.
+                logger.error(
+                    f"[{symbol}:{signal_id[:8]}] lifecycle UPDATE matched 0 rows "
+                    f"(state={new_state})"
+                )
+                obs.health_alert('lifecycle_monitor',
+                                 f'transition matched 0 rows: '
+                                 f'signal={signal_id[:8]} state={new_state}')
+            else:
+                # Mirror to system_event_log so the diagnostics endpoint
+                # shows the lifecycle stream alongside signal generation.
+                obs.emit(
+                    'sl_hit' if new_state == 'stopped'
+                    else 'tp_hit' if new_state in ('tp1_hit', 'tp2_hit', 'tp3_hit')
+                    else 'trade_close',
+                    payload={'symbol': symbol, 'state': new_state, 'reason': reason},
+                    reference_id=signal_id,
+                )
 
             # Write to execution_logs for audit trail
             try:
