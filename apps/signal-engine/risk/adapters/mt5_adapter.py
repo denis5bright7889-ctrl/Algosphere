@@ -74,6 +74,7 @@ class MT5Adapter(ExecutionAdapter):
         path:         Optional[str] = None,    # MT5 terminal exe path
         testnet:      bool = True,             # cosmetic — broker decides
         timeout_ms:   int  = 10_000,
+        owner_user_id: Optional[str] = None,
     ):
         self._login_id = int(login)
         self.password  = password
@@ -85,6 +86,10 @@ class MT5Adapter(ExecutionAdapter):
         self._connected = False
         self._last_equity: Optional[float] = None
         self._open_positions_count: int = 0
+        # Carried forward so submit_order can write execution_events
+        # rows. Without this, the journal auto-detection trigger has no
+        # user to attribute the trade to and the row never lands.
+        self.owner_user_id = owner_user_id
 
     # ─── Lifecycle ────────────────────────────────────────────────────
 
@@ -203,9 +208,21 @@ class MT5Adapter(ExecutionAdapter):
     # ─── Execution ────────────────────────────────────────────────────
 
     async def submit_order(self, req: OrderRequest) -> OrderResult:
+        # Local import — avoids a circular import at module load time
+        # (execution_event_emit imports system_events which imports
+        # config; mt5_adapter is loaded by the factory chain).
+        from risk.adapters.execution_event_emit import emit_execution_event
+
         if not self._connected:
             await self.connect()
         if not self._connected:
+            if self.owner_user_id:
+                emit_execution_event(
+                    user_id=self.owner_user_id, broker='mt5',
+                    event_type='ORDER_REJECTED',
+                    payload={'symbol': req.symbol, 'side': req.side.value,
+                             'reason': 'MT5 not connected'},
+                )
             raise OrderRejected("MT5 not connected")
 
         mt5 = _load_mt5()
@@ -213,6 +230,13 @@ class MT5Adapter(ExecutionAdapter):
         async with _MT5_LOCK:
             tick = await asyncio.to_thread(mt5.symbol_info_tick, req.symbol)
             if tick is None:
+                if self.owner_user_id:
+                    emit_execution_event(
+                        user_id=self.owner_user_id, broker='mt5',
+                        event_type='ORDER_REJECTED',
+                        payload={'symbol': req.symbol, 'side': req.side.value,
+                                 'reason': f'unknown symbol'},
+                    )
                 raise OrderRejected(f"MT5: unknown symbol {req.symbol}")
 
             if req.order_type == OrderType.MARKET:
@@ -261,9 +285,25 @@ class MT5Adapter(ExecutionAdapter):
             result = await asyncio.to_thread(mt5.order_send, request)
 
         if result is None:
+            if self.owner_user_id:
+                emit_execution_event(
+                    user_id=self.owner_user_id, broker='mt5',
+                    event_type='ORDER_REJECTED',
+                    payload={'symbol': req.symbol, 'side': req.side.value,
+                             'reason': 'order_send returned None',
+                             'last_error': str(mt5.last_error())},
+                )
             raise OrderRejected(f"MT5 order_send returned None: {mt5.last_error()}")
 
         if result.retcode != mt5.TRADE_RETCODE_DONE:
+            if self.owner_user_id:
+                emit_execution_event(
+                    user_id=self.owner_user_id, broker='mt5',
+                    event_type='ORDER_REJECTED',
+                    payload={'symbol': req.symbol, 'side': req.side.value,
+                             'retcode': int(result.retcode),
+                             'comment': str(result.comment)},
+                )
             raise OrderRejected(
                 f"MT5 rejected (retcode={result.retcode}): {result.comment}"
             )
@@ -272,6 +312,37 @@ class MT5Adapter(ExecutionAdapter):
         slippage  = 0.0
         if req.order_type == OrderType.MARKET and avg_price > 0 and req.price:
             slippage = (avg_price - req.price) / req.price
+
+        # Persist the fill to execution_events. The journal auto-detection
+        # trigger (migration 20240101000029) reads this insert and writes
+        # the matching journal_entries row. Without this call, real
+        # Exness trades NEVER reach the journal.
+        if self.owner_user_id:
+            emit_execution_event(
+                user_id=self.owner_user_id, broker='mt5',
+                event_type='ORDER_FILLED',
+                payload={
+                    'order_id':       str(result.order),
+                    'symbol':         req.symbol,
+                    'side':           req.side.value,
+                    'order_type':     req.order_type.value,
+                    'requested_qty':  req.quantity,
+                    'filled_qty':     float(result.volume),
+                    'avg_fill_price': avg_price,
+                    'slippage_pct':   slippage,
+                    'status':         'FILLED',
+                    'sl':             req.stop_loss,
+                    'tp':             req.take_profit,
+                    'retcode':        int(result.retcode),
+                },
+            )
+        else:
+            # Defensive log — production-deployed adapters MUST carry an
+            # owner_user_id. The factory wires it in.
+            logger.error(
+                f"MT5 ORDER_FILLED skipped — owner_user_id unset "
+                f"(symbol={req.symbol} order={result.order})"
+            )
 
         return OrderResult(
             order_id        = str(result.order),

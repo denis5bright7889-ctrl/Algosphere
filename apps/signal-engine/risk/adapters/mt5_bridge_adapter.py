@@ -62,7 +62,9 @@ class MT5BridgeAdapter(ExecutionAdapter):
     re-fetching.
     """
 
-    def __init__(self, login: int, password: str, server: str, testnet: bool = True):
+    def __init__(self, login: int, password: str, server: str,
+                 testnet: bool = True,
+                 owner_user_id: Optional[str] = None):
         self._login_id  = int(login)
         self.password   = password
         self.server     = server
@@ -76,6 +78,9 @@ class MT5BridgeAdapter(ExecutionAdapter):
         # risk-engine check.
         self._spec_cache:   dict[str, SymbolSpec] = {}
         self._spread_cache: dict[str, float] = {}
+        # Required for the execution_events emit (journal auto-detect
+        # trigger needs user_id). Factory wires this in for live deploys.
+        self.owner_user_id = owner_user_id
 
     # ─── Lifecycle ────────────────────────────────────────────────────
 
@@ -195,8 +200,25 @@ class MT5BridgeAdapter(ExecutionAdapter):
     # ─── ExecutionAdapter (order routing) ─────────────────────────────
 
     async def submit_order(self, req: OrderRequest) -> OrderResult:
+        # Local import — avoid circular at module load.
+        from risk.adapters.execution_event_emit import emit_execution_event
+
+        def _reject(reason: str, **extra) -> None:
+            """Persist ORDER_REJECTED to execution_events before raising
+            so the journal + diagnostics see the broker rejection. The
+            journal trigger ignores ORDER_REJECTED (won't create a row)
+            but the system_event_log mirror captures it."""
+            if self.owner_user_id:
+                emit_execution_event(
+                    user_id=self.owner_user_id, broker='mt5',
+                    event_type='ORDER_REJECTED',
+                    payload={'symbol': req.symbol, 'side': req.side.value,
+                             'reason': reason, **extra},
+                )
+
         url = _bridge_url()
         if not url:
+            _reject('MT5_BRIDGE_URL not configured')
             raise OrderRejected('MT5_BRIDGE_URL not configured')
 
         try:
@@ -220,17 +242,49 @@ class MT5BridgeAdapter(ExecutionAdapter):
                     },
                 )
         except httpx.HTTPError as e:
+            _reject('bridge_unreachable', error=str(e)[:200])
             raise OrderRejected(f'MT5 bridge unreachable: {e}') from e
 
         if r.status_code == 422:
             # Validation or broker rejection — surface verbatim.
             try:    detail = r.json().get('detail', r.text[:200])
             except: detail = r.text[:200]
+            _reject('bridge_422', detail=str(detail)[:200])
             raise OrderRejected(f'MT5 bridge rejected: {detail}')
         if r.status_code >= 400:
+            _reject(f'http_{r.status_code}', body=r.text[:200])
             raise OrderRejected(f'MT5 bridge HTTP {r.status_code}: {r.text[:200]}')
 
         d = r.json()
+
+        # Persist ORDER_FILLED — the SINGLE most important call site for
+        # the journal. The auto-detection trigger creates the
+        # journal_entries row from this insert. Without this, real
+        # Exness fills never appear in the journal.
+        if self.owner_user_id:
+            emit_execution_event(
+                user_id=self.owner_user_id, broker='mt5',
+                event_type='ORDER_FILLED',
+                payload={
+                    'order_id':       str(d.get('order_id', '')),
+                    'symbol':         req.symbol,
+                    'side':           req.side.value,
+                    'order_type':     req.order_type.value,
+                    'requested_qty':  float(d.get('requested_qty', req.quantity)),
+                    'filled_qty':     float(d.get('filled_qty', 0)),
+                    'avg_fill_price': float(d.get('avg_fill_price', 0)),
+                    'slippage_pct':   float(d.get('slippage_pct', 0)),
+                    'status':         d.get('status', 'FILLED'),
+                    'sl':             req.stop_loss,
+                    'tp':             req.take_profit,
+                },
+            )
+        else:
+            logger.error(
+                f"MT5 bridge ORDER_FILLED skipped — owner_user_id unset "
+                f"(symbol={req.symbol} order_id={d.get('order_id')})"
+            )
+
         return OrderResult(
             order_id        = str(d['order_id']),
             client_order_id = req.client_order_id,

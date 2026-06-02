@@ -18,6 +18,12 @@ from engine.confidence_engine import score_confidence, tier_to_subscription
 from engine.signal_gate import RiskEngine, gate_signal, CircuitBreakerState
 from data.market_data import FallbackDataProvider, build_provider
 from risk import RiskConfig, RiskEngine as InstitutionalRiskEngine, RiskGate, SupabaseBroker
+import system_events as obs
+
+
+# Drought thresholds — emit a signal_drought alarm if NO signal landed
+# in the last DROUGHT_HOURS hours. Checked once per scan_all cycle.
+DROUGHT_HOURS = 12
 
 
 class SignalWorker:
@@ -87,12 +93,27 @@ class SignalWorker:
 
     async def scan_all(self) -> None:
         """Scan all configured symbols concurrently."""
+        # Heartbeat written EVERY cycle even when the engine is disabled
+        # — so the diagnostics endpoint can answer "scheduler is firing
+        # but flag X is blocking scans" instead of "no signs of life".
+        obs.heartbeat('signal_worker', status='live', context={
+            'dry_run':       bool(self.settings.signal_dry_run),
+            'enabled':       bool(self.settings.signal_engine_enabled),
+            'symbol_count':  len(self.settings.symbol_list),
+            'timeframe':     self.settings.timeframe,
+        })
+
         if not self.settings.signal_engine_enabled:
             logger.info("Signal engine disabled by config — skipping scan")
+            obs.emit('engine_event', payload={
+                'event': 'scan_skipped', 'reason': 'engine_disabled',
+            }, status='skipped', error_class='engine_disabled')
             return
 
         if not self.provider():
             logger.warning("No market data provider configured — skipping scan")
+            obs.health_alert('data_provider',
+                             'no provider configured — universe silent')
             return
 
         # Refresh the institutional risk engine at the start of every cycle
@@ -103,13 +124,59 @@ class SignalWorker:
                 risk.refresh()
             except Exception as e:
                 logger.critical(f"Risk refresh raised: {e}")
+                obs.health_alert('risk_engine', f'refresh raised: {e!r}')
 
         logger.info(f"Starting scan: {self.settings.symbol_list}")
         tasks = [self.scan_symbol(sym) for sym in self.settings.symbol_list]
         results = await asyncio.gather(*tasks, return_exceptions=True)
+        errors = 0
         for sym, result in zip(self.settings.symbol_list, results):
             if isinstance(result, Exception):
                 logger.error(f"Error scanning {sym}: {result}")
+                obs.emit('engine_event', payload={
+                    'event': 'pipeline_exception', 'symbol': sym,
+                    'error': str(result)[:200],
+                }, status='failed', error_class='pipeline_error')
+                errors += 1
+
+        # End-of-cycle heartbeat with summary + drought check.
+        await self._end_cycle_check(errors)
+
+    async def _end_cycle_check(self, error_count: int) -> None:
+        """Run AT THE END of every scan_all. Emits a drought alarm when
+        no signal has landed in the last DROUGHT_HOURS hours and
+        upserts the closing heartbeat with the cycle's outcome."""
+        try:
+            from datetime import timedelta
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=DROUGHT_HOURS)).isoformat()
+            res = (self.db().table('signals')
+                   .select('id, published_at')
+                   .gte('published_at', cutoff)
+                   .order('published_at', desc=True)
+                   .limit(1).execute())
+            recent = res.data or []
+            last = None
+            if not recent:
+                # No signals in the drought window → emit alarm.
+                last_any = (self.db().table('signals')
+                            .select('published_at')
+                            .order('published_at', desc=True)
+                            .limit(1).execute())
+                if last_any.data:
+                    last = last_any.data[0].get('published_at')
+                obs.signal_drought(hours=float(DROUGHT_HOURS), last_at=last)
+                logger.warning(
+                    f"SIGNAL DROUGHT — no signals in last {DROUGHT_HOURS}h "
+                    f"(last: {last or 'never'})"
+                )
+        except Exception as e:
+            logger.debug(f"drought check failed: {e}")
+
+        obs.heartbeat('signal_worker', status='live', context={
+            'cycle_complete': True,
+            'errors':         error_count,
+            'dry_run':        bool(self.settings.signal_dry_run),
+        })
 
     # ─── Inbound webhook consumer ─────────────────────────────────────────
 
@@ -207,6 +274,7 @@ class SignalWorker:
         )
         if len(bars) < 50:
             logger.warning(f"[{symbol}] Insufficient bars ({len(bars)}) — skip")
+            obs.signal_skipped(symbol, 'insufficient_bars', bars=len(bars))
             return
 
         hour_utc = datetime.now(timezone.utc).hour
@@ -215,6 +283,7 @@ class SignalWorker:
         features = engineer_features(bars, hour_utc)
         if not features.valid:
             logger.debug(f"[{symbol}] Features invalid — skip")
+            obs.signal_skipped(symbol, 'features_invalid')
             return
 
         # 3. Regime classification
@@ -228,12 +297,19 @@ class SignalWorker:
         breaker = self._risk_engine.get_state(symbol)
         if breaker.is_open:
             logger.info(f"[{symbol}] Circuit breaker OPEN: {breaker.reason}")
+            obs.emit('breaker_open', payload={
+                'symbol': symbol, 'reason': breaker.reason,
+            }, status='failed', error_class='breaker_open')
+            obs.signal_skipped(symbol, 'breaker_open', reason=breaker.reason)
             return
 
         # 6. Check active signal count
         active_count = await self._count_active_signals(symbol)
         if active_count >= self.settings.max_active_per_symbol:
             logger.debug(f"[{symbol}] Already {active_count} active signal(s) — skip")
+            obs.signal_skipped(symbol, 'active_cap_reached',
+                               active_count=active_count,
+                               max_active=self.settings.max_active_per_symbol)
             return
 
         # 7. Ensemble signal generation. Pass the data-completeness factor so
@@ -245,6 +321,9 @@ class SignalWorker:
         proposal = ensemble_signal(symbol, features, regime, data_completeness=data_completeness)
         if proposal is None:
             logger.debug(f"[{symbol}] No ensemble consensus — skip")
+            obs.signal_rejected(symbol, 'no_ensemble_consensus',
+                                regime=regime.regime.value,
+                                data_completeness=round(data_completeness, 3))
             return
 
         logger.info(f"[{symbol}] Proposal: {proposal.direction.upper()} "
@@ -268,12 +347,17 @@ class SignalWorker:
 
         if not gate.approved:
             logger.info(f"[{symbol}] Gate BLOCKED: {gate.reason}")
+            obs.signal_rejected(symbol, 'gate_blocked',
+                                reason=gate.reason,
+                                confidence=confidence.score)
             return
 
         # 9b. Institutional risk gate — AUTHORITATIVE capital protection layer
         risk_gate = self.risk_gate()
         if risk_gate is None:
             logger.critical(f"[{symbol}] Risk subsystem unavailable — refusing to publish")
+            obs.signal_rejected(symbol, 'risk_subsystem_unavailable')
+            obs.health_alert('risk_engine', 'risk_gate() returned None')
             return
 
         risk_decision = risk_gate.approve_trade(
@@ -288,6 +372,9 @@ class SignalWorker:
                 f"[{symbol}] RISK GATE BLOCKED: failed=[{','.join(risk_decision.gates_failed)}] "
                 f"reasons=[{' | '.join(risk_decision.reasons)}]"
             )
+            obs.risk_block(symbol,
+                           gates_failed=list(risk_decision.gates_failed),
+                           reasons=list(risk_decision.reasons))
             # Discord transparency channel — show users that the engine
             # actively refuses trades that don't pass the gates.
             try:
@@ -318,6 +405,15 @@ class SignalWorker:
                 f"conf={confidence.score}/100({confidence.tier}) regime={regime.regime.value} "
                 f"lot={risk_decision.lot_size:.4f} — NOT publishing (dry-run)"
             )
+            # CRITICAL OBSERVABILITY: dry-run swallows EVERY signal. If
+            # production is in dry-run by mistake, the engine appears
+            # silent. This emission makes the swallow visible on the
+            # diagnostics endpoint.
+            obs.signal_rejected(symbol, 'dry_run_swallow',
+                                direction=proposal.direction,
+                                confidence=confidence.score,
+                                regime=regime.regime.value,
+                                tier=confidence.tier)
             return
 
         # 10. Publish to Supabase
@@ -325,6 +421,12 @@ class SignalWorker:
         if signal_id:
             ms = int((datetime.now(timezone.utc) - t0).total_seconds() * 1000)
             logger.success(f"[{symbol}] Signal published {signal_id[:8]} in {ms}ms")
+            obs.signal_generated(symbol, signal_id,
+                                 direction=proposal.direction,
+                                 confidence=confidence.score,
+                                 regime=regime.regime.value,
+                                 latency_ms=ms,
+                                 tier=confidence.tier)
 
             # 11. WebSocket broadcast
             if self._ws_broadcast_fn:

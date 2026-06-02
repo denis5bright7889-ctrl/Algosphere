@@ -168,9 +168,11 @@ def _build_adapter(conn: _ConnRow, user_id: str) -> ExecutionAdapter:
         if os.environ.get('MT5_BRIDGE_URL', '').strip():
             return MT5BridgeAdapter(
                 login_id, conn.api_secret, conn.passphrase, testnet=conn.is_testnet,
+                owner_user_id=user_id,
             )
         return MT5Adapter(
             login_id, conn.api_secret, conn.passphrase, testnet=conn.is_testnet,
+            owner_user_id=user_id,
         )
     if conn.broker == 'oanda':
         # api_key_enc → OANDA token; account_id column → OANDA account id.
