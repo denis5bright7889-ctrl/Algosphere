@@ -109,6 +109,35 @@ export const METATRADER = {
 }
 
 /**
+ * Build a deep link into the MetaTrader 5 web terminal with the broker
+ * server (and login) pre-selected, so the user only types their password
+ * instead of hunting a long server dropdown and discovering — the hard
+ * way — that MetaTrader does NOT log in with an email.
+ *
+ * Params are the MetaQuotes-documented ones (verified against the MQL5
+ * web-terminal docs): `servers` populates the dropdown, `trade_server`
+ * preselects one (must appear in `servers`), `login` prefills the account
+ * number. Server names are case-sensitive, so we pass the stored value
+ * verbatim. The password is never included — it cannot be prefilled.
+ *
+ * Degrades safely: with no server we return the plain terminal URL (the
+ * current behaviour), and an unsupported param is simply ignored by the
+ * terminal, leaving the normal login form.
+ */
+export function buildMt5WebUrl(server?: string | null, login?: string | null): string {
+  const s = (server ?? '').trim()
+  const l = (login ?? '').trim()
+  if (!s) return METATRADER.mt5Web
+
+  const url = new URL(METATRADER.mt5Web)
+  url.searchParams.set('servers', s)
+  url.searchParams.set('trade_server', s)
+  // Login is the numeric MT5 account number; only attach a plausible one.
+  if (/^\d+$/.test(l)) url.searchParams.set('login', l)
+  return url.toString()
+}
+
+/**
  * Keyword → portal map for MetaTrader sub-brokers. Keys are matched
  * case-insensitively against the connection's label and (where present)
  * account hint. Order matters only for readability — keys are distinct.

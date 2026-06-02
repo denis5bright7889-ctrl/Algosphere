@@ -34,6 +34,8 @@ import { analyzePerformance } from '@/lib/intelligence/performance'
 import { generateInsights, type CoachInsight } from '@/lib/intelligence/coach'
 import { generateTiming, type RegimeSnapshot, type TimingRecommendation } from '@/lib/intelligence/timing'
 import type { JournalEntry } from '@/lib/types'
+import { isVaultAvailable, decrypt } from '@/lib/vault'
+import { buildMt5WebUrl } from '@/lib/broker-portals'
 import BrokerAccessPanel, { type BrokerConn } from './BrokerAccessPanel'
 
 export const metadata = { title: 'Command Center — AlgoSphere Quant' }
@@ -150,6 +152,35 @@ export default async function OverviewPage() {
     .slice(0, 2)
 
   const brokers = (brokersRes.data ?? []) as unknown as BrokerConn[]
+
+  // MT5 web-terminal deep links. The terminal logs in by SERVER + LOGIN,
+  // not email, so we pre-fill those into the launch URL. We decrypt ONLY
+  // the server (passphrase_enc) and login (api_key_enc) for the caller's
+  // own MT5 rows — never the trading password (api_secret_enc) — and the
+  // *_enc blobs never leave this server scope; only the assembled URL
+  // (which contains no secret) is handed to the client panel.
+  const mt5Ids = brokers.filter((b) => b.broker === 'mt5').map((b) => b.id)
+  if (mt5Ids.length > 0 && isVaultAvailable()) {
+    const { data: encRows } = await supabase
+      .from('broker_connections')
+      .select('id, passphrase_enc, api_key_enc')
+      .eq('user_id', user.id)
+      .in('id', mt5Ids)
+    const byId = new Map((encRows ?? []).map((r) => [r.id, r]))
+    for (const b of brokers) {
+      if (b.broker !== 'mt5') continue
+      const row = byId.get(b.id)
+      if (!row) continue
+      try {
+        const server = row.passphrase_enc ? decrypt(row.passphrase_enc) : ''
+        const login  = row.api_key_enc    ? decrypt(row.api_key_enc)    : ''
+        b.mt5WebUrl = buildMt5WebUrl(server, login)
+      } catch {
+        // Wrong/rotated key or tampered blob → leave undefined; the panel
+        // falls back to the plain terminal URL. Never block the page.
+      }
+    }
+  }
 
   const overallBand = bandTone(scores.overall)
 

@@ -38,6 +38,9 @@ export interface BrokerConn {
   equity_usd:        number | null
   equity_updated_at: string | null
   last_synced_at:    string | null
+  /** MT5 only: web-terminal deep link with server/login pre-filled. Built
+   *  server-side (server + login decrypted there); absent when unavailable. */
+  mt5WebUrl?:        string | null
 }
 
 type Health = 'connected' | 'pending' | 'attention' | 'disconnected'
@@ -206,7 +209,9 @@ function BrokerCard({ c, onPatch }: { c: BrokerConn; onPatch: (c: BrokerConn) =>
 
         {portal.isMetaTrader ? (
           <>
-            <LinkButton href={METATRADER.mt5Web} icon={ExternalLink}>Open MT5 Web</LinkButton>
+            {/* Deep link pre-selects the broker server (+ login) so the user
+                only types their password — MT5 never logs in with an email. */}
+            <LinkButton href={c.mt5WebUrl ?? METATRADER.mt5Web} icon={ExternalLink}>Open MT5 Web</LinkButton>
             <LinkButton href={METATRADER.mt5Download} icon={ExternalLink} subtle>Get MT5 / MT4</LinkButton>
           </>
         ) : portal.webTradeUrl ? (
