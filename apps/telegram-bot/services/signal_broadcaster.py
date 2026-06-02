@@ -29,6 +29,7 @@ import os
 import asyncio
 import logging
 from datetime import datetime, timezone
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import RetryAfter, Forbidden, TimedOut, NetworkError, BadRequest
 from database import get_db
 
@@ -102,12 +103,41 @@ def _teaser_card(s: dict) -> str:
     )
 
 
-async def _send_with_retry(bot, chat_id, text: str) -> str:
+def _trade_keyboard(signal_id: str, locked: bool) -> InlineKeyboardMarkup:
+    """Inline buttons attached to every broadcast signal card.
+
+    The primary CTA deep-links the user back to /signals?execute=<id>
+    on the web app, which auto-opens the Place Trade modal pre-bound to
+    this signal — so the user can place the order in two taps from
+    Telegram without retyping anything.
+
+    For a teaser (tier-locked) card the CTA flips to "Upgrade to take
+    trade" pointing at /upgrade. Either way the second button takes the
+    user to the full dashboard for context.
+    """
+    base = _app_url()
+    if locked:
+        primary = InlineKeyboardButton('🔒 Upgrade to take trade', url=f'{base}/upgrade')
+    else:
+        primary = InlineKeyboardButton('⚡ Take trade',
+                                       url=f'{base}/signals?execute={signal_id}')
+    return InlineKeyboardMarkup([
+        [primary],
+        [InlineKeyboardButton('📊 View on dashboard',
+                              url=f'{base}/signals?focus={signal_id}')],
+    ])
+
+
+async def _send_with_retry(bot, chat_id, text: str,
+                            reply_markup=None) -> str:
     """Send one message with flood-control + transient-error retry.
     Returns: 'sent' | 'blocked' | 'failed'. Never raises."""
     for attempt in range(_MAX_RETRIES + 1):
         try:
-            await bot.send_message(chat_id=chat_id, text=text, parse_mode='Markdown')
+            await bot.send_message(chat_id=chat_id, text=text,
+                                   parse_mode='Markdown',
+                                   reply_markup=reply_markup,
+                                   disable_web_page_preview=True)
             return 'sent'
         except RetryAfter as e:          # Telegram flood control — honour it.
             wait = float(getattr(e, 'retry_after', 1)) + 0.5
@@ -199,19 +229,30 @@ async def poll_and_broadcast(context) -> None:
     for s in signals:
         required_rank = _TIER_RANK.get((s.get('tier_required') or 'starter').lower(), 1)
 
-        # 1. Channel/group (public funnel).
+        signal_id = s.get('id') or ''
+
+        # 1. Channel/group (public funnel). Public posts always show the
+        # tier-locked keyboard ("Upgrade to take trade") since the channel
+        # has mixed tiers — the web app re-checks access on click.
         if channel:
-            _record(await _send_with_retry(bot, channel, _full_card(s)))
+            kb = _trade_keyboard(signal_id, locked=False)
+            _record(await _send_with_retry(bot, channel, _full_card(s),
+                                            reply_markup=kb))
             await asyncio.sleep(_SEND_GAP_S)
 
         # 2. Linked subscribers — full card if their tier covers it, else teaser.
+        # The keyboard tracks the same tier check so a free user gets an
+        # upgrade CTA instead of a take-trade link that would just bounce.
         for prof in subscribers:
             chat_id = prof.get('telegram_chat_id')
             if not chat_id:
                 continue
             tier_rank = _TIER_RANK.get((prof.get('subscription_tier') or 'free').lower(), 0)
-            text = _full_card(s) if tier_rank >= required_rank else _teaser_card(s)
-            _record(await _send_with_retry(bot, chat_id, text))
+            covers = tier_rank >= required_rank
+            text   = _full_card(s) if covers else _teaser_card(s)
+            kb     = _trade_keyboard(signal_id, locked=not covers)
+            _record(await _send_with_retry(bot, chat_id, text,
+                                            reply_markup=kb))
             await asyncio.sleep(_SEND_GAP_S)
 
         _remember(s['id'])

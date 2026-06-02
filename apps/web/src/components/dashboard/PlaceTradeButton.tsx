@@ -17,7 +17,8 @@
  *     trusts itself with execution.
  */
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Zap, AlertTriangle, CheckCircle2, X, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -48,6 +49,21 @@ export default function PlaceTradeButton({ signal, brokers }: {
 }) {
   const [open, setOpen] = useState(false)
   const connected = brokers.filter((b) => b.status === 'connected')
+
+  // Deep-link auto-open: when a user lands on /signals?execute=<id>
+  // (typically by clicking "⚡ Take trade" in a Telegram signal card),
+  // pop the confirm sheet automatically for the matching signal. This
+  // is the Telegram → web handoff: from message to confirm-screen in
+  // a single tap. Only fires when there's at least one connected
+  // broker to route the order through.
+  const params = useSearchParams()
+  useEffect(() => {
+    if (params?.get('execute') === signal.id && connected.length > 0) {
+      setOpen(true)
+    }
+    // signal.id + connected.length only — re-running when the URL
+    // updates is intentional and harmless (setOpen(true) is idempotent).
+  }, [params, signal.id, connected.length])
 
   // No broker to route to → point the user at the connect flow instead of
   // dangling a dead button.
@@ -180,11 +196,11 @@ function ConfirmSheet({ signal, brokers, onClose }: {
                   {signal.direction}
                 </span>
               </div>
-              <dl className="mt-2 grid grid-cols-3 gap-2 tabular-nums">
+              <div className="mt-2 grid grid-cols-3 gap-2 tabular-nums">
                 <Field label="Entry" value={signal.entry_price} />
                 <Field label="Stop" value={signal.stop_loss} tone="text-rose-300" />
                 <Field label="TP1" value={signal.take_profit_1} tone="text-emerald-300" />
-              </dl>
+              </div>
             </div>
 
             {/* Broker route */}
@@ -192,6 +208,7 @@ function ConfirmSheet({ signal, brokers, onClose }: {
               Route to broker
             </label>
             <select
+              aria-label="Route to broker"
               value={brokerId}
               onChange={(e) => { setBrokerId(e.target.value); setLiveAck(false) }}
               className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-amber-500/40 focus:outline-none"
@@ -299,8 +316,8 @@ function OutcomeView({ outcome, onClose }: { outcome: Outcome; onClose: () => vo
 function Field({ label, value, tone }: { label: string; value: number | null; tone?: string }) {
   return (
     <div>
-      <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</dt>
-      <dd className={cn('font-semibold', tone)}>{value ?? '—'}</dd>
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={cn('font-semibold', tone)}>{value ?? '—'}</div>
     </div>
   )
 }
