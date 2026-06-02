@@ -94,6 +94,12 @@ export default async function GrowthEnginePage() {
             Diagnostics
           </Link>
           <Link
+            href="/admin/growth/automation"
+            className="rounded-md border border-border px-3 py-2 text-xs font-semibold hover:bg-accent/40"
+          >
+            Automation
+          </Link>
+          <Link
             href="/admin/growth/new"
             className="rounded-md bg-amber-500 px-4 py-2 text-xs font-bold text-black hover:bg-amber-400"
           >
