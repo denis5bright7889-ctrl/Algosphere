@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { encrypt, isVaultAvailable, mask } from '@/lib/vault'
 import { testBrokerConnection } from '@/lib/engine-client'
 import { brokerFingerprint } from '@/lib/broker-fingerprint'
+import { trackServerAsync } from '@/lib/tracking/server'
 
 /**
  * Persist a blocked claim into the broker_contention state table (current
@@ -239,6 +240,15 @@ export async function POST(req: Request) {
     console.error('broker create error:', error)
     return NextResponse.json({ error: 'Failed to save connection' }, { status: 500 })
   }
+
+  // Funnel: broker_connected — fire-and-forget. Idempotent at the
+  // dashboard layer (distinct user_id collapses repeats).
+  trackServerAsync({
+    event:       'broker_connected',
+    userId:      user.id,
+    source_kind: 'app',
+    payload:     { broker: d.broker, label: d.label ?? null, is_testnet: d.is_testnet },
+  })
 
   // Register/refresh ownership for this fingerprint (idempotent upsert).
   // Skipped for a shared-mode co-user: they get a broker_connections row

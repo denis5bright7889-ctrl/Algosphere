@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as serviceClient } from '@supabase/supabase-js'
 import { isAdmin } from '@/lib/admin'
 import { commissionFor } from '@/lib/referrals'
+import { trackServerAsync } from '@/lib/tracking/server'
 import { z } from 'zod'
 
 const schema = z.object({ note: z.string().max(500).optional() })
@@ -77,6 +78,22 @@ export async function POST(
   ])
 
   if (approveResult.error) return NextResponse.json({ error: approveResult.error.message }, { status: 500 })
+
+  // Funnel: premium_upgrade — fire-and-forget. Identifies the
+  // crypto-payment path so the funnel dashboard can attribute the
+  // upgrade back to its source channel.
+  trackServerAsync({
+    event:       'premium_upgrade',
+    userId:      payment.user_id,
+    source_kind: 'app',
+    payload:     {
+      plan:             planTier,
+      amount_usd:       payment.amount_usd,
+      billing_interval: interval,
+      txid:             payment.txid ?? null,
+      approved_by:      user.id,
+    },
+  })
 
   // ─── Referral conversion (best-effort, never blocks approval) ──────────────
   // If this user signed up via a referral and hasn't converted yet, accrue the

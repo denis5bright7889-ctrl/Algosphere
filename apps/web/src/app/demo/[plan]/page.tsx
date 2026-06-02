@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { isAdmin } from '@/lib/admin'
 import { isBetaFreeAccessEnabled } from '@/lib/beta-access'
+import { trackServerAsync } from '@/lib/tracking/server'
 
 interface Props {
   params: Promise<{ plan: string }>
@@ -86,6 +87,22 @@ export default async function DemoEntryPage({ params }: Props) {
         current_period_end:    periodEnd.toISOString(),
         cancel_at_period_end:  false,
       }, { onConflict: 'user_id' })
+
+    // Funnel: premium_upgrade for paid tiers; signal_starter_active
+    // for starter (no upgrade — it's the launch-phase entry tier).
+    // Fire-and-forget; idempotent at the dashboard layer (distinct
+    // user_id collapses repeats from a re-activation click).
+    if (plan === 'premium' || plan === 'vip') {
+      trackServerAsync({
+        event:       'premium_upgrade',
+        userId:      user.id,
+        source_kind: 'app',
+        payload:     {
+          plan,
+          path:    isAdmin(user.email) ? 'admin_grant' : 'beta_grant',
+        },
+      })
+    }
 
     const reason = isAdmin(user.email) ? 'admin_activated' : 'beta_activated'
     redirect(`/overview?${reason}=${plan}`)

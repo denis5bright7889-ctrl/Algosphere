@@ -10,6 +10,7 @@
 import Link from 'next/link'
 import { createClient as serviceClient } from '@supabase/supabase-js'
 import { ArrowLeft, ArrowDown, TrendingDown } from 'lucide-react'
+import BackfillButton from './BackfillButton'
 
 export const metadata = { title: 'Funnel — Growth Engine' }
 export const dynamic = 'force-dynamic'
@@ -73,14 +74,20 @@ export default async function FunnelPage() {
 
   return (
     <div className="space-y-5">
-      <header>
-        <Link href="/admin/growth" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-3.5 w-3.5" /> Back to Growth Engine
-        </Link>
-        <h1 className="mt-1 text-2xl font-bold tracking-tight">Funnel</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          30-day acquisition chain. Each stage is distinct-visitor (for pageviews) or distinct-user (for everything past signup).
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <Link href="/admin/growth" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="h-3.5 w-3.5" /> Back to Growth Engine
+          </Link>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight">Funnel</h1>
+          <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
+            30-day acquisition chain. Distinct-visitor counts at the top, distinct-user from signup onward.
+            Click <span className="font-semibold text-amber-300">Backfill</span> once after deploy to populate
+            historical events from existing profiles / brokers / payments / journals / strategies (idempotent —
+            safe to re-run).
+          </p>
+        </div>
+        <BackfillButton />
       </header>
 
       {/* Funnel stack */}

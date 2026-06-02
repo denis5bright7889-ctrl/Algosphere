@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as serviceClient } from '@supabase/supabase-js'
+import { trackServer } from '@/lib/tracking/server'
 
 /**
  * Attribute an OAuth signup to a referrer.
@@ -47,19 +48,58 @@ async function attributeOAuthReferral(userId: string, refCode: string) {
   }
 }
 
+/**
+ * Funnel-fire signup ONCE per user. Idempotency = look up the
+ * growth_attribution_events table for any prior 'signup' row for
+ * this user_id; insert only if none exists. Returning logins
+ * therefore never duplicate the event.
+ *
+ * Visitor link is set on the next pageview tracker tick (the
+ * /api/track/event upsert flips growth_visitors.user_id once the
+ * visitor cookie + auth context land in the same request).
+ */
+async function fireSignupOnce(userId: string, visitorId: string | null) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) return
+  try {
+    const db = serviceClient(url, key)
+    const { count } = await db
+      .from('growth_attribution_events')
+      .select('id', { count: 'exact', head: true })
+      .eq('event', 'signup')
+      .eq('user_id', userId)
+    if ((count ?? 0) > 0) return     // already fired (returning login)
+    await trackServer({
+      event:      'signup',
+      userId,
+      visitorId,
+      source_kind: 'app',
+    })
+  } catch {
+    /* never break auth */
+  }
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
   const ref = searchParams.get('ref')
   const next = searchParams.get('next') ?? '/overview'
 
+  // Visitor cookie set by the edge proxy on first touch.
+  const visitorId = request.cookies.get('__as_vid')?.value ?? null
+
   if (code) {
     const supabase = await createClient()
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (!error) {
-      if (ref) {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (user) await attributeOAuthReferral(user.id, ref)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        if (ref) await attributeOAuthReferral(user.id, ref)
+        // Fire-and-forget signup attribution. Idempotent — runs at
+        // most once per user across the auth callback's lifetime.
+        await fireSignupOnce(user.id, visitorId)
       }
       return NextResponse.redirect(`${origin}${next}`)
     }

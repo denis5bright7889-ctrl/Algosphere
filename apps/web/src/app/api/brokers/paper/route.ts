@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { testBrokerConnection } from '@/lib/engine-client'
+import { trackServerAsync } from '@/lib/tracking/server'
 
 /**
  * POST /api/brokers/paper — create a paper-trading connection.
@@ -68,6 +69,14 @@ export async function POST() {
       { status: 500 },
     )
   }
+
+  // Funnel: broker_connected (paper). Fire-and-forget.
+  trackServerAsync({
+    event:       'broker_connected',
+    userId:      user.id,
+    source_kind: 'app',
+    payload:     { broker: 'paper', is_testnet: true },
+  })
 
   // Immediately ask the engine to materialise the paper_state row +
   // flip status to connected. If the engine is unreachable the row
