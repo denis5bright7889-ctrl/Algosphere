@@ -51,6 +51,11 @@ export async function generateMetadata({
   const { slug } = await params
   const post = await fetchPost(slug)
   if (!post) return { title: 'Not found' }
+  // Fall back to the branded OG card endpoint when the content_item
+  // doesn't carry an explicit hero_image_url. Generates a 1200×630
+  // PNG with title + summary + brand row — better than no preview.
+  const site = process.env.NEXT_PUBLIC_APP_URL ?? 'https://algospherequant.com'
+  const ogImage = post.hero_image_url ?? `${site}/api/og/content/${encodeURIComponent(slug)}`
   return {
     title:       `${post.title} — AlgoSphere`,
     description: post.summary ?? undefined,
@@ -59,7 +64,13 @@ export async function generateMetadata({
       description:  post.summary ?? undefined,
       type:         'article',
       publishedTime: post.published_at ?? undefined,
-      images:       post.hero_image_url ? [post.hero_image_url] : undefined,
+      images:       [ogImage],
+    },
+    twitter: {
+      card:        'summary_large_image',
+      title:       post.title,
+      description: post.summary ?? undefined,
+      images:      [ogImage],
     },
   }
 }

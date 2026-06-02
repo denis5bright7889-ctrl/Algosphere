@@ -12,6 +12,10 @@
 import Link from 'next/link'
 import { createClient } from '@supabase/supabase-js'
 
+const OG_FOR_INDEX = '/api/og/card?label=AlgoSphere%20Blog'
+  + '&title=' + encodeURIComponent('Research, strategy and market intelligence')
+  + '&subtitle=' + encodeURIComponent('Backtests on real OHLCV. Deterministic strategy grades. AI-driven trader analytics.')
+
 export const metadata = {
   title:       'Blog — AlgoSphere Quant',
   description: 'AI trading research, strategy breakdowns, market reports, and educational content from the AlgoSphere team.',
@@ -19,6 +23,13 @@ export const metadata = {
     title:       'AlgoSphere Blog',
     description: 'AI trading research, strategy breakdowns, market reports.',
     type:        'website',
+    images:      [OG_FOR_INDEX],
+  },
+  twitter: {
+    card:        'summary_large_image',
+    title:       'AlgoSphere Blog',
+    description: 'AI trading research, strategy breakdowns, market reports.',
+    images:      [OG_FOR_INDEX],
   },
 }
 export const revalidate = 300  // 5 min ISR — blog list refreshes every 5 minutes
