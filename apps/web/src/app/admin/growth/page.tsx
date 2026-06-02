@@ -88,6 +88,12 @@ export default async function GrowthEnginePage() {
             Brand
           </Link>
           <Link
+            href="/admin/growth/diagnostics"
+            className="rounded-md border border-border px-3 py-2 text-xs font-semibold hover:bg-accent/40"
+          >
+            Diagnostics
+          </Link>
+          <Link
             href="/admin/growth/new"
             className="rounded-md bg-amber-500 px-4 py-2 text-xs font-bold text-black hover:bg-amber-400"
           >
