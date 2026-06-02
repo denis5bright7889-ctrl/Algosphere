@@ -177,7 +177,7 @@ export default function CryptoHowToPay() {
             </ol>
 
             <p className="mt-5 text-center text-xs text-muted-foreground">
-              Stuck? Email <a href="mailto:support@algospherequant.com" className="text-amber-300 hover:underline">support@algospherequant.com</a> with your TXID and plan.
+              Stuck? Email <a href="mailto:rena20mez@gmail.com" className="text-amber-300 hover:underline">rena20mez@gmail.com</a> with your TXID and plan.
             </p>
           </div>
         </div>

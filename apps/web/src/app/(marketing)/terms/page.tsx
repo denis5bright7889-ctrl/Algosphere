@@ -8,8 +8,8 @@ export const metadata = {
 }
 
 const LAST_UPDATED = 'June 1, 2026'
-const LEGAL_EMAIL = 'legal@algospherequant.com'
-const SUPPORT_EMAIL = 'support@algospherequant.com'
+const LEGAL_EMAIL = 'rena20mez@gmail.com'
+const SUPPORT_EMAIL = 'rena20mez@gmail.com'
 
 export default function TermsPage() {
   return (

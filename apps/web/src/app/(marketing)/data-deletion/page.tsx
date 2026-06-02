@@ -8,8 +8,8 @@ export const metadata = {
 }
 
 const LAST_UPDATED = 'June 1, 2026'
-const PRIVACY_EMAIL = 'privacy@algospherequant.com'
-const SUPPORT_EMAIL = 'support@algospherequant.com'
+const PRIVACY_EMAIL = 'rena20mez@gmail.com'
+const SUPPORT_EMAIL = 'rena20mez@gmail.com'
 
 export default function DataDeletionPage() {
   return (
