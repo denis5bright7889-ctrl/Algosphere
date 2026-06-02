@@ -20,6 +20,7 @@ import {
   generateEducational, generateProductUpdate, generateMarketReport,
   type GeneratedDraft, type ContentKind,
 } from './generators'
+import { polishDraft } from './llm-polish'
 
 // ── Content kinds that may auto-publish (skip the draft → review →
 //    approved → published gauntlet). Anything outside this set forces
@@ -67,6 +68,7 @@ interface AutomationRuleRow {
   output_status: 'draft' | 'approved' | 'published'
   enabled:       boolean
   daily_cap:     number | null
+  llm_polish:    boolean
 }
 
 interface IngestOutcome {
@@ -172,12 +174,20 @@ async function ruleAtCap(db: SupabaseClient, ruleId: string, cap: number | null)
 export async function ingestEvent(event: IngestedEvent): Promise<IngestOutcome> {
   const db = svc()
 
-  // 1. Pull every enabled rule for this event_type.
-  const { data: rules } = await db
-    .from('growth_automation_rules')
-    .select('id, name, event_type, predicate, content_kind, channels, output_status, enabled, daily_cap')
-    .eq('event_type', event.event_type)
-    .eq('enabled', true)
+  // 1. Pull every enabled rule for this event_type, plus the brand
+  //    voice config (cheap join — Phase 4A.2 reads it for LLM polish).
+  const [{ data: rules }, { data: brand }] = await Promise.all([
+    db
+      .from('growth_automation_rules')
+      .select('id, name, event_type, predicate, content_kind, channels, output_status, enabled, daily_cap, llm_polish')
+      .eq('event_type', event.event_type)
+      .eq('enabled', true),
+    db
+      .from('growth_brand_settings')
+      .select('brand_voice, signature, legal_footer')
+      .eq('id', 1)
+      .maybeSingle(),
+  ])
 
   const candidates = (rules ?? []) as AutomationRuleRow[]
 
@@ -208,11 +218,18 @@ export async function ingestEvent(event: IngestedEvent): Promise<IngestOutcome> 
       continue
     }
 
-    const draft = tryGenerate(rule.content_kind, event.payload)
-    if (!draft) {
+    const baseDraft = tryGenerate(rule.content_kind, event.payload)
+    if (!baseDraft) {
       matched.push({ rule_id: rule.id, rule_name: rule.name, content_id: null, error: 'generator_unsupported_payload' })
       continue
     }
+
+    // Optional LLM polish — opt-in per rule. Number / disclaimer
+    // preservation is enforced inside polishDraft(); on any failure
+    // it returns the unpolished draft.
+    const draft = rule.llm_polish
+      ? await polishDraft(baseDraft, brand ?? {})
+      : baseDraft
 
     // Auto-publish whitelist enforcement — even a misconfigured rule
     // can't push a strategy/backtest claim straight to live.

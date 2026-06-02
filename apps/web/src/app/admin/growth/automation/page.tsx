@@ -24,6 +24,7 @@ interface Rule {
   output_status: string
   enabled:       boolean
   daily_cap:     number | null
+  llm_polish:    boolean
   updated_at:    string
 }
 
@@ -50,7 +51,7 @@ export default async function AutomationPage() {
 
   const [{ data: rules }, { data: events }] = await Promise.all([
     sb.from('growth_automation_rules')
-      .select('id, name, description, event_type, predicate, content_kind, channels, output_status, enabled, daily_cap, updated_at')
+      .select('id, name, description, event_type, predicate, content_kind, channels, output_status, enabled, daily_cap, llm_polish, updated_at')
       .order('updated_at', { ascending: false }),
     sb.from('growth_event_log')
       .select('id, event_type, outcome, rule_ids, content_ids, source, error, created_at')
@@ -96,6 +97,11 @@ export default async function AutomationPage() {
                   {r.enabled ? 'enabled' : 'disabled'}
                 </span>
                 <span className="font-semibold">{r.name}</span>
+                {r.llm_polish && (
+                  <span className="rounded-full border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-sky-300">
+                    AI polish
+                  </span>
+                )}
                 <span className="ml-auto text-[10px] text-muted-foreground">{r.daily_cap ? `cap ${r.daily_cap}/day` : 'no cap'}</span>
               </div>
               {r.description && <p className="mt-1 text-muted-foreground">{r.description}</p>}

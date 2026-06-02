@@ -455,6 +455,31 @@ class SignalWorker:
             except Exception as e:
                 logger.warning(f"[{symbol}] Discord notify failed (non-fatal): {e}")
 
+            # 13. Automation event — fires a signal.published event to
+            # the web app's /api/automation/events. The matching
+            # growth_automation_rule decides whether to auto-create a
+            # content draft / schedule it / publish it. Fire-and-forget;
+            # failure logged but never raised.
+            try:
+                from notify_automation import emit_signal_published, fire as _fire_auto
+                _fire_auto(emit_signal_published(
+                    symbol=symbol,
+                    direction=proposal.direction,
+                    entry=proposal.entry,
+                    stop_loss=proposal.stop_loss,
+                    take_profit_1=proposal.take_profit_1,
+                    take_profit_2=proposal.take_profit_2,
+                    take_profit_3=proposal.take_profit_3,
+                    risk_reward=proposal.risk_reward,
+                    confidence_score=confidence.score,
+                    confidence_tier=confidence.tier,
+                    regime=regime.regime.value,
+                    signal_id=signal_id,
+                    timeframe=self.settings.timeframe,
+                ))
+            except Exception as e:
+                logger.warning(f"[{symbol}] Automation event fire failed (non-fatal): {e}")
+
     # ─── Database operations ──────────────────────────────────────────────
 
     async def _publish_signal(
