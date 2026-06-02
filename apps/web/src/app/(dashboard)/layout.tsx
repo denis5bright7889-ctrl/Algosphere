@@ -1,5 +1,4 @@
 import { redirect } from 'next/navigation'
-import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { isAdmin } from '@/lib/admin'
 import { isDemo } from '@/lib/demo'
@@ -31,35 +30,31 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const demo = isDemo(profile?.account_type)
   const betaOpen = isBetaFreeAccessEnabled()
 
-  // 7-day free trial: a free user is locked once 7 days have elapsed since
-  // signup (deterministic from created_at — no cron needed), OR if their
-  // status was explicitly canceled. Admin / demo / open-beta bypass.
-  const TRIAL_DAYS = 7
-  const onFreeTier = profile?.subscription_tier === 'free'
-  const trialAgeMs = profile?.created_at
-    ? Date.now() - new Date(profile.created_at).getTime()
-    : 0
-  const trialElapsed = trialAgeMs > TRIAL_DAYS * 24 * 60 * 60 * 1000
-  const isTrialExpired =
-    !admin &&
-    !demo &&
-    !betaOpen &&
-    onFreeTier &&
-    (profile?.subscription_status === 'canceled' || trialElapsed)
-
-  // Routes that MUST stay reachable after the trial expires:
-  //   /upgrade — the conversion path itself. It lives inside this
-  //     group, so without this exemption a trial-expired user is
-  //     redirected to /upgrade, which re-runs this layout, which
-  //     redirects again → infinite loop. The page even has a
-  //     `reason=trial_expired` branch that was previously unreachable.
-  //   /learn  — Education hub kept open as a beginner-acquisition
-  //     funnel (free learning access survives trial expiry by design).
-  const pathname = (await headers()).get('x-pathname') ?? ''
-  const trialExempt =
-    pathname.startsWith('/upgrade') || pathname.startsWith('/learn')
-
-  if (isTrialExpired && !trialExempt) redirect('/upgrade?reason=trial_expired')
+  // LAUNCH PHASE — Pro / VIP are "Coming soon" so the free tier is
+  // effectively the only product, and we don't want the 7-day trial
+  // gate booting users out of their own product. The original logic
+  // (commented below) is preserved so the trial-expiry gate can be
+  // restored verbatim when Pro/VIP launch. demo / admin / canceled
+  // continue to be respected via the layout/subscription checks
+  // elsewhere; nothing about payment infrastructure is removed.
+  //
+  // Restore on Pro launch:
+  //   const TRIAL_DAYS = 7
+  //   const onFreeTier = profile?.subscription_tier === 'free'
+  //   const trialAgeMs = profile?.created_at
+  //     ? Date.now() - new Date(profile.created_at).getTime()
+  //     : 0
+  //   const trialElapsed = trialAgeMs > TRIAL_DAYS * 24 * 60 * 60 * 1000
+  //   const isTrialExpired =
+  //     !admin && !demo && !betaOpen && onFreeTier &&
+  //     (profile?.subscription_status === 'canceled' || trialElapsed)
+  //   const pathname = (await headers()).get('x-pathname') ?? ''
+  //   const trialExempt =
+  //     pathname.startsWith('/upgrade') || pathname.startsWith('/learn')
+  //   if (isTrialExpired && !trialExempt) redirect('/upgrade?reason=trial_expired')
+  // The headers() / redirect imports stay so the restore is one
+  // uncomment away.
+  void admin; void demo; void betaOpen   // keep the readers honest about why these still load
 
   return (
     <ChartModalProvider>

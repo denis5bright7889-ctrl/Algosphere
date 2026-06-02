@@ -170,6 +170,11 @@ export default function CryptoPaymentFlow({ currentTier }: Props) {
                   Coming soon
                 </span>
               )}
+              {!isLocked && plan.id === 'starter' && (
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-emerald-500 px-3 py-1 text-[10px] font-bold tracking-widest text-black uppercase shadow-glow">
+                  Free during launch
+                </span>
+              )}
 
               <h3 className={cn('text-lg font-bold tracking-tight', !isLocked && (plan.highlight || isVip) && 'text-gradient')}>
                 {plan.name}
@@ -196,7 +201,9 @@ export default function CryptoPaymentFlow({ currentTier }: Props) {
                 ))}
               </ul>
               <div className="space-y-2">
-                {!isLocked && (
+                {/* Hide the "Pay with USDT" hint for Starter — it's
+                    free during the launch phase, no payment needed. */}
+                {!isLocked && plan.id !== 'starter' && (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
                     Pay with USDT TRC20 (Binance)
@@ -211,18 +218,19 @@ export default function CryptoPaymentFlow({ currentTier }: Props) {
                     Current plan
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => handleSelectPlan(plan.id)}
-                    disabled={creating}
-                    className={cn(
-                      'block w-full text-center text-sm',
-                      plan.highlight ? 'btn-premium' : 'btn-glass justify-center',
-                      creating && 'opacity-50 cursor-not-allowed'
-                    )}
+                  // LAUNCH PHASE — Pro / VIP are locked, so the only
+                  // non-locked plan is Starter. It activates immediately
+                  // via /demo/starter (server-side flips
+                  // subscription_tier='starter', status='active' for
+                  // every signed-in user). No payment session is
+                  // created; the crypto flow stays wired for Pro / VIP
+                  // when those launch — see handleSelectPlan above.
+                  <a
+                    href="/demo/starter"
+                    className="btn-premium block w-full text-center text-sm"
                   >
-                    {creating && selectedPlan === plan.id ? 'Loading…' : `Get ${plan.name}`}
-                  </button>
+                    Activate Starter — Free
+                  </a>
                 )}
               </div>
             </div>

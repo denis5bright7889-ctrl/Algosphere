@@ -130,11 +130,17 @@ export default async function UpgradePage({
                   ? 'border-border/60 bg-card/60 opacity-70 cursor-not-allowed'
                   : 'border-border bg-card hover:border-amber-500/30 hover:shadow-card-lift hover:scale-[1.02]'
               )
+            const isStarter = p.id === 'starter'
             const inner = (
               <>
                 {isLocked && (
                   <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full border border-amber-500/40 bg-background px-3 py-1 text-[10px] font-bold tracking-widest text-amber-300 uppercase">
                     Coming soon
+                  </span>
+                )}
+                {!isLocked && isStarter && (
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-emerald-500 px-3 py-1 text-[10px] font-bold tracking-widest text-black uppercase shadow-glow">
+                    Free during launch
                   </span>
                 )}
 
@@ -166,8 +172,11 @@ export default async function UpgradePage({
                     Current plan
                   </div>
                 ) : (
-                  <span className="block w-full text-center text-sm btn-glass justify-center">
-                    Get {TIER_LABELS[p.id]}
+                  // LAUNCH PHASE — Pro / VIP are locked, so the only
+                  // non-locked plan is Starter. The wrapping <a> below
+                  // routes to /demo/starter which auto-activates.
+                  <span className="block w-full text-center text-sm btn-premium">
+                    Activate Starter — Free
                   </span>
                 )}
               </>

@@ -14,9 +14,20 @@ export const TIER_RANK: Record<SubscriptionTier, number> = {
   free: 0, starter: 1, premium: 2, vip: 3,
 }
 
-/** Does `tier` include everything up to and including `minTier`? */
+/** Does `tier` include everything up to and including `minTier`?
+ *
+ *  LAUNCH-PHASE OVERRIDE — Pro / VIP are marked "Coming soon" on
+ *  pricing, so every feature is unlocked for every authenticated user.
+ *  When Pro/VIP launch, swap the body back to the rank comparison.
+ *  The TIER_RANK table, payment infrastructure, and per-tier feature
+ *  catalog below are intentionally LEFT INTACT — only the gate is
+ *  short-circuited.
+ */
 export function tierIncludes(tier: SubscriptionTier, minTier: SubscriptionTier): boolean {
-  return (TIER_RANK[tier] ?? 0) >= (TIER_RANK[minTier] ?? 0)
+  void tier; void minTier
+  // Restore on Pro launch:
+  //   return (TIER_RANK[tier] ?? 0) >= (TIER_RANK[minTier] ?? 0)
+  return true
 }
 
 export interface Feature {

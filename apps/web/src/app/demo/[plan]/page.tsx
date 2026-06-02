@@ -54,7 +54,13 @@ export default async function DemoEntryPage({ params }: Props) {
   // Admin always bypasses. During the open-beta build phase, the
   // OPEN_BETA_FREE_ACCESS env flag also grants this path to every user so the
   // team can test end-to-end without paying. Both checks are server-side only.
-  const instantActivate = isAdmin(user.email) || isBetaFreeAccessEnabled()
+  //
+  // LAUNCH PHASE — Pro / VIP are "Coming soon" so Starter is the only
+  // accessible tier and grants free access to every signed-in user.
+  // Pro / VIP keep the admin/beta gate so the payment flow stays
+  // disabled until those plans launch.
+  const instantActivate =
+    isAdmin(user.email) || isBetaFreeAccessEnabled() || plan === 'starter'
 
   if (instantActivate) {
     const periodEnd = new Date()
@@ -86,10 +92,10 @@ export default async function DemoEntryPage({ params }: Props) {
   }
 
   // ─── Regular users — demo sandbox ─────────────────────────────────────────
+  // Note: starter is handled above by instantActivate (free for everyone
+  // during launch), so the path below only sees premium / vip.
   const accountType =
-    plan === 'starter' ? 'demo_starter' :
-    plan === 'premium' ? 'demo_premium' :
-                         'demo_vip'
+    plan === 'premium' ? 'demo_premium' : 'demo_vip'
 
   if (profile?.account_type !== accountType) {
     await supabase
