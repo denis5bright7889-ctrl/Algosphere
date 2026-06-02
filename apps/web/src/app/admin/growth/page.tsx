@@ -100,6 +100,18 @@ export default async function GrowthEnginePage() {
             Automation
           </Link>
           <Link
+            href="/admin/growth/discovery"
+            className="rounded-md border border-border px-3 py-2 text-xs font-semibold hover:bg-accent/40"
+          >
+            Discovery
+          </Link>
+          <Link
+            href="/admin/growth/funnel"
+            className="rounded-md border border-border px-3 py-2 text-xs font-semibold hover:bg-accent/40"
+          >
+            Funnel
+          </Link>
+          <Link
             href="/admin/growth/new"
             className="rounded-md bg-amber-500 px-4 py-2 text-xs font-bold text-black hover:bg-amber-400"
           >

@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
+import { Suspense } from 'react'
 import './globals.css'
+import AttributionTracker from '@/components/growth/AttributionTracker'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -58,7 +60,15 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
-      <body className={inter.className}>{children}</body>
+      <body className={inter.className}>
+        {/* Funnel attribution — pings /api/track/event on every route
+            change. Wrapped in Suspense because AttributionTracker uses
+            useSearchParams which requires it under partial pre-rendering. */}
+        <Suspense fallback={null}>
+          <AttributionTracker />
+        </Suspense>
+        {children}
+      </body>
     </html>
   )
 }
