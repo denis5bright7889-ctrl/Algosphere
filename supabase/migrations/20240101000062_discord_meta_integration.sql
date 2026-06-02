@@ -105,6 +105,8 @@ CREATE TABLE IF NOT EXISTS public.system_event_log (
 
 ALTER TABLE public.system_event_log ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "system_event_log_admin_read"    ON public.system_event_log;
+DROP POLICY IF EXISTS "system_event_log_service_write" ON public.system_event_log;
 CREATE POLICY "system_event_log_admin_read"
   ON public.system_event_log FOR SELECT
   USING (
@@ -148,6 +150,8 @@ CREATE TABLE IF NOT EXISTS public.meta_connected_accounts (
 
 ALTER TABLE public.meta_connected_accounts ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "meta_accounts_admin_read"    ON public.meta_connected_accounts;
+DROP POLICY IF EXISTS "meta_accounts_service_write" ON public.meta_connected_accounts;
 CREATE POLICY "meta_accounts_admin_read"
   ON public.meta_connected_accounts FOR SELECT
   USING (
