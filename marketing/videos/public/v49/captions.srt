@@ -1,0 +1,23 @@
+1
+00:00:00,000 --> 00:00:04,756
+Profit Factor one point eight. What does that even mean?
+
+2
+00:00:05,006 --> 00:00:09,714
+Profit Factor equals total wins, divided by total losses.
+
+3
+00:00:09,964 --> 00:00:17,792
+One point zero is breakeven. One point five is decent. Two point zero plus is strong.
+
+4
+00:00:18,042 --> 00:00:24,142
+AlgoSphere flags any strategy below one point three. Do not trade it.
+
+5
+00:00:24,392 --> 00:00:30,252
+Above two point five, over one hundred trades. That is your green light.
+
+6
+00:00:30,502 --> 00:00:36,290
+Test your strategy. Free backtester. Link in bio.

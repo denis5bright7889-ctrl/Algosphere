@@ -1,0 +1,14 @@
+{
+  "name": "algosphere-demo-engine",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "screenshots":  "node screenshots.mjs",
+    "record":       "node record.mjs",
+    "generate":     "node generate_demo.mjs"
+  },
+  "type": "module",
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}

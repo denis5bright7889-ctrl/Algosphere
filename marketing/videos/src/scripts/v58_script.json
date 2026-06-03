@@ -1,0 +1,14 @@
+{
+  "id": "v58",
+  "title": "Risk-on vs Risk-off",
+  "voice": "en-US-JennyNeural",
+  "rate": "+3%",
+  "lines": [
+    { "id": "hook",  "text": "Risk on, green. Risk off, red. Here is why it controls your week." },
+    { "id": "on",    "text": "Risk on. Money flowing into Bitcoin, equities, growth. Traders are confident." },
+    { "id": "off",   "text": "Risk off. Money fleeing to the dollar, gold, bonds. Traders are scared." },
+    { "id": "engine","text": "AlgoSphere's regime engine tells you which world you are in. Right now. Per asset." },
+    { "id": "play",  "text": "Trade buy in risk on. Trade short or sit out in risk off. Stop fighting the regime." },
+    { "id": "cta",   "text": "See today's regime. Free dashboard. Link in bio." }
+  ]
+}

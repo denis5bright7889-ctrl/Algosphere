@@ -1,0 +1,54 @@
+{
+  "id": "v2",
+  "title": "Why 90% of traders blow accounts",
+  "voice": "en-US-ChristopherNeural",
+  "total_s": 43.798,
+  "gap_s": 0.35,
+  "fps": 30,
+  "width": 1080,
+  "height": 1920,
+  "lines": [
+    {
+      "id": "hook",
+      "text": "Ninety percent of traders blow their accounts. It is not the strategy. It is these three things.",
+      "mp3": "v2/line_00_hook.mp3",
+      "start_s": 0.0,
+      "dur_s": 7.584
+    },
+    {
+      "id": "r1",
+      "text": "Reason one. No journal. You do not know what is working.",
+      "mp3": "v2/line_01_r1.mp3",
+      "start_s": 7.934,
+      "dur_s": 5.688
+    },
+    {
+      "id": "r2",
+      "text": "Reason two. No risk firewall. One revenge trade nukes a week.",
+      "mp3": "v2/line_02_r2.mp3",
+      "start_s": 13.972,
+      "dur_s": 6.504
+    },
+    {
+      "id": "r3",
+      "text": "Reason three. No system check. You trade through bad regimes.",
+      "mp3": "v2/line_03_r3.mp3",
+      "start_s": 20.826,
+      "dur_s": 6.384
+    },
+    {
+      "id": "fix",
+      "text": "AlgoSphere is built around exactly these three. Auto journal. Fifteen gate risk engine. Market regime detection.",
+      "mp3": "v2/line_04_fix.mp3",
+      "start_s": 27.56,
+      "dur_s": 9.816
+    },
+    {
+      "id": "cta",
+      "text": "Built for what kills traders. Free trial. Link in bio.",
+      "mp3": "v2/line_05_cta.mp3",
+      "start_s": 37.726,
+      "dur_s": 6.072
+    }
+  ]
+}

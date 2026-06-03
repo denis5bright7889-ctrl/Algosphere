@@ -1,0 +1,61 @@
+{
+  "id": "v82",
+  "title": "15 gate institutional risk system",
+  "voice": "en-US-GuyNeural",
+  "total_s": 54.204,
+  "gap_s": 0.35,
+  "fps": 30,
+  "width": 1080,
+  "height": 1920,
+  "lines": [
+    {
+      "id": "hook",
+      "text": "Your trade just failed gate seven. Want to see all fifteen?",
+      "mp3": "v82/line_00_hook.mp3",
+      "start_s": 0.0,
+      "dur_s": 4.728
+    },
+    {
+      "id": "intro",
+      "text": "AlgoSphere checks fifteen institutional risk gates before any order touches your broker.",
+      "mp3": "v82/line_01_intro.mp3",
+      "start_s": 5.078,
+      "dur_s": 5.184
+    },
+    {
+      "id": "list1",
+      "text": "Daily loss cap. Weekly loss cap. Max consecutive losses. Max size increase. Drawdown ceiling.",
+      "mp3": "v82/line_02_list1.mp3",
+      "start_s": 10.612,
+      "dur_s": 10.032
+    },
+    {
+      "id": "list2",
+      "text": "Correlation cap. Spread guard. Session window. News window block. Regime stress.",
+      "mp3": "v82/line_03_list2.mp3",
+      "start_s": 20.994,
+      "dur_s": 9.12
+    },
+    {
+      "id": "list3",
+      "text": "Kill switch. Account tier. Broker connection live. Position cap per symbol. Total exposure cap.",
+      "mp3": "v82/line_04_list3.mp3",
+      "start_s": 30.464,
+      "dur_s": 9.744
+    },
+    {
+      "id": "rule",
+      "text": "All fifteen must pass. One fails. No trade.",
+      "mp3": "v82/line_05_rule.mp3",
+      "start_s": 40.558,
+      "dur_s": 5.544
+    },
+    {
+      "id": "cta",
+      "text": "Institutional risk. Retail simplicity. Free trial. Link in bio.",
+      "mp3": "v82/line_06_cta.mp3",
+      "start_s": 46.452,
+      "dur_s": 7.752
+    }
+  ]
+}

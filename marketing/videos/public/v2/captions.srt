@@ -1,0 +1,23 @@
+1
+00:00:00,000 --> 00:00:07,684
+Ninety percent of traders blow their accounts. It is not the strategy. It is these three things.
+
+2
+00:00:07,934 --> 00:00:13,722
+Reason one. No journal. You do not know what is working.
+
+3
+00:00:13,972 --> 00:00:20,576
+Reason two. No risk firewall. One revenge trade nukes a week.
+
+4
+00:00:20,826 --> 00:00:27,310
+Reason three. No system check. You trade through bad regimes.
+
+5
+00:00:27,560 --> 00:00:37,476
+AlgoSphere is built around exactly these three. Auto journal. Fifteen gate risk engine. Market regime detection.
+
+6
+00:00:37,726 --> 00:00:43,898
+Built for what kills traders. Free trial. Link in bio.

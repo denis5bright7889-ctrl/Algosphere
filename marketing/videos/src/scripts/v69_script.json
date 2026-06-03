@@ -1,0 +1,15 @@
+{
+  "id": "v69",
+  "title": "Coverage Reliability Data Quality",
+  "voice": "en-US-ChristopherNeural",
+  "rate": "+5%",
+  "lines": [
+    { "id": "hook",  "text": "Coverage ninety-two percent. Reliability high. Data quality high. Four numbers decide your day." },
+    { "id": "cov",   "text": "Coverage. Percent of engines returning live or degraded data." },
+    { "id": "rel",   "text": "Reliability. Percent at high or medium source quality." },
+    { "id": "dq",    "text": "Data Quality. The overall rollup. High, medium, or low." },
+    { "id": "fresh", "text": "Freshness. How recent the newest engine update is." },
+    { "id": "rule",  "text": "Coverage drops below sixty. Or Data Quality flips low. Size down. Trade less." },
+    { "id": "cta",   "text": "Same vocabulary on every page. Institutional discipline. Link in bio." }
+  ]
+}

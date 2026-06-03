@@ -74,3 +74,10 @@ apps/signal-engine/logs/
 .env.vercel
 
 .env*.local
+marketing/videos/node_modules/
+marketing/videos/out/*.mp4
+marketing/videos/.cache/
+growth/demo-engine/node_modules/
+growth/demo-engine/recordings/
+growth/demo-engine/out/
+growth/demo-engine/.demo-state.json

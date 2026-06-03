@@ -1,0 +1,54 @@
+{
+  "id": "v49",
+  "title": "Profit Factor explained",
+  "voice": "en-US-AriaNeural",
+  "total_s": 36.19,
+  "gap_s": 0.35,
+  "fps": 30,
+  "width": 1080,
+  "height": 1920,
+  "lines": [
+    {
+      "id": "hook",
+      "text": "Profit Factor one point eight. What does that even mean?",
+      "mp3": "v49/line_00_hook.mp3",
+      "start_s": 0.0,
+      "dur_s": 4.656
+    },
+    {
+      "id": "def",
+      "text": "Profit Factor equals total wins, divided by total losses.",
+      "mp3": "v49/line_01_def.mp3",
+      "start_s": 5.006,
+      "dur_s": 4.608
+    },
+    {
+      "id": "scale",
+      "text": "One point zero is breakeven. One point five is decent. Two point zero plus is strong.",
+      "mp3": "v49/line_02_scale.mp3",
+      "start_s": 9.964,
+      "dur_s": 7.728
+    },
+    {
+      "id": "rule",
+      "text": "AlgoSphere flags any strategy below one point three. Do not trade it.",
+      "mp3": "v49/line_03_rule.mp3",
+      "start_s": 18.042,
+      "dur_s": 6.0
+    },
+    {
+      "id": "good",
+      "text": "Above two point five, over one hundred trades. That is your green light.",
+      "mp3": "v49/line_04_good.mp3",
+      "start_s": 24.392,
+      "dur_s": 5.76
+    },
+    {
+      "id": "cta",
+      "text": "Test your strategy. Free backtester. Link in bio.",
+      "mp3": "v49/line_05_cta.mp3",
+      "start_s": 30.502,
+      "dur_s": 5.688
+    }
+  ]
+}

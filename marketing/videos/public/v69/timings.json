@@ -1,0 +1,61 @@
+{
+  "id": "v69",
+  "title": "Coverage Reliability Data Quality",
+  "voice": "en-US-ChristopherNeural",
+  "total_s": 47.82,
+  "gap_s": 0.35,
+  "fps": 30,
+  "width": 1080,
+  "height": 1920,
+  "lines": [
+    {
+      "id": "hook",
+      "text": "Coverage ninety-two percent. Reliability high. Data quality high. Four numbers decide your day.",
+      "mp3": "v69/line_00_hook.mp3",
+      "start_s": 0.0,
+      "dur_s": 8.832
+    },
+    {
+      "id": "cov",
+      "text": "Coverage. Percent of engines returning live or degraded data.",
+      "mp3": "v69/line_01_cov.mp3",
+      "start_s": 9.182,
+      "dur_s": 5.088
+    },
+    {
+      "id": "rel",
+      "text": "Reliability. Percent at high or medium source quality.",
+      "mp3": "v69/line_02_rel.mp3",
+      "start_s": 14.62,
+      "dur_s": 5.04
+    },
+    {
+      "id": "dq",
+      "text": "Data Quality. The overall rollup. High, medium, or low.",
+      "mp3": "v69/line_03_dq.mp3",
+      "start_s": 20.01,
+      "dur_s": 6.384
+    },
+    {
+      "id": "fresh",
+      "text": "Freshness. How recent the newest engine update is.",
+      "mp3": "v69/line_04_fresh.mp3",
+      "start_s": 26.744,
+      "dur_s": 4.68
+    },
+    {
+      "id": "rule",
+      "text": "Coverage drops below sixty. Or Data Quality flips low. Size down. Trade less.",
+      "mp3": "v69/line_05_rule.mp3",
+      "start_s": 31.774,
+      "dur_s": 8.52
+    },
+    {
+      "id": "cta",
+      "text": "Same vocabulary on every page. Institutional discipline. Link in bio.",
+      "mp3": "v69/line_06_cta.mp3",
+      "start_s": 40.644,
+      "dur_s": 7.176
+    }
+  ]
+}

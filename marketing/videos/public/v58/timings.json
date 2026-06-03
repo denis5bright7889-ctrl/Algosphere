@@ -1,0 +1,54 @@
+{
+  "id": "v58",
+  "title": "Risk-on vs Risk-off",
+  "voice": "en-US-JennyNeural",
+  "total_s": 42.31,
+  "gap_s": 0.35,
+  "fps": 30,
+  "width": 1080,
+  "height": 1920,
+  "lines": [
+    {
+      "id": "hook",
+      "text": "Risk on, green. Risk off, red. Here is why it controls your week.",
+      "mp3": "v58/line_00_hook.mp3",
+      "start_s": 0.0,
+      "dur_s": 6.768
+    },
+    {
+      "id": "on",
+      "text": "Risk on. Money flowing into Bitcoin, equities, growth. Traders are confident.",
+      "mp3": "v58/line_01_on.mp3",
+      "start_s": 7.118,
+      "dur_s": 7.224
+    },
+    {
+      "id": "off",
+      "text": "Risk off. Money fleeing to the dollar, gold, bonds. Traders are scared.",
+      "mp3": "v58/line_02_off.mp3",
+      "start_s": 14.692,
+      "dur_s": 6.96
+    },
+    {
+      "id": "engine",
+      "text": "AlgoSphere's regime engine tells you which world you are in. Right now. Per asset.",
+      "mp3": "v58/line_03_engine.mp3",
+      "start_s": 22.002,
+      "dur_s": 6.912
+    },
+    {
+      "id": "play",
+      "text": "Trade buy in risk on. Trade short or sit out in risk off. Stop fighting the regime.",
+      "mp3": "v58/line_04_play.mp3",
+      "start_s": 29.264,
+      "dur_s": 7.08
+    },
+    {
+      "id": "cta",
+      "text": "See today's regime. Free dashboard. Link in bio.",
+      "mp3": "v58/line_05_cta.mp3",
+      "start_s": 36.694,
+      "dur_s": 5.616
+    }
+  ]
+}

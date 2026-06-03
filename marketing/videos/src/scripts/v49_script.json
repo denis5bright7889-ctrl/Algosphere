@@ -1,0 +1,14 @@
+{
+  "id": "v49",
+  "title": "Profit Factor explained",
+  "voice": "en-US-AriaNeural",
+  "rate": "+5%",
+  "lines": [
+    { "id": "hook",  "text": "Profit Factor one point eight. What does that even mean?" },
+    { "id": "def",   "text": "Profit Factor equals total wins, divided by total losses." },
+    { "id": "scale", "text": "One point zero is breakeven. One point five is decent. Two point zero plus is strong." },
+    { "id": "rule",  "text": "AlgoSphere flags any strategy below one point three. Do not trade it." },
+    { "id": "good",  "text": "Above two point five, over one hundred trades. That is your green light." },
+    { "id": "cta",   "text": "Test your strategy. Free backtester. Link in bio." }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "id": "v2",
+  "title": "Why 90% of traders blow accounts",
+  "voice": "en-US-ChristopherNeural",
+  "rate": "+5%",
+  "lines": [
+    { "id": "hook",  "text": "Ninety percent of traders blow their accounts. It is not the strategy. It is these three things." },
+    { "id": "r1",    "text": "Reason one. No journal. You do not know what is working." },
+    { "id": "r2",    "text": "Reason two. No risk firewall. One revenge trade nukes a week." },
+    { "id": "r3",    "text": "Reason three. No system check. You trade through bad regimes." },
+    { "id": "fix",   "text": "AlgoSphere is built around exactly these three. Auto journal. Fifteen gate risk engine. Market regime detection." },
+    { "id": "cta",   "text": "Built for what kills traders. Free trial. Link in bio." }
+  ]
+}

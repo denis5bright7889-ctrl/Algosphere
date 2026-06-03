@@ -1,0 +1,27 @@
+1
+00:00:00,000 --> 00:00:04,828
+Your trade just failed gate seven. Want to see all fifteen?
+
+2
+00:00:05,078 --> 00:00:10,362
+AlgoSphere checks fifteen institutional risk gates before any order touches your broker.
+
+3
+00:00:10,612 --> 00:00:20,744
+Daily loss cap. Weekly loss cap. Max consecutive losses. Max size increase. Drawdown ceiling.
+
+4
+00:00:20,994 --> 00:00:30,214
+Correlation cap. Spread guard. Session window. News window block. Regime stress.
+
+5
+00:00:30,464 --> 00:00:40,308
+Kill switch. Account tier. Broker connection live. Position cap per symbol. Total exposure cap.
+
+6
+00:00:40,558 --> 00:00:46,202
+All fifteen must pass. One fails. No trade.
+
+7
+00:00:46,452 --> 00:00:54,304
+Institutional risk. Retail simplicity. Free trial. Link in bio.

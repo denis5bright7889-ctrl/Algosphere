@@ -1,0 +1,15 @@
+{
+  "id": "v82",
+  "title": "15 gate institutional risk system",
+  "voice": "en-US-GuyNeural",
+  "rate": "+8%",
+  "lines": [
+    { "id": "hook",  "text": "Your trade just failed gate seven. Want to see all fifteen?" },
+    { "id": "intro", "text": "AlgoSphere checks fifteen institutional risk gates before any order touches your broker." },
+    { "id": "list1", "text": "Daily loss cap. Weekly loss cap. Max consecutive losses. Max size increase. Drawdown ceiling." },
+    { "id": "list2", "text": "Correlation cap. Spread guard. Session window. News window block. Regime stress." },
+    { "id": "list3", "text": "Kill switch. Account tier. Broker connection live. Position cap per symbol. Total exposure cap." },
+    { "id": "rule",  "text": "All fifteen must pass. One fails. No trade." },
+    { "id": "cta",   "text": "Institutional risk. Retail simplicity. Free trial. Link in bio." }
+  ]
+}
