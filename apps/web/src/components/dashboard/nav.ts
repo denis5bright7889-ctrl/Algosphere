@@ -210,14 +210,12 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     // A directory, not a forum — and crucially, a curated marketing
-    // surface, not a trader workflow. Per the admin-vs-user rule
-    // ([[feedback_admin_vs_user_surfaces]]) the Community/Telegram Hub
-    // does NOT appear in the regular user sidebar. Admins still see it
-    // for moderation; the page itself stays publicly reachable via the
-    // /communities route from marketing pages.
+    // surface, not a trader workflow. Surfaced to every signed-in user
+    // (2026-06-02 founder reversal of the earlier admin-only rule)
+    // so users can discover the official AlgoSphere Telegram channels
+    // and join them in one tap.
     label: 'Premium Community',
     icon: Crown,
-    adminOnly: true,
     items: [
       { href: '/communities', label: 'Telegram Hub', icon: Crown,
         keywords: 'telegram channel group vip signals education premium directory' },
