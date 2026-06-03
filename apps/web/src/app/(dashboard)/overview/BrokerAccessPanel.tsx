@@ -212,6 +212,8 @@ function BrokerCard({ c, onPatch }: { c: BrokerConn; onPatch: (c: BrokerConn) =>
             {/* Deep link pre-selects the broker server (+ login) so the user
                 only types their password — MT5 never logs in with an email. */}
             <LinkButton href={c.mt5WebUrl ?? METATRADER.mt5Web} icon={ExternalLink}>Open MT5 Web</LinkButton>
+            {/* Escape hatch for expired/purged demo logins — mint a fresh one. */}
+            <LinkButton href={METATRADER.mt5OpenDemo} icon={ExternalLink} subtle>Open demo</LinkButton>
             <LinkButton href={METATRADER.mt5Download} icon={ExternalLink} subtle>Get MT5 / MT4</LinkButton>
           </>
         ) : portal.webTradeUrl ? (

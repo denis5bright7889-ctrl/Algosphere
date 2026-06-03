@@ -104,6 +104,11 @@ export const PORTALS: Record<string, BrokerPortal> = {
 /** MetaTrader platform links shown in the MT4/MT5 quick-access block. */
 export const METATRADER = {
   mt5Web: 'https://web.metatrader.app/terminal',
+  // Opens the terminal straight into the "create demo account" flow
+  // (MetaQuotes-documented `startup_mode=open_demo`) so a user whose demo
+  // expired can mint a fresh, working login in one step instead of fighting
+  // an "invalid account or password" on a purged demo.
+  mt5OpenDemo: 'https://web.metatrader.app/terminal?startup_mode=open_demo',
   mt5Download: 'https://www.metatrader5.com/en/download',
   mt4Download: 'https://www.metatrader4.com/en/download',
 }
