@@ -143,6 +143,39 @@ export function buildMt5WebUrl(server?: string | null, login?: string | null): s
 }
 
 /**
+ * Best-effort redirect to a broker's trading platform for a given symbol —
+ * used from the signal feed so a trader can jump straight from an AlgoSphere
+ * signal to the same pair on their broker.
+ *
+ * Deep-links to the exact market only where the venue's URL scheme reliably
+ * supports it (the crypto exchanges); everywhere else (MT5 / OANDA / cTrader
+ * / Tradovate) it returns the platform's base URL, since those don't take a
+ * symbol in the URL. Always returns a usable URL when the broker is known,
+ * or null when there's nothing sensible to open (e.g. paper).
+ */
+export function brokerTradeUrl(broker: string, symbol?: string | null): string | null {
+  const p = PORTALS[broker]
+  const base = p?.webTradeUrl ?? p?.portalUrl ?? null
+  const s = (symbol ?? '').toUpperCase().trim()
+  if (!s) return base
+
+  switch (broker) {
+    case 'binance':
+      return s.endsWith('USDT') ? `https://www.binance.com/en/futures/${s}` : base
+    case 'bybit':
+      return s.endsWith('USDT') ? `https://www.bybit.com/trade/usdt/${s}` : base
+    case 'okx':
+      return s.endsWith('USDT')
+        ? `https://www.okx.com/trade-swap/${s.slice(0, -4).toLowerCase()}-usdt-swap`
+        : base
+    default:
+      // mt5 / oanda / ctrader / tradovate / paper / unknown — no reliable
+      // per-symbol URL; open the platform/portal base instead.
+      return base
+  }
+}
+
+/**
  * Keyword → portal map for MetaTrader sub-brokers. Keys are matched
  * case-insensitively against the connection's label and (where present)
  * account hint. Order matters only for readability — keys are distinct.

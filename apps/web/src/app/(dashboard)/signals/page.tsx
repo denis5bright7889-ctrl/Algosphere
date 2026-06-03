@@ -6,6 +6,7 @@ import { generateDemoSignals } from '@/lib/demo-data'
 import { getEngineStatus } from '@/lib/engine-client'
 import type { Signal, SubscriptionTier } from '@/lib/types'
 import SignalsFeed, { type EngineSnapshot } from './SignalsFeed'
+import type { TradeBroker } from '@/components/dashboard/PlaceTradeButton'
 
 export const metadata = { title: 'Intelligence Feed' }
 export const dynamic = 'force-dynamic'
@@ -23,6 +24,16 @@ export default async function SignalsPage() {
     .select('subscription_tier, account_type')
     .eq('id', user!.id)
     .single()
+
+  // Connected brokers power the per-signal "Place Trade" button. Only
+  // client-safe columns (NO *_enc credentials) cross to the browser.
+  const { data: brokerRows } = await supabase
+    .from('broker_connections')
+    .select('id, broker, label, is_live, is_testnet, status')
+    .eq('user_id', user!.id)
+    .eq('status', 'connected')
+    .order('is_default', { ascending: false })
+  const brokers = (brokerRows ?? []) as TradeBroker[]
 
   const accountType = profile?.account_type
   const userTier = effectiveTierForFeatures(
@@ -95,6 +106,7 @@ export default async function SignalsPage() {
       userEmail={user!.email ?? ''}
       isAdmin={admin}
       engine={engineSnapshot}
+      brokers={brokers}
     />
   )
 }

@@ -4,14 +4,18 @@ import { LIFECYCLE_LABELS, LIFECYCLE_COLORS } from '@/lib/signals/lifecycle'
 import { GRADE_COLORS } from '@/lib/signals/quality'
 import { cn, formatDateTime, formatRelativeTime } from '@/lib/utils'
 import LiveSignalProgress from '@/components/market/LiveSignalProgress'
+import PlaceTradeButton, { type TradeBroker } from '@/components/dashboard/PlaceTradeButton'
+import { brokerTradeUrl } from '@/lib/broker-portals'
 
 interface Props {
   signal: Signal
   userTier: SubscriptionTier
   userEmail?: string
+  /** Connected brokers — present only on active, tradable cards. */
+  brokers?: TradeBroker[]
 }
 
-export default function SignalCard({ signal, userTier, userEmail }: Props) {
+export default function SignalCard({ signal, userTier, userEmail, brokers }: Props) {
   const hasAccess = canAccess(userEmail, userTier, signal.tier_required)
 
   if (!hasAccess) {
@@ -141,6 +145,28 @@ export default function SignalCard({ signal, userTier, userEmail }: Props) {
         </div>
       )}
 
+      {/* One-click execution — active signals with a real direction only.
+          The button self-hides into a "connect broker" link when the user
+          has no connected account. */}
+      {brokers && lifecycleState === 'active' && (signal.direction === 'buy' || signal.direction === 'sell') && (
+        <div className="space-y-1.5 pt-1">
+          <PlaceTradeButton
+            signal={{
+              id:            signal.id,
+              pair:          signal.pair,
+              direction:     signal.direction,
+              entry_price:   signal.entry_price ?? null,
+              stop_loss:     signal.stop_loss ?? null,
+              take_profit_1: signal.take_profit_1 ?? null,
+            }}
+            brokers={brokers}
+          />
+          {/* Redirect: jump straight to this pair on the trader's broker
+              platform (deep-linked where the venue supports it). */}
+          <BrokerRedirect brokers={brokers} symbol={signal.pair} />
+        </div>
+      )}
+
       {/* Footer — day of week + time + freshness */}
       <div className="flex items-center justify-between text-xs text-muted-foreground pt-0.5">
         <span title={new Date(signal.published_at).toLocaleString()}>
@@ -154,6 +180,26 @@ export default function SignalCard({ signal, userTier, userEmail }: Props) {
         )}
       </div>
     </div>
+  )
+}
+
+function BrokerRedirect({ brokers, symbol }: { brokers: TradeBroker[]; symbol: string }) {
+  // Prefer a connected broker. The Place Trade button above already prompts
+  // to connect one when there are none, so render nothing extra in that case.
+  const b = brokers.find(x => x.status === 'connected')
+  if (!b) return null
+  const url = brokerTradeUrl(b.broker, symbol)
+  if (!url) return null
+  const name = b.broker === 'mt5' ? 'MT5' : b.broker.charAt(0).toUpperCase() + b.broker.slice(1)
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex w-full items-center justify-center gap-1 rounded-lg border border-border px-3 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-amber-500/40 hover:text-amber-300"
+    >
+      Open {symbol} on {name} ↗
+    </a>
   )
 }
 
