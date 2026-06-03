@@ -69,6 +69,14 @@ interface AutomationRuleRow {
   enabled:       boolean
   daily_cap:     number | null
   llm_polish:    boolean
+  /** Visual assets to produce per generated content_item. Empty array
+   *  → text-only (existing behaviour). Populated → row spawns with
+   *  asset_state='pending' so the Railway asset-worker picks it up,
+   *  produces the assets, uploads to Supabase Storage, and flips
+   *  asset_state='ready' before the scheduler publishes.
+   *
+   *  Set via /admin/growth/automation editor. Migration 67. */
+  asset_kinds:   string[]
 }
 
 interface IngestOutcome {
@@ -179,7 +187,7 @@ export async function ingestEvent(event: IngestedEvent): Promise<IngestOutcome> 
   const [{ data: rules }, { data: brand }] = await Promise.all([
     db
       .from('growth_automation_rules')
-      .select('id, name, event_type, predicate, content_kind, channels, output_status, enabled, daily_cap, llm_polish')
+      .select('id, name, event_type, predicate, content_kind, channels, output_status, enabled, daily_cap, llm_polish, asset_kinds')
       .eq('event_type', event.event_type)
       .eq('enabled', true),
     db
@@ -237,6 +245,19 @@ export async function ingestEvent(event: IngestedEvent): Promise<IngestOutcome> 
       ? 'approved'
       : rule.output_status
 
+    // Asset pipeline wire — when the rule declares asset_kinds, the
+    // content_item is born with asset_state='pending' so the Railway
+    // asset-worker picks it up before the scheduler does. Empty
+    // asset_kinds → asset_state stays 'none' (text-only legacy path).
+    // The scheduler (cron/growth-publish) skips rows whose asset_state
+    // is in ('pending','producing'), so a half-produced row never
+    // publishes half-baked.
+    //
+    // The source-event payload is preserved at provenance.payload so
+    // the producers have the signal/trade/performance data they need
+    // to render the cards/screenshots without re-querying.
+    const wantAssets = Array.isArray(rule.asset_kinds) && rule.asset_kinds.length > 0
+
     const { data: contentRow, error: insertErr } = await db
       .from('growth_content_items')
       .insert({
@@ -254,9 +275,12 @@ export async function ingestEvent(event: IngestedEvent): Promise<IngestOutcome> 
         cta_url:      draft.cta_url,
         provenance:   {
           ...draft.provenance,
+          payload:          event.payload,
           automation_event: event.event_type,
           automation_rule:  rule.name,
         },
+        asset_state:  wantAssets ? 'pending' : 'none',
+        asset_kinds:  wantAssets ? rule.asset_kinds : [],
         published_at: effectiveStatus === 'published' ? new Date().toISOString() : null,
       })
       .select('id')

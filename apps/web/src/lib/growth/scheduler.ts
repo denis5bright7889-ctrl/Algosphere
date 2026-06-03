@@ -86,6 +86,24 @@ export async function publishOne(scheduledId: string): Promise<PublishOutcome> {
     return { ok: false, attempt_id: '', error: 'content_item missing' }
   }
 
+  // Asset gate — when an automation rule declared asset_kinds, the
+  // content_item is born with asset_state='pending'. The Railway
+  // asset-worker produces the visuals out-of-band and flips to
+  // 'ready' (all kinds done) or 'partial' (some kinds done).
+  //
+  // We REFUSE to publish a row that's still pending/producing — a
+  // half-rendered chart card going out as the FB hero would be worse
+  // than waiting one more cron cycle. 'partial' is acceptable; some
+  // assets are better than none. 'failed' falls through to publish
+  // text-only (the operator sees the failure in the audit log).
+  const assetState = content.asset_state ?? 'none'
+  if (assetState === 'pending' || assetState === 'producing') {
+    return {
+      ok: false, attempt_id: '',
+      error: `asset_state=${assetState} — Railway asset-worker hasn't produced visuals yet. Re-queue when ready.`,
+    }
+  }
+
   // Flip to 'posting' so a parallel cron tick can't claim the same row.
   await db.from('growth_scheduled_posts')
     .update({ status: 'posting', last_attempt_at: new Date().toISOString() })
@@ -114,7 +132,25 @@ export async function publishOne(scheduledId: string): Promise<PublishOutcome> {
     : {}
 
   const formatted = formatForChannel(sched.channel as Channel, ci, bi)
-  const heroUrl   = sched.hero_image_url ?? content.hero_image_url ?? null
+
+  // Hero precedence:
+  //   1. explicit sched.hero_image_url (operator override on the
+  //      scheduled_posts row, e.g. for A/B testing)
+  //   2. asset_urls.signal_card / trade_result_card / weekly_stats_card
+  //      (per-kind asset produced by the Railway worker)
+  //   3. content.hero_image_url (manually attached at draft time)
+  //
+  // The kind-specific lookup means a signal post automatically picks
+  // up the signal_card the worker produced for THIS row, without the
+  // operator having to wire URLs manually.
+  const assetUrls = (content.asset_urls ?? {}) as Record<string, string>
+  const kindHero =
+    assetUrls[`${content.kind}_card`] ??
+    assetUrls['signal_card'] ??
+    assetUrls['trade_result_card'] ??
+    assetUrls['weekly_stats_card'] ??
+    null
+  const heroUrl = sched.hero_image_url ?? kindHero ?? content.hero_image_url ?? null
   const adapter   = await postViaAdapter(
     sched.channel as Channel,
     formatted.text,
