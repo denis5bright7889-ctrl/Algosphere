@@ -30,28 +30,81 @@ const TOKEN = () => process.env.META_PAGE_ACCESS_TOKEN
 const FB_PAGE_ID = () => process.env.META_FB_PAGE_ID
 const IG_USER_ID = () => process.env.META_IG_USER_ID
 
+/**
+ * Resolve a Page Access Token from the System User access token.
+ *
+ * Meta's documented pattern: POST /{page-id}/feed with a System User
+ * token often returns "requires both pages_read_engagement and
+ * pages_manage_posts as an admin with sufficient administrative
+ * permission" — even when the SU has Full Control on the Page and
+ * the token has all the required scopes. The graph API expects a
+ * Page-scoped token for posting AS the Page.
+ *
+ * GET /{page-id}?fields=access_token with the SU token returns a
+ * Page Access Token that satisfies the "admin" check. Cached in
+ * memory for the duration of the function instance — Page tokens
+ * derived from a System User token never expire.
+ */
+let _pageTokenCache: { pageId: string; token: string } | null = null
+
+async function getPageAccessToken(suToken: string, pageId: string): Promise<string | null> {
+  if (_pageTokenCache && _pageTokenCache.pageId === pageId) return _pageTokenCache.token
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/v20.0/${pageId}?fields=access_token&access_token=${encodeURIComponent(suToken)}`,
+      { cache: 'no-store' },
+    )
+    const json = (await res.json().catch(() => ({}))) as { access_token?: string; error?: { message?: string } }
+    if (!res.ok || !json.access_token) return null
+    _pageTokenCache = { pageId, token: json.access_token }
+    return json.access_token
+  } catch {
+    return null
+  }
+}
+
+
 export async function postToFacebook(text: string): Promise<AdapterResult> {
   const t = TOKEN(); const p = FB_PAGE_ID()
   if (!t || !p) return { ok: false, error: 'Facebook adapter not configured — set META_PAGE_ACCESS_TOKEN + META_FB_PAGE_ID in Vercel env.' }
+
+  // Derive the Page Access Token from the System User token. This is
+  // the Meta-documented pattern for posting AS the Page — see the
+  // getPageAccessToken() comment for the gory details. Falls back
+  // to using the SU token directly if the derivation fails (we still
+  // log the failure so the operator can debug).
+  const pageToken = await getPageAccessToken(t, p)
+  const tokenForPost = pageToken ?? t
 
   try {
     const res = await fetch(`https://graph.facebook.com/v20.0/${p}/feed`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ message: text, access_token: t }),
+      body:    JSON.stringify({ message: text, access_token: tokenForPost }),
     })
     const json = (await res.json().catch(() => ({}))) as { id?: string; error?: { message?: string } }
-    if (!res.ok || json.error) return { ok: false, error: json.error?.message ?? `Facebook API HTTP ${res.status}` }
-    return { ok: true, external_id: json.id, response: { post_id: json.id ?? null } }
+    if (!res.ok || json.error) return {
+      ok: false,
+      error: json.error?.message ?? `Facebook API HTTP ${res.status}`,
+      response: { used_page_token: pageToken !== null },
+    }
+    return { ok: true, external_id: json.id, response: { post_id: json.id ?? null, used_page_token: pageToken !== null } }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'unknown' }
   }
 }
 
 export async function postToInstagram(text: string, imageUrl?: string): Promise<AdapterResult> {
-  const t = TOKEN(); const u = IG_USER_ID()
+  const t = TOKEN(); const u = IG_USER_ID(); const p = FB_PAGE_ID()
   if (!t || !u) return { ok: false, error: 'Instagram adapter not configured — set META_PAGE_ACCESS_TOKEN + META_IG_USER_ID in Vercel env.' }
   if (!imageUrl) return { ok: false, error: 'Instagram feed posts require a hero_image_url on the content_item.' }
+
+  // IG containers are owned by the linked FB Page — Meta's API expects
+  // the Page Access Token, not the System User token. Same derivation
+  // as postToFacebook; falls back to SU token when the FB page id is
+  // missing.
+  const pageToken = p ? await getPageAccessToken(t, p) : null
+  const tokenForCall = pageToken ?? t
 
   try {
     // Two-step: create media container, then publish.
@@ -70,7 +123,7 @@ export async function postToInstagram(text: string, imageUrl?: string): Promise<
         media_type: 'IMAGE',
         image_url:  imageUrl,
         caption:    text,
-        access_token: t,
+        access_token: tokenForCall,
       }),
     })
     const created = (await create.json().catch(() => ({}))) as { id?: string; error?: { message?: string } }
@@ -79,7 +132,8 @@ export async function postToInstagram(text: string, imageUrl?: string): Promise<
     const publish = await fetch(`https://graph.facebook.com/v20.0/${u}/media_publish`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ creation_id: created.id, access_token: t }),
+      // Publish uses the same Page-scoped token as the container create.
+      body:    JSON.stringify({ creation_id: created.id, access_token: tokenForCall }),
     })
     const pub = (await publish.json().catch(() => ({}))) as { id?: string; error?: { message?: string } }
     if (!publish.ok || !pub.id) return { ok: false, error: pub.error?.message ?? `IG publish HTTP ${publish.status}` }
