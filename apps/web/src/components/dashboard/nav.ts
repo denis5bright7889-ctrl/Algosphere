@@ -17,7 +17,7 @@
  *   Broker Connections — Connected accounts + Trade Journal. Data
  *                        in, intelligence out (not execution-first).
  *   Market Intelligence — Consolidated market view + Markets Explorer
- *                         + AI Signals + Calendar + News + Chart
+ *                         + Quant Signals + Calendar + News + Chart
  *                         Workspace (demoted from primary).
  *   Strategy Lab — Quant Builder + Backtester + Calculators.
  *   Automation — Auto Trading + Shadow + Monitor.
@@ -113,7 +113,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/intelligence',          label: 'Market Overview',  icon: Sparkles,         keywords: 'unified dashboard pulse regime liquidity flows sentiment rotation momentum volatility stress consolidated' },
       { href: '/intelligence/markets',  label: 'Markets Explorer', icon: Grid3x3,          keywords: 'symbol registry catalog universe forex crypto indices metals commodities stocks search filter sector' },
-      { href: '/signals',               label: 'AI Signals',       icon: Activity,         keywords: 'signals feed alerts trade opportunities ai generated' },
+      { href: '/signals',               label: 'Quant Signals',    icon: Activity,         keywords: 'signals feed alerts trade opportunities quant ai generated active inactive history' },
       { href: '/calendar',              label: 'Economic Calendar',icon: CalendarDays,     keywords: 'events nfp cpi macro impact analysis' },
       { href: '/news',                  label: 'Market News',      icon: Newspaper,        keywords: 'headlines macro ai summaries impact scoring' },
       { href: '/workspace',             label: 'Chart Workspace',  icon: CandlestickChart, keywords: 'multi chart tradingview tabs layouts split quad compare overlay favorites recent persistent terminal' },

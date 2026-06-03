@@ -107,11 +107,27 @@ function ConfirmSheet({ signal, brokers, onClose }: {
   signal: TradeSignal; brokers: TradeBroker[]; onClose: () => void
 }) {
   const [brokerId, setBrokerId] = useState(brokers[0]?.id ?? '')
-  const [size, setSize] = useState('')
-  const [liveAck, setLiveAck] = useState(false)
-  const [pending, start] = useTransition()
-  const [error, setError] = useState<string | null>(null)
-  const [outcome, setOutcome] = useState<Outcome | null>(null)
+  const [size, setSize]         = useState('')
+  const [riskPct, setRiskPct]   = useState('1')
+  const [equity, setEquity]     = useState('10000')
+  const [liveAck, setLiveAck]   = useState(false)
+  const [pending, start]        = useTransition()
+  const [error, setError]       = useState<string | null>(null)
+  const [outcome, setOutcome]   = useState<Outcome | null>(null)
+
+  // Estimated size from risk-% mode. Honest approximation:
+  //   risk_$ = equity × pct
+  //   stop_$_per_unit = |entry − stop|
+  //   units = risk_$ / stop_$_per_unit
+  // Real lot sizing depends on the broker's contract size + pip
+  // value — the engine's risk firewall normalises on the other side;
+  // this is the user-facing estimate they'll edit if they want.
+  const riskEstimate = computeRiskSize({
+    equity:  Number(equity),
+    riskPct: Number(riskPct),
+    entry:   signal.entry_price,
+    stop:    signal.stop_loss,
+  })
 
   // Parent only mounts this sheet when there is ≥1 connected broker, so
   // the fallback to brokers[0] keeps `broker` defined for the type system.
@@ -220,7 +236,7 @@ function ConfirmSheet({ signal, brokers, onClose }: {
               ))}
             </select>
 
-            {/* Size */}
+            {/* Size — manual entry */}
             <label className="mt-3 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Size <span className="font-normal normal-case text-muted-foreground/70">(units / lots, per your broker)</span>
             </label>
@@ -230,6 +246,62 @@ function ConfirmSheet({ signal, brokers, onClose }: {
               placeholder="e.g. 0.01"
               className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground/60 focus:border-amber-500/40 focus:outline-none"
             />
+
+            {/* Risk-% sizer — quick estimate the user can drop into the
+                Size field above. Estimate only — broker contract spec
+                still wins on the engine side. */}
+            {signal.entry_price != null && signal.stop_loss != null && (
+              <div className="mt-3 rounded-lg border border-border/60 bg-background/30 p-3">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Or size by risk %
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="block text-[10px] text-muted-foreground">Account equity (USD)</span>
+                    <input
+                      aria-label="Account equity USD"
+                      type="number" inputMode="decimal" min="0" step="any"
+                      value={equity} onChange={(e) => setEquity(e.target.value)}
+                      className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm font-mono text-foreground"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="block text-[10px] text-muted-foreground">Risk per trade (%)</span>
+                    <input
+                      aria-label="Risk percent"
+                      type="number" inputMode="decimal" min="0" max="100" step="0.1"
+                      value={riskPct} onChange={(e) => setRiskPct(e.target.value)}
+                      className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm font-mono text-foreground"
+                    />
+                  </label>
+                </div>
+                {riskEstimate.ok ? (
+                  <div className="mt-2 flex items-center gap-2 text-[11px]">
+                    <span className="text-muted-foreground">Estimated size:</span>
+                    <code className="rounded bg-background/70 px-1.5 py-0.5 font-mono font-bold text-emerald-300">
+                      {riskEstimate.size.toFixed(4)}
+                    </code>
+                    <span className="text-muted-foreground">
+                      · stop {riskEstimate.stopDistance.toFixed(5)} · risk ${riskEstimate.riskUsd.toFixed(2)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSize(riskEstimate.size.toFixed(4))}
+                      className="ml-auto rounded-md bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-200 hover:bg-amber-500/30"
+                    >
+                      Use
+                    </button>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-[10.5px] text-muted-foreground">
+                    Enter equity and risk % — needs a valid entry + stop on the signal.
+                  </p>
+                )}
+                <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground/80">
+                  Estimate only. Your broker&apos;s contract size + pip value adjust the actual exposure; the engine&apos;s risk firewall is the final guard.
+                </p>
+              </div>
+            )}
 
             {/* Live account guard */}
             {needsLiveAck && (
@@ -320,4 +392,30 @@ function Field({ label, value, tone }: { label: string; value: number | null; to
       <div className={cn('font-semibold', tone)}>{value ?? '—'}</div>
     </div>
   )
+}
+
+// ─── Risk-% sizer ─────────────────────────────────────────────────
+// Honest math: risk_$ = equity × pct; units = risk_$ / |entry−stop|.
+// The result is a position size expressed in the signal's quote unit;
+// most brokers accept it as lots/units directly. Final pip-value
+// normalisation happens server-side in the engine's risk firewall.
+type RiskEstimate =
+  | { ok: true; size: number; riskUsd: number; stopDistance: number }
+  | { ok: false }
+
+function computeRiskSize(p: {
+  equity:  number
+  riskPct: number
+  entry:   number | null
+  stop:    number | null
+}): RiskEstimate {
+  if (!Number.isFinite(p.equity)  || p.equity  <= 0) return { ok: false }
+  if (!Number.isFinite(p.riskPct) || p.riskPct <= 0) return { ok: false }
+  if (p.entry == null || p.stop == null)             return { ok: false }
+  const stopDistance = Math.abs(p.entry - p.stop)
+  if (!Number.isFinite(stopDistance) || stopDistance <= 0) return { ok: false }
+  const riskUsd = p.equity * (p.riskPct / 100)
+  const size    = riskUsd / stopDistance
+  if (!Number.isFinite(size) || size <= 0) return { ok: false }
+  return { ok: true, size, riskUsd, stopDistance }
 }

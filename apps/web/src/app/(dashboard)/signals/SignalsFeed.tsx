@@ -1,12 +1,16 @@
 'use client'
 
+import { useState } from 'react'
 import {
   Activity, AlertTriangle, CheckCircle2, Pause, Radar,
 } from 'lucide-react'
 import { useRealtimeSignals } from '@/hooks/useRealtimeSignals'
 import SignalCard from '@/components/dashboard/SignalCard'
+import type { TradeBroker } from '@/components/dashboard/PlaceTradeButton'
 import type { Signal, SubscriptionTier } from '@/lib/types'
 import { cn, formatRelativeTime } from '@/lib/utils'
+
+type StatusTab = 'active' | 'inactive' | 'all'
 
 /** Engine snapshot piped from the server. Used to explain WHY the feed
  *  is empty when it's empty, instead of a generic "no signals" box. */
@@ -26,20 +30,23 @@ interface Props {
   userEmail:      string
   isAdmin:        boolean
   engine?:        EngineSnapshot
+  brokers?:       TradeBroker[]
 }
 
-export default function SignalsFeed({ initialSignals, userTier, userEmail, isAdmin, engine }: Props) {
+export default function SignalsFeed({ initialSignals, userTier, userEmail, isAdmin, engine, brokers = [] }: Props) {
   const { signals, connected } = useRealtimeSignals(initialSignals)
-  const active  = signals.filter(s => s.lifecycle_state === 'active' || s.status === 'active')
-  const history = signals.filter(s => s.lifecycle_state !== 'active' && s.status !== 'active')
+  const active   = signals.filter(s => s.lifecycle_state === 'active' || s.status === 'active')
+  const inactive = signals.filter(s => s.lifecycle_state !== 'active' && s.status !== 'active')
+  const [tab, setTab] = useState<StatusTab>('active')
+  const shown = tab === 'active' ? active : tab === 'inactive' ? inactive : signals
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl font-bold">Intelligence Feed</h1>
+          <h1 className="text-xl sm:text-2xl font-bold">Quant Signals</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {active.length} active signal{active.length !== 1 ? 's' : ''}
+            {active.length} active · {inactive.length} closed
             {engine?.lastSignalAt && (
               <> · last signal {formatRelativeTime(engine.lastSignalAt)}</>
             )}
@@ -68,34 +75,83 @@ export default function SignalsFeed({ initialSignals, userTier, userEmail, isAdm
           feed has signals. */}
       {engine && <EnginePulseStrip engine={engine} />}
 
-      {active.length > 0 && (
+      {/* Status tabs — Active is the daily-trading surface, Inactive
+          holds closed / stopped / expired signals for review, All
+          shows everything chronologically. */}
+      {signals.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1 rounded-xl border border-border bg-card p-1">
+          <TabButton current={tab} value="active"   label="Active"   count={active.length}   onClick={setTab} />
+          <TabButton current={tab} value="inactive" label="Inactive" count={inactive.length} onClick={setTab} />
+          <TabButton current={tab} value="all"      label="All"      count={signals.length}  onClick={setTab} />
+        </div>
+      )}
+
+      {shown.length > 0 && (
         <section>
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">
-            Active Opportunities
+            {tab === 'active'   ? `${active.length} active signal${active.length === 1 ? '' : 's'} — manual order available`
+            : tab === 'inactive' ? `${inactive.length} closed signal${inactive.length === 1 ? '' : 's'} — view-only`
+            :                      `${signals.length} signal${signals.length === 1 ? '' : 's'} total`}
           </h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {active.map(signal => (
-              <SignalCard key={signal.id} signal={signal} userTier={userTier} userEmail={userEmail} />
-            ))}
+            {shown.map(signal => {
+              const isActive = signal.lifecycle_state === 'active' || signal.status === 'active'
+              return (
+                <SignalCard
+                  key={signal.id}
+                  signal={signal}
+                  userTier={userTier}
+                  userEmail={userEmail}
+                  // Pass brokers only on active signals so the "Place order"
+                  // button can't appear on closed/stopped/expired ones.
+                  brokers={isActive ? brokers : undefined}
+                />
+              )
+            })}
           </div>
         </section>
       )}
 
-      {history.length > 0 && (
-        <section>
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">
-            Closed Positions
-          </h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {history.map(signal => (
-              <SignalCard key={signal.id} signal={signal} userTier={userTier} userEmail={userEmail} />
-            ))}
-          </div>
-        </section>
+      {shown.length === 0 && signals.length > 0 && (
+        <div className="rounded-xl border border-border bg-card p-12 text-center">
+          <p className="text-muted-foreground">No {tab === 'active' ? 'active' : 'closed'} signals to show.</p>
+          <p className="mt-2 text-xs text-muted-foreground/80">
+            Switch tabs to see {tab === 'active' ? `${inactive.length} closed` : `${active.length} active`} signals.
+          </p>
+        </div>
       )}
 
       {signals.length === 0 && <EmptyFeedState engine={engine} />}
     </div>
+  )
+}
+
+function TabButton({
+  current, value, label, count, onClick,
+}: {
+  current: StatusTab; value: StatusTab; label: string; count: number; onClick: (v: StatusTab) => void
+}) {
+  const active = current === value
+  return (
+    <button
+      type="button"
+      onClick={() => onClick(value)}
+      aria-pressed={active ? 'true' : 'false'}
+      className={cn(
+        'rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors',
+        active
+          ? 'bg-amber-500 text-black'
+          : 'text-muted-foreground hover:bg-accent/40 hover:text-foreground',
+      )}
+    >
+      {label}
+      <span className={cn(
+        'ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums',
+        active ? 'bg-black/15 text-black' : 'bg-muted/40 text-muted-foreground',
+      )}>
+        {count}
+      </span>
+    </button>
   )
 }
 

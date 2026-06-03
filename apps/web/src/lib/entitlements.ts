@@ -66,12 +66,12 @@ const f = (
 export const FEATURE_CATALOG: FeatureGroup[] = [
   // ─── STARTER ───────────────────────────────────────────────────────────
   {
-    group: 'AI Signals & Telegram', tier: 'starter',
+    group: 'Quant Signals & Telegram', tier: 'starter',
     features: [
       f('sig.forex',       'Forex signals',                          'starter'),
       f('sig.crypto',      'Crypto signals',                         'starter'),
       f('sig.commodities', 'Metals + commodities signals',           'starter'),
-      f('sig.ai_alerts',   'AI signal alerts with regime + risk',    'starter'),
+      f('sig.ai_alerts',   'Quant signal alerts with regime + risk', 'starter'),
       f('sig.tg_channel',  'Curated Telegram signal channel',        'starter'),
     ],
   },
