@@ -142,10 +142,13 @@ async function postInstagram() {
   const igId  = process.env.META_IG_USER_ID
   if (!token || !igId) return { channel: 'instagram', ok: false, skipped: 'not_configured' }
   if (DRY)              return { channel: 'instagram', ok: true,  skipped: 'dry-run' }
-  // IG needs a hosted image. Use the live opengraph card; fall back to landing OG.
+  // IG needs a hosted image at IG specs (max 1080 wide). The OG image
+  // is 1254 wide which fails silently with the "Only photo or video"
+  // error. We use a dedicated 1080×1080 hero committed under
+  // apps/web/public/growth/ for this exact probe.
   const hero = process.env.NEXT_PUBLIC_APP_URL
-    ? `${process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '')}/opengraph-image.png`
-    : 'https://algospherequant.com/opengraph-image.png'
+    ? `${process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '')}/growth/smoke-test-hero.jpg`
+    : 'https://algospherequant.com/growth/smoke-test-hero.jpg'
   try {
     // 1) Create container
     // Graph API v17+ requires media_type for the disambiguation —

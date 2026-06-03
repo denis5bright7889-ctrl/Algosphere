@@ -126,15 +126,19 @@ export async function POST(req: Request) {
     }
   }
 
-  // ── Instagram — REQUIRES a hero image. Smoke-test uses a publicly
-  //    hosted placeholder PNG so the adapter has something to render.
+  // ── Instagram — REQUIRES a hero image at IG-compliant specs.
+  //    We previously pointed at /opengraph-image.png but that asset
+  //    is 1254×1254 — over IG's 1080 hard limit — which silently
+  //    triggers "Only photo or video can be accepted as media type".
+  //    smoke-test-hero.jpg is a dedicated 1080×1080 JPEG (~184KB)
+  //    committed to public/growth/ specifically for this probe.
   if (want('instagram')) {
     if (dry) {
       results.push({ channel: 'instagram', ok: true, skipped: 'dry-run' })
     } else {
       const heroUrl = process.env.NEXT_PUBLIC_APP_URL
-        ? `${process.env.NEXT_PUBLIC_APP_URL}/opengraph-image.png`
-        : 'https://algospherequant.com/opengraph-image.png'
+        ? `${process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '')}/growth/smoke-test-hero.jpg`
+        : 'https://algospherequant.com/growth/smoke-test-hero.jpg'
       const r = await postToInstagram(probe, heroUrl)
       results.push({
         channel:     'instagram',
