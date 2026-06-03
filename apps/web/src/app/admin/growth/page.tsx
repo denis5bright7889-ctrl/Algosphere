@@ -1,6 +1,7 @@
 import { createClient as serviceClient } from '@supabase/supabase-js'
 import { Sparkles, FileText, CalendarClock, CheckCircle2, Eye, type LucideIcon } from 'lucide-react'
 import Link from 'next/link'
+import CopilotBriefCard from './CopilotBriefCard'
 
 export const metadata = { title: 'Growth Engine — Admin' }
 export const dynamic = 'force-dynamic'
@@ -119,6 +120,9 @@ export default async function GrowthEnginePage() {
           </Link>
         </div>
       </header>
+
+      {/* Growth Copilot — top-of-overview daily intelligence brief */}
+      <CopilotBriefCard />
 
       {/* Stat strip */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
