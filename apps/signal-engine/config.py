@@ -1,5 +1,6 @@
 from __future__ import annotations
 from functools import lru_cache
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,7 +16,12 @@ class Settings(BaseSettings):
 
     # Market data providers (at least one required)
     twelve_data_api_key: str = ''
-    polygon_api_key: str = ''
+    # Polygon is the only path for indices/equities. The key has historically
+    # been provisioned under MASSIVE_API_KEY (Polygon's "Massive" plan name in
+    # this stack); accept either so indices aren't silently starved when only
+    # MASSIVE_API_KEY is set. POLYGON_API_KEY wins if both are present.
+    polygon_api_key: str = Field(
+        '', validation_alias=AliasChoices('POLYGON_API_KEY', 'MASSIVE_API_KEY'))
     alpha_vantage_api_key: str = ''
 
     # Inbound provider webhooks. Finnhub posts events with an
