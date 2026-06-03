@@ -20,6 +20,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </a>
           <span className="text-muted-foreground">|</span>
           {[
+            { href: '/admin/command-center', label: 'Command Center' },
             { href: '/admin/dashboard',    label: 'Platform Intelligence' },
             { href: '/admin/signals',      label: 'Signal Management' },
             { href: '/admin/brokers',      label: 'Broker Health' },
