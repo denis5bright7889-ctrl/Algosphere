@@ -45,6 +45,36 @@ async function fetchPost(slug: string): Promise<BlogPost | null> {
   return data as BlogPost | null
 }
 
+interface RelatedRow { slug: string; title: string; kind: string; published_at: string | null }
+
+/** Up to 3 other published posts — same `kind` first, newest. The current
+ *  post is excluded by id. Empty result is fine (renders nothing). */
+async function fetchRelated(kind: string, excludeId: string): Promise<RelatedRow[]> {
+  const db = publicDb()
+  const same = await db
+    .from('growth_content_items')
+    .select('slug, title, kind, published_at')
+    .eq('status', 'published').not('slug', 'is', null)
+    .eq('kind', kind).neq('id', excludeId)
+    .order('published_at', { ascending: false }).limit(3)
+  let rows = (same.data ?? []) as RelatedRow[]
+  if (rows.length < 3) {
+    // Backfill with the newest posts of any kind so the rail is never thin.
+    const more = await db
+      .from('growth_content_items')
+      .select('slug, title, kind, published_at')
+      .eq('status', 'published').not('slug', 'is', null)
+      .neq('id', excludeId)
+      .order('published_at', { ascending: false }).limit(6)
+    const seen = new Set(rows.map((r) => r.slug))
+    for (const r of (more.data ?? []) as RelatedRow[]) {
+      if (rows.length >= 3) break
+      if (!seen.has(r.slug)) { rows.push(r); seen.add(r.slug) }
+    }
+  }
+  return rows
+}
+
 export async function generateMetadata({
   params,
 }: { params: Promise<{ slug: string }> }) {
@@ -81,6 +111,8 @@ export default async function BlogPostPage({
   const { slug } = await params
   const post = await fetchPost(slug)
   if (!post) notFound()
+
+  const related = await fetchRelated(post.kind, post.id)
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:py-16">
@@ -130,6 +162,49 @@ export default async function BlogPostPage({
           )}
         </footer>
       )}
+
+      {post.tags.length > 0 && (
+        <div className="mt-8 flex flex-wrap gap-2">
+          {post.tags.map((t) => (
+            <Link
+              key={t}
+              href={`/blog?tag=${encodeURIComponent(t)}`}
+              className="rounded-full border border-border bg-card px-2.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:border-amber-500/40 hover:text-amber-300"
+            >
+              #{t}
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {related.length > 0 && (
+        <section className="mt-12 border-t border-border pt-8">
+          <h2 className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">Related posts</h2>
+          <ul className="mt-4 grid gap-3 sm:grid-cols-3">
+            {related.map((r) => (
+              <li key={r.slug}>
+                <Link
+                  href={`/blog/${r.slug}`}
+                  className="group block h-full rounded-xl border border-border bg-card p-4 transition-colors hover:border-amber-500/40"
+                >
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300/80">{KIND_LABEL[r.kind] ?? r.kind}</span>
+                  <p className="mt-1.5 text-[13px] font-semibold leading-snug group-hover:text-amber-200">{r.title}</p>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   )
+}
+
+const KIND_LABEL: Record<string, string> = {
+  strategy_of_the_week: 'Strategy',
+  backtest_breakdown:   'Backtest',
+  market_report:        'Market Report',
+  product_update:       'Product Update',
+  psychology_insight:   'Psychology',
+  educational:          'Education',
+  announcement:         'Announcement',
 }

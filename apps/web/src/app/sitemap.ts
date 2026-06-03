@@ -18,6 +18,7 @@ const STATIC_ROUTES: { path: string; changefreq: MetadataRoute.Sitemap[number]['
   { path: '/upgrade',       changefreq: 'weekly',  priority: 0.8 },
   { path: '/communities',   changefreq: 'weekly',  priority: 0.6 },
   { path: '/terms',         changefreq: 'yearly',  priority: 0.3 },
+  { path: '/privacy',       changefreq: 'yearly',  priority: 0.3 },
   { path: '/data-deletion', changefreq: 'yearly',  priority: 0.3 },
   { path: '/login',         changefreq: 'monthly', priority: 0.5 },
   { path: '/signup',        changefreq: 'monthly', priority: 0.7 },
