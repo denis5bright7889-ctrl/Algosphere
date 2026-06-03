@@ -55,10 +55,23 @@ export async function postToInstagram(text: string, imageUrl?: string): Promise<
 
   try {
     // Two-step: create media container, then publish.
+    //
+    // Graph API v17+ rejects image containers without an explicit
+    // media_type — the error reads "Only photo or video can be
+    // accepted as media type" even though we are sending an image_url.
+    // Setting media_type='IMAGE' tells IG to parse the URL as a photo
+    // and is the documented way to disambiguate single-image posts
+    // from carousels or stories. Older versions accepted the omission
+    // by inference but post-2024 versions reject it.
     const create = await fetch(`https://graph.facebook.com/v20.0/${u}/media`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ image_url: imageUrl, caption: text, access_token: t }),
+      body:    JSON.stringify({
+        media_type: 'IMAGE',
+        image_url:  imageUrl,
+        caption:    text,
+        access_token: t,
+      }),
     })
     const created = (await create.json().catch(() => ({}))) as { id?: string; error?: { message?: string } }
     if (!create.ok || !created.id) return { ok: false, error: created.error?.message ?? `IG container HTTP ${create.status}` }

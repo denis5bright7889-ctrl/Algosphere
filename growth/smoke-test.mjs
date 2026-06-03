@@ -148,11 +148,18 @@ async function postInstagram() {
     : 'https://algospherequant.com/opengraph-image.png'
   try {
     // 1) Create container
+    // Graph API v17+ requires media_type for the disambiguation —
+    // omitting it returns "Only photo or video can be accepted as
+    // media type" even when image_url is a valid PNG. See
+    // apps/web/src/lib/growth/adapters/meta.ts for the same fix.
     const create = await fetch(`https://graph.facebook.com/v20.0/${igId}/media`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
-        image_url: hero, caption: PROBE_TEXT, access_token: token,
+        media_type: 'IMAGE',
+        image_url:  hero,
+        caption:    PROBE_TEXT,
+        access_token: token,
       }),
     })
     const cJson = await create.json().catch(() => ({}))
