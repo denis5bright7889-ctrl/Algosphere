@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google'
 import { Suspense } from 'react'
 import './globals.css'
 import AttributionTracker from '@/components/growth/AttributionTracker'
+import Toaster from '@/components/Toaster'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -67,6 +68,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Suspense fallback={null}>
           <AttributionTracker />
         </Suspense>
+        {/* Global toast bus — survives modal close + route changes.
+            Sub-components fire toasts via lib/toast.ts showToast(). */}
+        <Toaster />
         {children}
       </body>
     </html>

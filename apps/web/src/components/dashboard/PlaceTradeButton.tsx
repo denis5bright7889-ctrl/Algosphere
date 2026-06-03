@@ -21,6 +21,7 @@ import { useEffect, useState, useTransition } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Zap, AlertTriangle, CheckCircle2, X, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { showToast } from '@/lib/toast'
 
 export interface TradeBroker {
   id:         string
@@ -160,12 +161,43 @@ function ConfirmSheet({ signal, brokers, onClose }: {
           }),
         })
         const data = await res.json().catch(() => ({}))
-        if (!res.ok) { setError(data.error ?? `Failed (HTTP ${res.status})`); return }
+        if (!res.ok) {
+          const msg = data.error ?? `Failed (HTTP ${res.status})`
+          setError(msg)
+          // Surface as a toast so the user sees the failure even if
+          // they close the sheet immediately.
+          showToast({
+            id:    `order:${signal.id}`,
+            tone:  'error',
+            title: `${signal.pair} ${signal.direction.toUpperCase()} — order failed`,
+            body:  msg,
+          })
+          return
+        }
         const r = data.result as { status: string; broker_order_id: string | null; filled_price: number | null; reason: string | null }
         if (r.status === 'rejected') {
           setOutcome({ kind: 'rejected', reason: r.reason ?? 'Order rejected by the risk engine.' })
+          showToast({
+            id:    `order:${signal.id}`,
+            tone:  'warn',
+            title: `${signal.pair} ${signal.direction.toUpperCase()} — rejected`,
+            body:  r.reason ?? 'Order rejected by the risk engine.',
+            link:  { href: '/brokers', label: 'Open Brokers page' },
+          })
         } else {
-          setOutcome({ kind: r.status === 'filled' ? 'filled' : 'submitted', brokerOrderId: r.broker_order_id, price: r.filled_price })
+          const filled = r.status === 'filled'
+          setOutcome({ kind: filled ? 'filled' : 'submitted', brokerOrderId: r.broker_order_id, price: r.filled_price })
+          showToast({
+            id:    `order:${signal.id}`,
+            tone:  'success',
+            title: `${signal.pair} ${signal.direction.toUpperCase()} — ${filled ? 'filled' : 'submitted'}`,
+            body:  [
+              r.filled_price != null ? `Fill price ${r.filled_price}` : null,
+              r.broker_order_id      ? `Ref ${r.broker_order_id}`     : null,
+            ].filter(Boolean).join(' · '),
+            link:  { href: '/brokers', label: 'View positions on Brokers' },
+            ttlMs: 12_000,
+          })
         }
       } catch (e) {
         if ((e as { name?: string })?.name === 'AbortError') {
