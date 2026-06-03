@@ -161,6 +161,35 @@ export async function POST(req: Request) {
     }
   }
 
+  // Persist a single audit row to system_event_log so the unified ops
+  // feed (admin/intelligence-health + future Growth dashboard) shows
+  // every smoke test run alongside engine + publish events. Migration
+  // 20240101000065 widened the surface CHECK to include this.
+  try {
+    const supabase = await createClient()
+    const summary = {
+      total:     results.length,
+      succeeded: results.filter((r) => r.ok && !r.skipped).length,
+      failed:    results.filter((r) => !r.ok && !r.skipped).length,
+      skipped:   results.filter((r) =>  r.skipped).length,
+    }
+    await supabase.from('system_event_log').insert({
+      surface:         'growth_smoke_test',
+      channel:         'internal',
+      payload_summary: {
+        fired_by: g.user.email ?? g.user.id,
+        ...summary,
+        // First failure (if any) so the row is actionable without
+        // expanding the full results array.
+        first_failure: results.find((r) => !r.ok && !r.skipped) ?? null,
+      },
+      status:      summary.failed > 0 ? 'failed' : 'sent',
+      error_class: summary.failed > 0 ? 'smoke_test_failure' : null,
+    })
+  } catch {
+    // Audit-write failure must NEVER break the smoke test response.
+  }
+
   return NextResponse.json({
     fired_at: stamp,
     summary: {
