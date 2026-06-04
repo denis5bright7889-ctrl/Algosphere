@@ -110,6 +110,55 @@ function pickDailyEducationalTrio(now: Date): typeof EDUCATIONAL_TOPICS {
   ]
 }
 
+// ─── Daily screenshot showcase rotation ────────────────────────────
+// One showcase target per day, rotating through 5 surfaces. Each one
+// fires a `showcase.daily` event with predicate-matching target → the
+// matching rule produces a content_item with content_kind='educational'
+// + asset_kinds=['<target>_screenshot']. Railway worker captures the
+// real page; nothing fabricated.
+const SHOWCASE_ROTATION: Array<{
+  target:   'dashboard' | 'psychology' | 'strategy' | 'feature' | 'education'
+  topic:    string
+  headline: string
+  body:     string
+}> = [
+  {
+    target:   'dashboard',
+    topic:    'Showcase: Command Center',
+    headline: 'One screen, every position — the AlgoSphere Command Center',
+    body:     'The Command Center is the operator dashboard for an automated trading account: live broker pulse, today\'s opportunities, coach lead, risk-gate state, and every active signal in one viewport. Live screenshot below.',
+  },
+  {
+    target:   'psychology',
+    topic:    'Showcase: Behavioral Intelligence',
+    headline: 'Your psychology, graded — 10 institutional metrics',
+    body:     'AlgoSphere\'s Psychology Engine grades 10 behavioural axes from your journal: confidence drift, tilt, recency bias, strategy hopping, resilience, patience, rule adherence, self-control, risk discipline, and the maturity index. No AI hallucination — pure deterministic math on your own entries. Live screenshot below.',
+  },
+  {
+    target:   'strategy',
+    topic:    'Showcase: Quant Builder',
+    headline: 'Build, backtest, grade — the Quant Builder',
+    body:     'Compose a strategy from blocks (entry, stop, take-profit, session-window, regime-filter), run a backtest, get a grade. The Strategy Grader requires ≥30 trades before issuing a grade — under that, it shows "N/A" with a low-confidence pill. Live screenshot below.',
+  },
+  {
+    target:   'feature',
+    topic:    'Showcase: Decision Intelligence',
+    headline: 'Market regime, correlation, breadth — Decision Intelligence',
+    body:     'Decision Intelligence reads the market\'s state: regime classification per pair (trending / ranging), rolling-Pearson correlation across the watchlist, breadth, volatility band, and a Market Pulse score. Live screenshot below.',
+  },
+  {
+    target:   'education',
+    topic:    'Showcase: Education Hub',
+    headline: 'Risk, strategy, psychology — the AlgoSphere Education Hub',
+    body:     'The Education Hub is the open-access reading library: risk per trade, profit factor, regime classification, stop-loss placement, journaling discipline, overfit detection. Free to read, no signup required. Live screenshot below.',
+  },
+]
+
+function pickDailyShowcase(now: Date): typeof SHOWCASE_ROTATION[number] {
+  const doy = Math.floor((now.getTime() - new Date(Date.UTC(now.getUTCFullYear(), 0, 1)).getTime()) / 86_400_000)
+  return SHOWCASE_ROTATION[doy % SHOWCASE_ROTATION.length]!
+}
+
 // ─── Market posts ──────────────────────────────────────────────────
 
 async function buildMarketReportPayloads(db: SupabaseClient): Promise<Array<IngestedEvent['payload']>> {
@@ -216,10 +265,29 @@ export async function runDailyMix(): Promise<DailyMixSummary> {
   // Skipped when journal sample is thin; honest emptiness > fabrication.
   // The dedicated psychology generator lands in a follow-up slice.
 
-  // 8) Video stub + 9) Screenshot stub — deferred; both require
-  // template provisioning (video) and Playwright infra (screenshot).
-  // These slots will fill once those modules ship; the orchestrator
-  // is already shaped for them.
+  // 8) Video stub — deferred until Creatomate templates beyond the
+  // smoke-test card are provisioned.
+
+  // 9) Screenshot showcase — one daily rotation, fires showcase.daily
+  // with predicate-matching target. The matching rule attaches a
+  // Playwright capture from Railway; nothing fabricated.
+  try {
+    const showcase = pickDailyShowcase(new Date())
+    const out = await ingestEvent({
+      event_type: 'showcase.daily',
+      source:     'daily_mix',
+      payload:    {
+        target:   showcase.target,
+        topic:    showcase.topic,
+        headline: showcase.headline,
+        body:     showcase.body,
+        reading_min: 2,
+      },
+    })
+    tally('showcase', 'screenshot_showcase', out.outcome === 'ok')
+  } catch (err) {
+    tally('showcase', 'screenshot_showcase', false, err instanceof Error ? err.message : 'unknown')
+  }
 
   return summary
 }

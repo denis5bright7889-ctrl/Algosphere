@@ -39,12 +39,24 @@ REGISTRY: Dict[str, Producer] = {
     'feature_card':                 produce_card,
     'weekly_stats_card':            produce_weekly_stats,
 
-    # ── Screenshots (Playwright PNG, full-page, auth-aware) ────────
-    'signal_chart_screenshot':      produce_screenshot,
-    'trade_chart_screenshot':       produce_screenshot,
-    'dashboard_screenshot':         produce_screenshot,
-    'portfolio_snapshot':           produce_screenshot,
-    'feature_screenshot':           produce_screenshot,
+    # ── Screenshots (Playwright PNG + WEBP, desktop + mobile,
+    #    auth-aware, skeleton-hidden). Phase 6C — Visual Content
+    #    Engine. Every kind below produces 4 files (desktop_png +
+    #    desktop_webp + mobile_png + mobile_webp) in one capture run.
+    'signal_chart_screenshot':       produce_screenshot,
+    'trade_chart_screenshot':        produce_screenshot,
+    'dashboard_screenshot':          produce_screenshot,
+    'portfolio_snapshot':            produce_screenshot,
+    'feature_screenshot':            produce_screenshot,
+    'signals_screenshot':            produce_screenshot,
+    'psychology_screenshot':         produce_screenshot,
+    'journal_screenshot':            produce_screenshot,
+    'strategy_builder_screenshot':   produce_screenshot,
+    'performance_screenshot':        produce_screenshot,
+    'risk_engine_screenshot':        produce_screenshot,
+    'education_hub_screenshot':      produce_screenshot,
+    'market_intelligence_screenshot':produce_screenshot,
+    'leaderboard_screenshot':        produce_screenshot,
 
     # ── Infographics (PIL 1080×1350 JPEG, Instagram portrait) ──────
     'signal_infographic':           produce_infographic,
