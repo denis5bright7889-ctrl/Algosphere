@@ -28,8 +28,7 @@ import {
   analyzeBehavior,
   generateCoaching,
   type BehavioralReport,
-  type BehaviorFlag,
-} from './behavioral'
+} from './behavioral.ts'
 
 // ── Input ────────────────────────────────────────────────────────────
 //

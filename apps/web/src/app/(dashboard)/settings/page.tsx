@@ -1,6 +1,6 @@
 import {
   User, Wallet, Eye, Send, ShieldCheck, Bell, PlugZap, KeyRound,
-  Crown, MonitorSmartphone, ScrollText, Receipt, Lock,
+  Crown, MonitorSmartphone, ScrollText, Receipt, Lock, Trophy,
   type LucideIcon,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
@@ -8,6 +8,7 @@ import { formatDate } from '@/lib/utils'
 import AccountForm from './AccountForm'
 import TelegramLinkForm from './TelegramLinkForm'
 import PublicProfileForm from './PublicProfileForm'
+import LeaderboardOptInForm from './LeaderboardOptInForm'
 import QuickLink from './QuickLink'
 import SignOutEverywhereButton from './SignOutEverywhereButton'
 
@@ -74,7 +75,7 @@ export default async function SettingsPage() {
     { data: profile }, { data: subscription }, { data: pushDevices }, { data: payments }, activity, { data: factors },
   ] = await Promise.all([
     supabase.from('profiles')
-      .select('full_name, telegram_chat_id, whatsapp_number, subscription_tier, subscription_status, created_at, public_profile, public_handle, bio')
+      .select('full_name, telegram_chat_id, whatsapp_number, subscription_tier, subscription_status, created_at, public_profile, public_handle, bio, leaderboard_opt_in')
       .eq('id', user!.id)
       .single(),
     supabase.from('subscriptions')
@@ -133,6 +134,11 @@ export default async function SettingsPage() {
               initialHandle={profile?.public_handle ?? ''}
               initialBio={profile?.bio ?? ''}
             />
+          </Section>
+
+          {/* Psychology leaderboard opt-in */}
+          <Section icon={Trophy} title="Psychology Rankings" hint="Compete on discipline, consistency, patience & maturity. Opt-in only.">
+            <LeaderboardOptInForm initialOptIn={profile?.leaderboard_opt_in ?? false} />
           </Section>
 
           {/* Telegram */}

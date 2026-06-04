@@ -22,13 +22,19 @@ import { cn } from '@/lib/utils'
 import { analyzeBehavior, type BehavioralReport } from '@/lib/intelligence/behavioral'
 import { analyzePerformance } from '@/lib/intelligence/performance'
 import { generateInsights, type CoachInsight } from '@/lib/intelligence/coach'
+import { buildPsychologyV3 } from '@/lib/intelligence/psychology-v3'
 import type { JournalEntry } from '@/lib/types'
 import PsychologyClient from './PsychologyClient'
+import PsychologyV3Panel from './PsychologyV3Panel'
 
 export const metadata = { title: 'Psychology Intelligence — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'
 
 const WINDOW_DAYS = 30
+/** V3 Performance Intelligence needs multi-period history for its
+ *  timeline / correlation / forecast layers; the 30-day read above only
+ *  yields a single monthly bucket. */
+const WINDOW_DAYS_V3 = 180
 const PSYCH_INSIGHT_KINDS = new Set<CoachInsight['kind']>([
   'revenge', 'overtrade', 'consistency', 'discipline',
 ])
@@ -38,17 +44,26 @@ export default async function PsychologyPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const cutoff = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString()
+  const cutoff   = new Date(Date.now() - WINDOW_DAYS    * 86_400_000).toISOString()
+  const cutoffV3 = new Date(Date.now() - WINDOW_DAYS_V3 * 86_400_000).toISOString()
 
-  const { data: rows } = await supabase
-    .from('journal_entries')
-    .select('*')
-    .eq('user_id', user.id)
-    .gte('created_at', cutoff)
-    .order('created_at', { ascending: false })
-    .limit(500)
+  // Two scoped reads: the 30-day window drives the V2 psychology read;
+  // the 180-day window drives the V3 timeline / forecast / correlations.
+  const [recentRes, historyRes] = await Promise.all([
+    supabase.from('journal_entries').select('*')
+      .eq('user_id', user.id).gte('created_at', cutoff)
+      .order('created_at', { ascending: false }).limit(500),
+    supabase.from('journal_entries').select('*')
+      .eq('user_id', user.id).gte('created_at', cutoffV3)
+      .order('created_at', { ascending: false }).limit(1000),
+  ])
 
-  const entries = (rows ?? []) as unknown as JournalEntry[]
+  const entries        = (recentRes.data ?? [])  as unknown as JournalEntry[]
+  const historyEntries = (historyRes.data ?? []) as unknown as JournalEntry[]
+
+  const v3 = historyEntries.length >= 8
+    ? buildPsychologyV3(historyEntries, { windowDays: WINDOW_DAYS_V3, granularity: 'monthly' })
+    : null
   const behavior    = entries.length > 0 ? analyzeBehavior(entries, WINDOW_DAYS) : null
   const performance = entries.length > 0 ? analyzePerformance(entries)           : null
   const insights    = (behavior && performance) ? generateInsights(behavior, performance, entries) : []
@@ -76,6 +91,8 @@ export default async function PsychologyPage() {
           <BehavioralRiskMatrix behavior={behavior} />
         </>
       )}
+
+      {v3 && v3.current.closed_trades >= 8 && <PsychologyV3Panel v3={v3} />}
 
       <div className="mt-6">
         <div className="mb-3 flex items-center gap-2">
