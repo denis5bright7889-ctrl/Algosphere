@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { reviewTrade } from '@/lib/ai-reviews'
 import { evaluateTrade, EVALUATOR_VERSION } from '@/lib/intelligence/coach-eval'
+import { trackServerAsync } from '@/lib/tracking/server'
 import { z } from 'zod'
 
 // V3 enums — must mirror the CHECK constraints in migration 55.
@@ -188,6 +189,15 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Funnel: journal_created — fire-and-forget. Idempotent at the
+  // dashboard layer (distinct user_id collapses repeats).
+  trackServerAsync({
+    event:       'journal_created',
+    userId:      user.id,
+    source_kind: 'app',
+    payload:     { entry_id: data.id, pair: data.pair ?? null },
+  })
 
   // ── Deterministic V3 coach evaluation (5 grades + 3+ insights) ──
   // Always runs; never blocks the 201; insert order is structured so

@@ -13,6 +13,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
+import { trackServerAsync } from '@/lib/tracking/server'
 import {
   validateStrategyConfig, blankConfig,
   type StrategyConfig,
@@ -130,6 +131,18 @@ export async function POST(req: Request) {
     .from('user_strategies')
     .update({ head_version_id: version.id })
     .eq('id', strategy.id)
+
+  // Funnel: strategy_created — fire-and-forget. Distinct user_id
+  // collapses repeats at the dashboard layer.
+  trackServerAsync({
+    event:       'strategy_created',
+    userId:      user.id,
+    source_kind: 'app',
+    payload:     {
+      strategy_id:  strategy.id,
+      template_key: parsed.data.template_key ?? null,
+    },
+  })
 
   return NextResponse.json(
     { id: strategy.id, head_version_id: version.id, issues },
