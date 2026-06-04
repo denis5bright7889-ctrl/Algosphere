@@ -35,10 +35,12 @@ async function gate() {
 }
 
 // Public sample template + asset published by Creatomate in their
-// quickstart docs. Useful as a connectivity probe — never use in
-// production publishes.
-const SAMPLE_TEMPLATE_ID = '90e158e3-64a6-4efb-b362-dff7321a8b47'
-const SAMPLE_VIDEO_URL   = 'https://creatomate.com/files/assets/7347c3b7-e1a8-4439-96f1-f3dfc95c3d28'
+// Public sample ASSET — usable across accounts. The matching sample
+// TEMPLATE id (90e158e3-…) is account-scoped to Creatomate's demo
+// workspace and 400s for everyone else, so we DO NOT default to it.
+// The operator's configured CREATOMATE_TEMPLATE_SIGNAL_CARD is the
+// canonical probe target.
+const SAMPLE_VIDEO_URL = 'https://creatomate.com/files/assets/7347c3b7-e1a8-4439-96f1-f3dfc95c3d28'
 
 export async function POST(req: Request) {
   const g = await gate()
@@ -57,7 +59,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid input' }, { status: 422 })
   }
 
-  const tid = parsed.data.template_id ?? SAMPLE_TEMPLATE_ID
+  // Template resolution: explicit > signal_card > weekly_recap >
+  // backtest. Templates are ACCOUNT-SCOPED on Creatomate — the
+  // public quickstart template id 400s for any key that isn't on
+  // Creatomate's own demo account, so we never default to it.
+  const tid = parsed.data.template_id
+            ?? process.env.CREATOMATE_TEMPLATE_SIGNAL_CARD
+            ?? process.env.CREATOMATE_TEMPLATE_WEEKLY_RECAP
+            ?? process.env.CREATOMATE_TEMPLATE_BACKTEST
+            ?? null
+  if (!tid) {
+    return NextResponse.json(
+      { error: 'No Creatomate template configured. Set CREATOMATE_TEMPLATE_SIGNAL_CARD (or _WEEKLY_RECAP / _BACKTEST) in Vercel env. Template ids are account-scoped — Creatomate\'s public quickstart id will not work with your key.' },
+      { status: 422 },
+    )
+  }
   const mods = parsed.data.modifications ?? {
     'Video.source':  SAMPLE_VIDEO_URL,
     'Text-1.text':   'AlgoSphere Quant — video pipeline test',
