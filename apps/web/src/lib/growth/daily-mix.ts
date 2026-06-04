@@ -268,6 +268,56 @@ export async function runDailyMix(): Promise<DailyMixSummary> {
   // 8) Video stub — deferred until Creatomate templates beyond the
   // smoke-test card are provisioned.
 
+  // 6) Daily blog — one rotated educational topic composed into a
+  // long-form post. Blog producer writes a NEW content_items row
+  // with status='published' that /blog serves automatically.
+  try {
+    const e = educPlan[0]!
+    const out = await ingestEvent({
+      event_type: 'educational.blog',
+      source:     'daily_mix',
+      payload:    {
+        topic:      e.topic,
+        topic_tag:  e.topic.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        headline:   e.headline,
+        hook:       e.headline,
+        concept:    e.body,
+        example:    '',
+        mistakes:   '',
+        takeaway:   '',
+        body:       e.body,
+        summary:    e.body.slice(0, 240),
+      },
+    })
+    tally('blog', 'educational_blog', out.outcome === 'ok')
+  } catch (err) {
+    tally('blog', 'educational_blog', false, err instanceof Error ? err.message : 'unknown')
+  }
+
+  // 7) Daily educational video — composed from a rotated topic,
+  // narrated via edge-tts, rendered through Remotion. Auto-published
+  // to Discord + Telegram (LinkedIn rejects bare MP4 reels).
+  try {
+    const e = educPlan[1]!
+    const out = await ingestEvent({
+      event_type: 'video.daily',
+      source:     'daily_mix',
+      payload:    {
+        topic:    e.topic,
+        headline: e.headline,
+        body:     e.body,
+        // Video producer reads these for the narration template
+        line_1:   e.topic,
+        line_2:   e.headline,
+        line_3:   e.body.split('. ')[0] ?? '',
+        line_4:   'Learn more on AlgoSphere Quant.',
+      },
+    })
+    tally('video', 'educational_video', out.outcome === 'ok')
+  } catch (err) {
+    tally('video', 'educational_video', false, err instanceof Error ? err.message : 'unknown')
+  }
+
   // 9) Screenshot showcase — one daily rotation, fires showcase.daily
   // with predicate-matching target. The matching rule attaches a
   // Playwright capture from Railway; nothing fabricated.
