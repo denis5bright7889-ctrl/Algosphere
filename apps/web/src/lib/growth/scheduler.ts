@@ -25,6 +25,7 @@ import {
 } from './adapters/meta'
 import { postToYouTube, postToYouTubeShorts } from './adapters/youtube'
 import { postToWhatsAppChannel } from './adapters/whatsapp'
+import { postToTikTok } from './adapters/tiktok'
 
 function svc(): SupabaseClient {
   return serviceClient(
@@ -44,7 +45,7 @@ export interface PublishOutcome {
 async function postViaAdapter(
   channel: Channel,
   text:    string,
-  ctx:     { hero?: string | null; kind?: string },
+  ctx:     { hero?: string | null; kind?: string; videoUrl?: string | null },
 ): Promise<AdapterResult> {
   switch (channel) {
     case 'telegram':         return postToTelegram(text)
@@ -57,6 +58,7 @@ async function postViaAdapter(
     case 'youtube':          return postToYouTube(text)
     case 'youtube_shorts':   return postToYouTubeShorts(text)
     case 'whatsapp_channel': return postToWhatsAppChannel(text)
+    case 'tiktok':           return postToTikTok(text, ctx.videoUrl ?? null)
   }
 }
 
@@ -151,10 +153,18 @@ export async function publishOne(scheduledId: string): Promise<PublishOutcome> {
     assetUrls['weekly_stats_card'] ??
     null
   const heroUrl = sched.hero_image_url ?? kindHero ?? content.hero_image_url ?? null
+
+  // Video URL lookup for video-required channels (TikTok, future IG
+  // Reels / YT Shorts upgrades). Searches asset_urls for any key
+  // ending in mp4 / signal_reel / educational_video / etc.
+  const videoUrl =
+    Object.entries(assetUrls).find(([k]) => /\.mp4$|signal_reel$|recap_video$|_video$/.test(k))?.[1]
+    ?? null
+
   const adapter   = await postViaAdapter(
     sched.channel as Channel,
     formatted.text,
-    { hero: heroUrl, kind: content.kind },
+    { hero: heroUrl, kind: content.kind, videoUrl },
   )
   const durationMs = Date.now() - startedAt
   const nextAttempt = (sched.attempts ?? 0) + 1

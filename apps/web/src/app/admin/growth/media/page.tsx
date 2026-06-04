@@ -22,6 +22,7 @@ import {
   Image as ImageIcon, Video, FileText, CheckCircle2,
   AlertCircle, Clock, Activity,
 } from 'lucide-react'
+import MediaActions from './MediaActions'
 
 export const metadata = { title: 'Media Command Center — Growth' }
 export const dynamic  = 'force-dynamic'
@@ -151,6 +152,8 @@ export default async function MediaCommandCenter() {
           </Link>
         </div>
       </header>
+
+      <MediaActions />
 
       {/* Stat strip */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-6">

@@ -21,6 +21,7 @@ export type Channel =
   | 'x' | 'telegram' | 'discord' | 'linkedin'
   | 'instagram' | 'facebook' | 'youtube'
   | 'whatsapp_channel' | 'instagram_reels' | 'youtube_shorts'
+  | 'tiktok'
 
 export interface ContentInput {
   title:        string
@@ -63,6 +64,7 @@ const CHANNEL_LIMITS: Record<Channel, number | null> = {
   whatsapp_channel: 4096,
   instagram_reels:  2200,
   youtube_shorts:   5000,
+  tiktok:           150,   // caption only; video required
 }
 
 // ─── Channel-agnostic helpers ──────────────────────────────────────
@@ -300,6 +302,7 @@ export function formatForChannel(channel: Channel, c: ContentInput, b: BrandInpu
     case 'whatsapp_channel':
     case 'instagram_reels':
     case 'youtube_shorts':
+    case 'tiktok':
       return genericLongForm(channel, c, b)
   }
 }
