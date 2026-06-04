@@ -145,7 +145,10 @@ def process(item: dict, wid: str) -> None:
 
             t0 = time.monotonic()
             try:
-                produced = producers.get(kind)(item, out_dir)
+                # All producers take (item, out_dir, kind) so a single
+                # producer module can serve many asset kinds dispatched
+                # by name. Returns dict[produced_kind, local_path].
+                produced = producers.get(kind)(item, out_dir, kind)
             except Exception as e:
                 logger.error(f"producer {kind} crashed — {e}")
                 log_attempt(content_item_id=item['id'], asset_kind=kind, ok=False,

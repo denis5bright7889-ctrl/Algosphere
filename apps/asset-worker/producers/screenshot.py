@@ -89,8 +89,7 @@ def _resolve_path(item: dict) -> str:
     return default
 
 
-async def _capture(item: dict, out_dir: Path) -> Dict[str, Path]:
-    kind = item.get('kind') or 'dashboard_screenshot'
+async def _capture(item: dict, out_dir: Path, kind: str) -> Dict[str, Path]:
     target_path = _resolve_path(item)
     url = f'{BASE_URL}{target_path}'
 
@@ -120,7 +119,7 @@ async def _capture(item: dict, out_dir: Path) -> Dict[str, Path]:
             await browser.close()
 
 
-def produce(item: dict, out_dir: Path) -> Dict[str, Path]:
+def produce(item: dict, out_dir: Path, asset_kind: str = 'dashboard_screenshot') -> Dict[str, Path]:
     """Sync wrapper that the worker calls. Producers run sequentially
     in the worker loop, so a single asyncio.run() per call is fine."""
-    return asyncio.run(_capture(item, out_dir))
+    return asyncio.run(_capture(item, out_dir, asset_kind))

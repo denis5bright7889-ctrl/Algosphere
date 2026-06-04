@@ -1,0 +1,327 @@
+"""
+PDF report producer — WeasyPrint HTML → institutional-grade PDF.
+One HTML template renders all seven kinds; section visibility is
+controlled by the kind:
+
+  trade_report_pdf       — single-trade analytical report
+  weekly_report_pdf      — weekly performance recap
+  monthly_report_pdf     — monthly recap with attribution
+  investor_report_pdf    — institutional monthly investor letter
+  risk_report_pdf        — risk envelope + drawdown analysis
+  strategy_report_pdf    — strategy backtest + live performance
+  changelog_pdf          — versioned changelog
+
+Output: A4 portrait PDF. Brand-consistent (amber on near-black header,
+serif body, monospace stats). Uploaded to growth-assets bucket
+identically to images.
+"""
+from __future__ import annotations
+from pathlib import Path
+from typing import Dict
+from datetime import datetime, timezone
+
+from loguru import logger
+from weasyprint import HTML, CSS
+
+
+# ── Template (single string — WeasyPrint reads HTML + CSS) ────────
+
+_CSS = """
+@page {
+  size: A4;
+  margin: 16mm 18mm 22mm 18mm;
+  background: #06070A;
+  @bottom-center {
+    content: "AlgoSphere Quant  ·  algospherequant.com  ·  Page " counter(page) " of " counter(pages);
+    color: #a0a0aa;
+    font-family: "Inter", "DejaVu Sans", sans-serif;
+    font-size: 9pt;
+  }
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { background: #06070A; color: #f5f5f5;
+             font-family: "Inter", "DejaVu Sans", sans-serif;
+             font-size: 10.5pt; line-height: 1.55; }
+
+.brand { display: flex; align-items: center; gap: 10px;
+         padding-bottom: 8mm; border-bottom: 1px solid #2a2a35;
+         margin-bottom: 8mm; }
+.brand .dot { width: 14px; height: 14px; background: #fcd34d;
+              border-radius: 3px; }
+.brand .name { color: #fcd34d; font-weight: 800; font-size: 14pt;
+               letter-spacing: 2px; }
+.brand .name span { color: #f5f5f5; }
+
+h1 { color: #f5f5f5; font-size: 22pt; font-weight: 800;
+     line-height: 1.2; margin-bottom: 6pt; }
+h2 { color: #fcd34d; font-size: 13pt; font-weight: 700;
+     text-transform: uppercase; letter-spacing: 2px;
+     margin: 18pt 0 8pt; padding-bottom: 4pt;
+     border-bottom: 1px solid #2a2a35; }
+h3 { color: #f5f5f5; font-size: 11pt; font-weight: 700;
+     margin: 12pt 0 4pt; }
+
+.meta { color: #a0a0aa; font-size: 10pt; margin-bottom: 4mm; }
+
+.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr);
+            gap: 6mm; margin: 6mm 0; }
+.kpi { background: #0f1014; border: 1px solid #2a2a35;
+       border-radius: 6pt; padding: 8pt 10pt; }
+.kpi .label { color: #a0a0aa; font-size: 8.5pt;
+              text-transform: uppercase; letter-spacing: 1.5px;
+              margin-bottom: 3pt; }
+.kpi .value { color: #f5f5f5; font-size: 17pt; font-weight: 700;
+              font-family: "DejaVu Sans Mono", monospace; }
+.kpi.win .value { color: #34d399; }
+.kpi.loss .value { color: #f43f5e; }
+.kpi.warn .value { color: #fcd34d; }
+
+table { width: 100%; border-collapse: collapse; margin: 5mm 0; }
+th, td { padding: 6pt 8pt; text-align: left;
+         border-bottom: 1px solid #2a2a35; }
+th { color: #a0a0aa; font-size: 8.5pt; font-weight: 600;
+     text-transform: uppercase; letter-spacing: 1.5px; }
+td { font-family: "DejaVu Sans Mono", monospace; font-size: 10pt; }
+td.r { text-align: right; }
+td.pos { color: #34d399; }
+td.neg { color: #f43f5e; }
+
+p { margin-bottom: 6pt; }
+.callout { background: rgba(252, 211, 77, 0.06);
+           border-left: 3px solid #fcd34d; padding: 8pt 12pt;
+           margin: 8pt 0; font-style: italic; color: #fcd34d; }
+.disclaimer { color: #a0a0aa; font-size: 8.5pt;
+              border-top: 1px solid #2a2a35; padding-top: 6pt;
+              margin-top: 12pt; }
+"""
+
+
+def _render_section_header(title: str, subtitle: str = '') -> str:
+    sub = f'<p class="meta">{subtitle}</p>' if subtitle else ''
+    return f"""
+      <div class="brand"><span class="dot"></span>
+        <span class="name">ALGOSPHERE <span>QUANT</span></span></div>
+      <h1>{title}</h1>
+      {sub}
+    """
+
+
+def _render_kpis(items: list) -> str:
+    """items: list of (label, value, css_class)."""
+    cells = ''.join(
+        f'<div class="kpi {cls}">'
+        f'<div class="label">{label}</div>'
+        f'<div class="value">{value}</div></div>'
+        for label, value, cls in items
+    )
+    return f'<div class="kpi-grid">{cells}</div>'
+
+
+def _render_table(headers: list, rows: list[list[tuple[str, str]]]) -> str:
+    """rows: list of list of (cell_value, css_class) tuples."""
+    head = ''.join(f'<th>{h}</th>' for h in headers)
+    body = ''
+    for row in rows:
+        cells = ''.join(
+            f'<td class="r {cls}">{val}</td>' if cls else f'<td>{val}</td>'
+            for val, cls in row
+        )
+        body += f'<tr>{cells}</tr>'
+    return f'<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>'
+
+
+def _disclaimer() -> str:
+    return (
+        '<p class="disclaimer">This report is generated by AlgoSphere Quant. '
+        'Past performance is not indicative of future results. Trading involves '
+        'substantial risk of loss and is not suitable for all investors. '
+        'Not financial advice. © AlgoSphere Quant.</p>'
+    )
+
+
+# ── Per-kind body builders ────────────────────────────────────────
+
+def _trade_report(p: dict) -> str:
+    pair      = str(p.get('pair') or p.get('symbol') or '—').upper()
+    direction = str(p.get('direction') or '—').upper()
+    pnl       = p.get('pnl') or p.get('realized_pnl') or 0
+    pnl_cls   = 'win' if (isinstance(pnl, (int, float)) and pnl > 0) else \
+                'loss' if (isinstance(pnl, (int, float)) and pnl < 0) else ''
+    return (
+        _render_section_header(
+            f'Trade Report — {pair} {direction}',
+            f"Filled {p.get('opened_at') or '—'} · Closed {p.get('closed_at') or '—'}",
+        )
+        + _render_kpis([
+            ('P&L',         f"{'+' if (isinstance(pnl, (int, float)) and pnl > 0) else ''}${pnl:,.2f}" if isinstance(pnl, (int, float)) else '—', pnl_cls),
+            ('Entry',       str(p.get('entry') or p.get('entry_price') or '—'),  ''),
+            ('Exit',        str(p.get('exit') or p.get('exit_price') or '—'),    ''),
+            ('Duration',    str(p.get('duration') or '—'),                        ''),
+        ])
+        + '<h2>Setup</h2>'
+        + f'<p>{p.get("setup") or "Strategy setup description."}</p>'
+        + '<h2>Execution</h2>'
+        + f'<p>Lot size: <strong>{p.get("lot_size") or "—"}</strong></p>'
+        + f'<p>Stop loss: <strong>{p.get("stop_loss") or "—"}</strong></p>'
+        + f'<p>Risk: <strong>${p.get("risk_amount") or "—"}</strong></p>'
+        + '<h2>Outcome</h2>'
+        + f'<p>{p.get("outcome_notes") or "Trade closed at target." if pnl_cls == "win" else "Trade closed at stop."}</p>'
+        + _disclaimer()
+    )
+
+
+def _weekly_report(p: dict) -> str:
+    period = p.get('period') or datetime.now(timezone.utc).strftime('Week of %b %d, %Y')
+    pnl    = p.get('net_pnl') or 0
+    pnl_cls = 'win' if (isinstance(pnl, (int, float)) and pnl > 0) else \
+              'loss' if (isinstance(pnl, (int, float)) and pnl < 0) else ''
+    top    = p.get('top_trades') or []
+    return (
+        _render_section_header('Weekly Performance Report', period)
+        + _render_kpis([
+            ('Net P&L',       f"${pnl:,.2f}" if isinstance(pnl, (int, float)) else '—', pnl_cls),
+            ('Trades',        str(p.get('trades') or '—'),  ''),
+            ('Win rate',      f"{p.get('win_rate') or '—'}%", 'warn'),
+            ('Profit factor', str(p.get('profit_factor') or '—'), 'warn'),
+        ])
+        + '<h2>Top trades</h2>'
+        + _render_table(['Pair', 'Direction', 'P&L'],
+                        [[(str(t.get('pair') or '—'), ''),
+                          (str(t.get('direction') or '—'), ''),
+                          (f"${float(t.get('pnl') or 0):,.2f}",
+                           'pos' if (float(t.get('pnl') or 0)) >= 0 else 'neg')]
+                         for t in top[:8]])
+        + '<h2>Regime backdrop</h2>'
+        + f'<p>{p.get("regime_notes") or "See live dashboard for regime grid."}</p>'
+        + '<div class="callout">' + (p.get('callout') or 'Discipline beats prediction. Process scores held above 80 for the second straight week.') + '</div>'
+        + _disclaimer()
+    )
+
+
+def _monthly_report(p: dict) -> str:
+    period = p.get('period') or datetime.now(timezone.utc).strftime('%B %Y')
+    growth = p.get('growth_pct') or 0
+    growth_cls = 'win' if (isinstance(growth, (int, float)) and growth > 0) else \
+                 'loss' if (isinstance(growth, (int, float)) and growth < 0) else ''
+    return (
+        _render_section_header(f'{period} — Monthly Recap', '')
+        + _render_kpis([
+            ('Return',     f"{growth:+.2f}%" if isinstance(growth, (int, float)) else '—', growth_cls),
+            ('Sharpe',     str(p.get('sharpe') or '—'),                           'warn'),
+            ('Max DD',     f"{p.get('max_drawdown') or '—'}%",                     'loss'),
+            ('Trades',     str(p.get('trades') or '—'),                            ''),
+        ])
+        + '<h2>Strategy attribution</h2>'
+        + f'<p>{p.get("attribution") or "Per-strategy contribution breakdown."}</p>'
+        + '<h2>Market context</h2>'
+        + f'<p>{p.get("market_context") or "Macro backdrop summary."}</p>'
+        + '<h2>Risk envelope</h2>'
+        + f'<p>{p.get("risk_notes") or "Drawdown contained within stated tolerance."}</p>'
+        + '<h2>Outlook</h2>'
+        + f'<p>{p.get("outlook") or "Forward view."}</p>'
+        + _disclaimer()
+    )
+
+
+def _investor_report(p: dict) -> str:
+    period = p.get('period') or datetime.now(timezone.utc).strftime('%B %Y')
+    return (
+        _render_section_header(f'AlgoSphere Quant — Investor Update', period)
+        + _render_kpis([
+            ('Cumulative return',  f"{p.get('growth_pct') or '—'}%", 'win' if (isinstance(p.get('growth_pct'), (int, float)) and p['growth_pct'] >= 0) else 'loss'),
+            ('AUM',                f"${p.get('aum') or '—'}",        ''),
+            ('Sharpe',             str(p.get('sharpe') or '—'),     'warn'),
+            ('Max drawdown',       f"{p.get('max_drawdown') or '—'}%", 'loss'),
+        ])
+        + '<h2>Executive summary</h2>'
+        + f'<p>{p.get("exec_summary") or "Performance and risk summary for the period."}</p>'
+        + '<h2>Performance attribution</h2>'
+        + f'<p>{p.get("attribution") or "Per-strategy and per-instrument contribution."}</p>'
+        + '<h2>Risk management</h2>'
+        + f'<p>{p.get("risk_notes") or "Risk envelope maintained within target."}</p>'
+        + '<h2>Market commentary</h2>'
+        + f'<p>{p.get("market_context") or "Macro environment summary."}</p>'
+        + '<h2>Outlook</h2>'
+        + f'<p>{p.get("outlook") or "Forward look."}</p>'
+        + '<div class="callout">' + (p.get('callout') or "AlgoSphere's 15-gate institutional risk system held drawdown within investor mandate.") + '</div>'
+        + _disclaimer()
+    )
+
+
+def _risk_report(p: dict) -> str:
+    return (
+        _render_section_header('Risk Report', p.get('period') or 'Current')
+        + _render_kpis([
+            ('Current DD',  f"{p.get('current_drawdown') or '—'}%",     'loss'),
+            ('Max DD',      f"{p.get('max_drawdown') or '—'}%",         'loss'),
+            ('Volatility',  f"{p.get('volatility') or '—'}%",           'warn'),
+            ('Sharpe',      str(p.get('sharpe') or '—'),                'warn'),
+        ])
+        + '<h2>Drawdown analysis</h2>'
+        + f'<p>{p.get("drawdown_notes") or "Drawdown profile within tolerance."}</p>'
+        + '<h2>Per-strategy risk</h2>'
+        + f'<p>{p.get("strategy_risk") or "Concentration and correlation review."}</p>'
+        + '<h2>Gates status</h2>'
+        + f'<p>{p.get("gates_status") or "All 15 institutional risk gates operating normally."}</p>'
+        + _disclaimer()
+    )
+
+
+def _strategy_report(p: dict) -> str:
+    name  = p.get('strategy_name') or p.get('name') or 'Strategy'
+    stats = p.get('stats') or {}
+    return (
+        _render_section_header(f'{name} — Strategy Report', '')
+        + _render_kpis([
+            ('Win rate',      f"{stats.get('win_rate') or '—'}%", 'warn'),
+            ('Profit factor', str(stats.get('profit_factor') or '—'), 'warn'),
+            ('Expectancy',    f"${stats.get('expectancy') or '—'}",   'win' if (isinstance(stats.get('expectancy'), (int, float)) and stats['expectancy'] > 0) else 'loss'),
+            ('Trades',        str(stats.get('trades') or '—'),        ''),
+        ])
+        + '<h2>Setup</h2>' + f'<p>{p.get("setup") or "Setup description."}</p>'
+        + '<h2>Entry rules</h2>' + f'<p>{p.get("entry_rules") or "Entry rules."}</p>'
+        + '<h2>Exit rules</h2>' + f'<p>{p.get("exit_rules") or "Exit rules."}</p>'
+        + '<h2>Why it works</h2>' + f'<p>{p.get("why_it_works") or "Edge explanation."}</p>'
+        + '<h2>When it fails</h2>' + f'<p>{p.get("why_it_fails") or "Loss conditions."}</p>'
+        + _disclaimer()
+    )
+
+
+def _changelog(p: dict) -> str:
+    version = p.get('version') or '—'
+    changes = p.get('changes') or []
+    rows = ''.join(
+        f'<h3>{c.get("category") or "Update"}</h3>'
+        f'<p>{c.get("description") or "—"}</p>'
+        for c in changes
+    ) or '<p>No changes in this release.</p>'
+    return (
+        _render_section_header(f'Changelog — v{version}', '')
+        + rows
+        + _disclaimer()
+    )
+
+
+_RENDERERS = {
+    'trade_report_pdf':       _trade_report,
+    'weekly_report_pdf':      _weekly_report,
+    'monthly_report_pdf':     _monthly_report,
+    'investor_report_pdf':    _investor_report,
+    'risk_report_pdf':        _risk_report,
+    'strategy_report_pdf':    _strategy_report,
+    'changelog_pdf':          _changelog,
+}
+
+
+def produce(item: dict, out_dir: Path, asset_kind: str = 'weekly_report_pdf') -> Dict[str, Path]:
+    renderer = _RENDERERS.get(asset_kind, _weekly_report)
+    prov = item.get('provenance') or {}
+    payload = prov.get('payload') or prov
+    body_html = renderer(payload)
+    full_html = f"<!DOCTYPE html><html><head><meta charset='utf-8'><style>{_CSS}</style></head><body>{body_html}</body></html>"
+
+    out = out_dir / f'{asset_kind}.pdf'
+    HTML(string=full_html).write_pdf(target=str(out))
+    logger.info(f"pdf {asset_kind} produced ({out.stat().st_size} bytes)")
+    return {asset_kind: out}

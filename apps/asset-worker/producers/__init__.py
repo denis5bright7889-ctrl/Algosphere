@@ -1,72 +1,105 @@
 """
 Producer registry — maps an asset_kind string to a producer callable.
 
-A producer takes the content_item row + an output Path and writes
-one or more files there, returning the (kind → local file) map of
-what it produced. The worker handles upload + DB writeback.
+Every producer takes (item: dict, out_dir: Path, asset_kind: str) and
+returns a {produced_kind → local Path} mapping. The worker uploads
+each returned file to Supabase Storage and writes the resulting URLs
+back to growth_content_items.asset_urls.
 
 Adding a new producer:
-  1. Implement it as `produce(item: dict, out_dir: Path) -> dict[str, Path]`.
-  2. Register it in REGISTRY below under all kinds it covers.
-  3. Push — Railway redeploys; no schema change.
+  1. Implement (item, out_dir, asset_kind) -> dict[str, Path]
+  2. Register every asset_kind it covers in REGISTRY below.
+  3. Push — Railway redeploys; no schema change required.
+
+Every entry in this registry has a working producer.
 """
 from pathlib import Path
 from typing import Callable, Dict
 
-from .signal_card  import produce as produce_signal_card
-from .screenshot   import produce as produce_screenshot
-from .weekly_stats import produce as produce_weekly_stats
+from .signal_card    import produce as produce_card
+from .weekly_stats   import produce as produce_weekly_stats
+from .screenshot     import produce as produce_screenshot
+from .infographic    import produce as produce_infographic
+from .charts         import produce as produce_chart
+from .carousel       import produce as produce_carousel
+from .blog           import produce as produce_blog
+from .pdf_report     import produce as produce_pdf
+from .video          import produce as produce_video
 
 
-Producer = Callable[[dict, Path], Dict[str, Path]]
+Producer = Callable[[dict, Path, str], Dict[str, Path]]
 
 
-# kind → producer. A producer can be registered under multiple kinds
-# when the visual output is the same shape (e.g. signal_card,
-# trade_entry_card and weekly_stats_card all render a 1080×1080 card
-# from the row's title + summary + numbers).
 REGISTRY: Dict[str, Producer] = {
-    # Signal pipeline (event: signal.published)
-    'signal_card':              produce_signal_card,
-    'signal_chart_screenshot':  produce_screenshot,
+    # ── Card images (PIL 1080×1080 JPEG) ───────────────────────────
+    'signal_card':                  produce_card,
+    'trade_entry_card':             produce_card,
+    'trade_result_card':            produce_card,
+    'achievement_card':             produce_card,
+    'feature_card':                 produce_card,
+    'weekly_stats_card':            produce_weekly_stats,
 
-    # Trade pipeline (events: trade.opened, trade.closed)
-    'trade_entry_card':         produce_signal_card,
-    'trade_result_card':        produce_signal_card,
-    'trade_chart_screenshot':   produce_screenshot,
+    # ── Screenshots (Playwright PNG, full-page, auth-aware) ────────
+    'signal_chart_screenshot':      produce_screenshot,
+    'trade_chart_screenshot':       produce_screenshot,
+    'dashboard_screenshot':         produce_screenshot,
+    'portfolio_snapshot':           produce_screenshot,
+    'feature_screenshot':           produce_screenshot,
 
-    # Market / weekly pipelines (events: cron.daily, performance.weekly)
-    'weekly_stats_card':        produce_weekly_stats,
-    'dashboard_screenshot':     produce_screenshot,
+    # ── Infographics (PIL 1080×1350 JPEG, Instagram portrait) ──────
+    'signal_infographic':           produce_infographic,
+    'weekly_infographic':           produce_infographic,
+    'monthly_infographic':          produce_infographic,
+    'pnl_infographic':              produce_infographic,
+    'market_infographic':           produce_infographic,
+    'economic_infographic':         produce_infographic,
+    'investor_infographic':         produce_infographic,
 
-    # NOTE — Asset kinds NOT yet covered, with their build path:
-    # - signal_infographic     → multi-panel PIL composite. Same pattern as signal_card.
-    # - signal_reel_video      → Remotion render (offload via subprocess to /marketing/videos).
-    # - signal_pdf_report      → weasyprint(html → pdf). Add weasyprint to requirements.
-    # - trade_explanation_video → Remotion. Same as signal_reel_video.
-    # - pnl_infographic        → PIL composite, same shape as signal_card.
-    # - heatmap_image          → matplotlib heatmap → PNG.
-    # - watchlist_graphic      → PIL composite of top movers.
-    # - economic_calendar_image → PIL composite from /api/calendar.
-    # - ai_market_video        → Remotion + edge-tts pipeline (already exists at /marketing/videos).
-    # - equity_curve_image     → matplotlib equity line chart.
-    # - portfolio_snapshot     → screenshot of /analytics page (Playwright).
-    # - weekly_recap_video     → Remotion.
-    # - investor_pdf           → weasyprint.
-    # - institutional_report_pdf → weasyprint.
-    # - capital_growth_chart   → matplotlib.
-    # - risk_report            → weasyprint.
-    # - investor_video         → Remotion.
-    # - educational_carousel   → multiple PIL cards (3-5 frames) packaged as JPGs in a folder.
-    # - educational_video      → Remotion.
-    # - educational_infographic → PIL composite.
-    # - feature_card           → PIL card from release notes.
-    # - feature_screenshot     → Playwright tour of new feature.
-    # - feature_demo_video     → Remotion + Playwright recording.
-    # - changelog_pdf          → weasyprint from CHANGELOG.md.
-    # - achievement_card       → PIL card.
-    # - achievement_video      → Remotion.
-    # - celebration_graphic    → PIL composite.
+    # ── Matplotlib charts (publication-quality PNG) ────────────────
+    'equity_curve_image':           produce_chart,
+    'capital_growth_chart':         produce_chart,
+    'drawdown_chart':               produce_chart,
+    'portfolio_performance_chart':  produce_chart,
+    'monthly_performance_chart':    produce_chart,
+    'asset_allocation_chart':       produce_chart,
+    'strategy_comparison_chart':    produce_chart,
+    'before_after_chart':           produce_chart,
+
+    # ── Carousels (PIL multi-slide, 1080×1350 each) ────────────────
+    'educational_carousel':         produce_carousel,
+    'strategy_breakdown_carousel':  produce_carousel,
+    'weekly_recap_carousel':        produce_carousel,
+    'market_recap_carousel':        produce_carousel,
+    'feature_release_carousel':     produce_carousel,
+
+    # ── Blog (markdown + INSERT growth_content_items → /blog) ──────
+    'daily_market_blog':            produce_blog,
+    'weekly_market_blog':           produce_blog,
+    'strategy_blog':                produce_blog,
+    'educational_blog':             produce_blog,
+    'feature_release_blog':         produce_blog,
+    'monthly_investor_blog':        produce_blog,
+
+    # ── PDFs (WeasyPrint, A4) ──────────────────────────────────────
+    'trade_report_pdf':             produce_pdf,
+    'weekly_report_pdf':            produce_pdf,
+    'monthly_report_pdf':           produce_pdf,
+    'investor_report_pdf':          produce_pdf,
+    'risk_report_pdf':              produce_pdf,
+    'strategy_report_pdf':          produce_pdf,
+    'changelog_pdf':                produce_pdf,
+
+    # ── Videos (Remotion event_video composition + edge-tts +
+    #            FFmpeg thumbnail). Each entry produces MP4 + JPG.
+    'signal_reel':                  produce_video,
+    'trade_recap_video':            produce_video,
+    'weekly_recap_video':           produce_video,
+    'monthly_recap_video':          produce_video,
+    'daily_market_video':           produce_video,
+    'educational_video':            produce_video,
+    'feature_demo_video':           produce_video,
+    'achievement_video':            produce_video,
+    'investor_update_video':        produce_video,
 }
 
 

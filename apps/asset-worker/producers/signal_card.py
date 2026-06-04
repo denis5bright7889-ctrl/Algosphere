@@ -29,6 +29,7 @@ AMBER       = (252, 211, 77)
 AMBER_DEEP  = (245, 158, 11)
 EMERALD     = (52, 211, 153)
 ROSE        = (244, 63, 94)
+SKY         = (96, 165, 250)
 WHITE       = (245, 245, 245)
 MUTED       = (160, 160, 170)
 
@@ -78,16 +79,19 @@ def _fmt_num(v) -> str:
     return f'{f:.5f}'
 
 
-def produce(item: dict, out_dir: Path) -> Dict[str, Path]:
-    """Render the card. Returns {kind: file_path} on success."""
-    prov = item.get('provenance') or {}
-    payload = prov.get('payload') or prov  # automation engine puts the
-                                            # source event payload at
-                                            # provenance.payload; older
-                                            # rows have it inline.
+def produce(item: dict, out_dir: Path, asset_kind: str = 'signal_card') -> Dict[str, Path]:
+    """Render the card. Returns {asset_kind: file_path} on success.
 
-    kind        = item.get('kind') or 'signal_card'
-    pair        = str(payload.get('pair') or payload.get('symbol') or '—').upper()
+    asset_kind drives the variant rendered. Anything with 'result' in
+    the name renders the PnL hero layout; 'achievement' and 'feature'
+    render their own titled hero layouts; everything else falls through
+    to the signal/entry layout (pair / direction / levels / R:R /
+    conviction)."""
+    prov = item.get('provenance') or {}
+    payload = prov.get('payload') or prov
+
+    kind        = asset_kind or item.get('kind') or 'signal_card'
+    pair        = str(payload.get('pair') or payload.get('symbol') or payload.get('title') or '—').upper()
     direction   = str(payload.get('direction') or '').lower()
     entry       = payload.get('entry') or payload.get('entry_price')
     stop_loss   = payload.get('stop_loss')
@@ -95,6 +99,8 @@ def produce(item: dict, out_dir: Path) -> Dict[str, Path]:
     rr          = payload.get('risk_reward')
     confidence  = payload.get('confidence') or payload.get('confidence_score')
     pnl         = payload.get('pnl') or payload.get('realized_pnl')
+    achievement = payload.get('achievement') or payload.get('milestone')
+    feature     = payload.get('feature') or payload.get('feature_name')
 
     is_win = pnl is not None and (isinstance(pnl, (int, float)) and pnl > 0)
     is_loss = pnl is not None and (isinstance(pnl, (int, float)) and pnl < 0)
@@ -105,16 +111,32 @@ def produce(item: dict, out_dir: Path) -> Dict[str, Path]:
 
     _draw_brand_mark(d)
 
-    # ── Pair + direction
-    d.text((W // 2, 220), pair, fill=WHITE, font=_font(140), anchor='mm')
-    dir_color = EMERALD if direction == 'buy' else ROSE if direction == 'sell' else MUTED
-    dir_label = ('BUY' if direction == 'buy' else 'SELL' if direction == 'sell' else 'NEUTRAL')
-    badge_w, badge_h = 220, 60
-    bx0 = (W - badge_w) // 2
-    by0 = 320
-    d.rounded_rectangle([bx0, by0, bx0 + badge_w, by0 + badge_h], radius=30,
-                        fill=(*dir_color, 38), outline=dir_color, width=3)
-    d.text((W // 2, by0 + badge_h // 2 + 2), dir_label, fill=dir_color, font=_font(40), anchor='mm')
+    # ── Hero block — varies by asset_kind
+    if 'achievement' in kind and achievement:
+        d.text((W // 2, 220), 'MILESTONE', fill=AMBER, font=_font(40), anchor='mm')
+        d.text((W // 2, 380), str(achievement)[:30].upper(),
+               fill=WHITE, font=_font(110), anchor='mm')
+        d.text((W // 2, 480), str(payload.get('description') or '')[:80],
+               fill=MUTED, font=_font(30), anchor='mm')
+        dir_color = AMBER
+    elif 'feature' in kind and feature:
+        d.text((W // 2, 220), 'NEW FEATURE', fill=AMBER, font=_font(40), anchor='mm')
+        d.text((W // 2, 380), str(feature)[:30].upper(),
+               fill=WHITE, font=_font(110), anchor='mm')
+        d.text((W // 2, 480), str(payload.get('description') or '')[:80],
+               fill=MUTED, font=_font(30), anchor='mm')
+        dir_color = SKY
+    else:
+        # Signal / trade card — pair + direction badge
+        d.text((W // 2, 220), pair, fill=WHITE, font=_font(140), anchor='mm')
+        dir_color = EMERALD if direction == 'buy' else ROSE if direction == 'sell' else MUTED
+        dir_label = ('BUY' if direction == 'buy' else 'SELL' if direction == 'sell' else 'NEUTRAL')
+        badge_w, badge_h = 220, 60
+        bx0 = (W - badge_w) // 2
+        by0 = 320
+        d.rounded_rectangle([bx0, by0, bx0 + badge_w, by0 + badge_h], radius=30,
+                            fill=(*dir_color, 38), outline=dir_color, width=3)
+        d.text((W // 2, by0 + badge_h // 2 + 2), dir_label, fill=dir_color, font=_font(40), anchor='mm')
 
     # ── Numbers grid — three centred columns
     grid_y = 470

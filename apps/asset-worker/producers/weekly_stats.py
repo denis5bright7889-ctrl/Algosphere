@@ -14,7 +14,7 @@ from .signal_card import _font, _draw_brand_mark, _draw_radial_glow, _fmt_num
 from .signal_card import BG, AMBER, EMERALD, ROSE, WHITE, MUTED, W, H
 
 
-def produce(item: dict, out_dir: Path) -> Dict[str, Path]:
+def produce(item: dict, out_dir: Path, asset_kind: str = 'weekly_stats_card') -> Dict[str, Path]:
     prov = item.get('provenance') or {}
     payload = prov.get('payload') or prov
 
@@ -64,7 +64,7 @@ def produce(item: dict, out_dir: Path) -> Dict[str, Path]:
     d.text((W // 2, H - 70), 'algospherequant.com',
            fill=AMBER, font=_font(34), anchor='mm')
 
-    out = out_dir / 'weekly_stats_card.jpg'
+    out = out_dir / f'{asset_kind}.jpg'
     im.convert('RGB').save(out, 'JPEG', quality=88, optimize=True)
     logger.info(f"weekly_stats produced {out.name} ({out.stat().st_size} bytes)")
-    return {'weekly_stats_card': out}
+    return {asset_kind: out}
