@@ -58,6 +58,14 @@ const WIN_STREAK_RISK_INFLATE = 1.3        // 30% > rolling avg
 /** Consistency — rolling std-dev of P&L. */
 const CONSISTENCY_LOW_SCORE_FLOOR = 30
 
+/** Loss-chasing — N consecutive losses where risk_pct stays at/above
+ *  baseline instead of de-risking. */
+const LOSS_CHASE_STREAK_LEN = 3
+
+/** Impulse — trades with no setup_tag attribution. The trader took the
+ *  trade without naming a strategy, which is the textbook impulse signature. */
+const IMPULSE_NO_STRATEGY_TAGS = new Set(['', 'impulse', 'gut', 'random', 'no plan', 'fomo'])
+
 
 export interface BehavioralReport {
   total_trades:        number
@@ -83,6 +91,33 @@ export interface BehavioralReport {
   discipline_risk:     number | null
   rule_violations:     number
 
+  /** 0–100 — HIGHER IS WORSE. Ratio of trades where emotion_pre/notes
+   *  flagged FOMO/rush/impulse. Separate from `emotion_summary.fomo`
+   *  (which is a raw mix ratio) — this one is the gated score the
+   *  Psychology page surfaces. null when sample too thin. */
+  fomo_risk:           number | null
+  fomo_count:          number
+
+  /** 0–100 — HIGHER IS WORSE. Share of trades opened on weekends
+   *  (Saturday/Sunday UTC). A weekend trade ≠ automatic gamble, but
+   *  consistent weekend activity is one of the clearest behavioral
+   *  red flags in retail accounts. */
+  weekend_gamble_risk: number | null
+  weekend_gamble_count: number
+
+  /** 0–100 — HIGHER IS WORSE. Share of trades with no strategy
+   *  attribution (`setup_tag` blank or flagged as impulse/gut/random).
+   *  An unnamed setup is, by definition, an unrepeatable one. */
+  impulse_risk:        number | null
+  impulse_count:       number
+
+  /** 0–100 — HIGHER IS WORSE. Consecutive losses (3+) where the
+   *  trader kept risk_pct at or above baseline instead of de-risking.
+   *  This is the "doubling-down into a slump" pattern; distinct from
+   *  revenge (post-LOSS aggression within minutes). */
+  loss_chase_risk:     number | null
+  loss_chase_count:    number
+
   /** Emotional flagging from journal `emotion_pre` field. */
   emotion_summary: {
     fearful: number   // 0–1 ratio
@@ -99,7 +134,8 @@ export interface BehavioralReport {
 
 export type BehaviorFlag = {
   kind: 'revenge' | 'overtrade' | 'risk_inflation' | 'rule_violation' |
-        'fomo' | 'fear_paralysis' | 'consistency' | 'thin_sample'
+        'fomo' | 'fear_paralysis' | 'consistency' | 'thin_sample' |
+        'weekend_gamble' | 'impulse' | 'loss_chase'
   severity: 'info' | 'warn' | 'critical'
   label:   string
   detail:  string
@@ -137,6 +173,10 @@ export function analyzeBehavior(
   const riskInflation  = thinSample ? null : detectRiskInflation(chron, flags)
   const discipline     = thinSample ? null : detectDisciplineRisk(closed, flags)
   const consistency    = thinSample ? null : computeConsistency(closed, flags)
+  const fomo           = thinSample ? null : detectFomo(rows, flags)
+  const weekendGamble  = thinSample ? null : detectWeekendGamble(rows, flags)
+  const impulse        = thinSample ? null : detectImpulse(rows, flags)
+  const lossChase      = thinSample ? null : detectLossChase(chron, flags)
   const emotionSummary = summarizeEmotions(rows)
 
   return {
@@ -152,6 +192,14 @@ export function analyzeBehavior(
     risk_inflation_count: riskInflation?.count ?? 0,
     discipline_risk:     discipline?.score ?? null,
     rule_violations:     discipline?.count ?? 0,
+    fomo_risk:           fomo?.score ?? null,
+    fomo_count:          fomo?.count ?? 0,
+    weekend_gamble_risk: weekendGamble?.score ?? null,
+    weekend_gamble_count: weekendGamble?.count ?? 0,
+    impulse_risk:        impulse?.score ?? null,
+    impulse_count:       impulse?.count ?? 0,
+    loss_chase_risk:     lossChase?.score ?? null,
+    loss_chase_count:    lossChase?.count ?? 0,
     emotion_summary:     emotionSummary,
     flags,
   }
@@ -353,6 +401,29 @@ function summarizeEmotions(rows: JournalEntry[]) {
     fomo:    counts.fomo    / total,
     other:   counts.other   / total,
   }
+}
+
+
+// ─── Detectors stubbed pending in-flight implementation ─────────────
+// analyzeBehavior() references four detectors that aren't yet wired:
+// detectFomo, detectWeekendGamble, detectImpulse, detectLossChase.
+// Each is expected to return { score, count } | null (matching the
+// BehavioralReport field shapes). Until they land, return null so
+// the report renders insufficient-data states for these signals
+// instead of crashing the build.
+//
+// Touch points (call sites): lines ~176-179 / report fields ~195-202.
+function detectFomo(_rows: JournalEntry[], _flags: BehaviorFlag[]): { score: number; count: number } | null {
+  return null
+}
+function detectWeekendGamble(_rows: JournalEntry[], _flags: BehaviorFlag[]): { score: number; count: number } | null {
+  return null
+}
+function detectImpulse(_rows: JournalEntry[], _flags: BehaviorFlag[]): { score: number; count: number } | null {
+  return null
+}
+function detectLossChase(_chron: JournalEntry[], _flags: BehaviorFlag[]): { score: number; count: number } | null {
+  return null
 }
 
 
