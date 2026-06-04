@@ -103,12 +103,6 @@ export async function GET() {
     check('X_API_SECRET',          'x'),
     check('X_ACCESS_TOKEN',        'x'),
     check('X_ACCESS_TOKEN_SECRET', 'x'),
-
-    // ── Creatomate (video render — Phase 4E)
-    check('CREATOMATE_API_KEY',              'video', { minLen: 40 }),
-    check('CREATOMATE_TEMPLATE_SIGNAL_CARD', 'video'),
-    check('CREATOMATE_TEMPLATE_WEEKLY_RECAP','video'),
-    check('CREATOMATE_TEMPLATE_BACKTEST',    'video'),
   ]
 
   const summary = {

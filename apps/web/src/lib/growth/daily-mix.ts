@@ -265,8 +265,9 @@ export async function runDailyMix(): Promise<DailyMixSummary> {
   // Skipped when journal sample is thin; honest emptiness > fabrication.
   // The dedicated psychology generator lands in a follow-up slice.
 
-  // 8) Video stub — deferred until Creatomate templates beyond the
-  // smoke-test card are provisioned.
+  // 8) Daily video — the video.daily rule above already fires the
+  // Remotion + edge-tts producer (educational_video). No separate
+  // slot here.
 
   // 6) Daily blog — one rotated educational topic composed into a
   // long-form post. Blog producer writes a NEW content_items row

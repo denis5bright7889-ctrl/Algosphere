@@ -275,7 +275,7 @@ export default async function MediaCommandCenter() {
           <li><strong className="text-emerald-300">✓ Live:</strong> Blog factory (6 kinds, /blog auto-serves)</li>
           <li><strong className="text-emerald-300">✓ Live:</strong> Videos (Remotion + edge-tts — 9 kinds, MP4 + JPG thumb)</li>
           <li><strong className="text-emerald-300">✓ Live:</strong> PDF reports (WeasyPrint — 7 kinds)</li>
-          <li><Video className="inline size-3" /> <strong className="text-amber-300">Deferred:</strong> Per-page walkthrough videos — needs 11 Creatomate templates designed in the operator account</li>
+          <li><Video className="inline size-3" /> <strong className="text-amber-300">Deferred:</strong> Per-page walkthrough videos — Remotion composition exists; per-page narration scripts + scene templates need authoring in marketing/videos/src/</li>
           <li><Video className="inline size-3" /> <strong className="text-amber-300">Deferred:</strong> Social comment auto-reply — needs Meta App Review approval for pages_manage_engagement</li>
           <li><Video className="inline size-3" /> <strong className="text-amber-300">Deferred:</strong> Social impressions/reach analytics — needs Meta Business verification + Insights API</li>
         </ul>

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle, Loader2, Send, Film, ExternalLink } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle, Loader2, Send } from 'lucide-react'
 
 interface EnvCheck {
   key:   string
@@ -67,30 +67,14 @@ const GROUP_LABEL: Record<string, string> = {
   meta:            'Meta (Facebook + Instagram)',
   linkedin:        'LinkedIn',
   x:               'X (Twitter)',
-  video:           'Video (Creatomate)',
-}
-
-interface VideoResult {
-  ok:    boolean
-  render?: {
-    id:           string
-    status:       string
-    url?:         string
-    snapshot_url?: string
-    duration?:    number
-    width?:       number
-    height?:      number
-  } | null
-  error?: string
 }
 
 export default function DiagnosticsClient() {
   const [diag, setDiag]       = useState<DiagResponse | null>(null)
   const [smoke, setSmoke]     = useState<SmokeResponse | null>(null)
-  const [video, setVideo]     = useState<VideoResult | null>(null)
   const [error, setError]     = useState<string | null>(null)
   const [pending, start]      = useTransition()
-  const [activeAction, setActiveAction] = useState<'diag' | 'smoke' | 'video' | null>(null)
+  const [activeAction, setActiveAction] = useState<'diag' | 'smoke' | null>(null)
 
   function checkEnv() {
     setError(null); setActiveAction('diag')
@@ -113,22 +97,6 @@ export default function DiagnosticsClient() {
       const j = await r.json()
       if (!r.ok) { setError(j.error ?? 'Failed'); return }
       setSmoke(j)
-    })
-  }
-
-  function videoTest() {
-    setError(null); setActiveAction('video'); setVideo(null)
-    start(async () => {
-      const r = await fetch('/api/admin/growth/video-smoke-test', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({}),
-      })
-      const j = await r.json()
-      if (!r.ok && r.status !== 422) {
-        setError(j.error ?? 'Failed')
-      }
-      setVideo(j as VideoResult)
     })
   }
 
@@ -167,76 +135,7 @@ export default function DiagnosticsClient() {
           {pending && activeAction === 'smoke' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
           Smoke-test all channels
         </button>
-        <button
-          type="button"
-          onClick={videoTest}
-          disabled={pending}
-          className="inline-flex items-center gap-2 rounded-md border border-sky-500/60 bg-sky-500/10 px-4 py-2 text-xs font-bold text-sky-300 hover:bg-sky-500/20 disabled:opacity-50"
-        >
-          {pending && activeAction === 'video' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Film className="h-3.5 w-3.5" />}
-          Smoke-test video render
-        </button>
       </div>
-
-      {/* Creatomate video smoke-test result. Polls up to 90s server-
-          side; the response carries the final render row + url. */}
-      {video && (
-        <section className={
-          'rounded-2xl border p-5 ' + (
-            video.ok ? 'border-emerald-500/40 bg-emerald-500/[0.05]'
-                     : 'border-rose-500/40 bg-rose-500/[0.06]'
-          )
-        }>
-          <header className="mb-3 flex items-center gap-2">
-            {video.ok
-              ? <CheckCircle2 className="h-4 w-4 text-emerald-300" />
-              : <XCircle      className="h-4 w-4 text-rose-300" />}
-            <h2 className="text-sm font-bold">
-              Video render {video.ok ? 'succeeded' : 'failed'}
-            </h2>
-            {video.render?.status && (
-              <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                · status: {video.render.status}
-              </span>
-            )}
-          </header>
-          {video.error && (
-            <p className="text-[12px] text-rose-200 break-words">{video.error}</p>
-          )}
-          {video.render?.url && (
-            <div className="mt-2 flex flex-wrap items-center gap-3">
-              {video.render.snapshot_url && (
-                // Preview thumbnail uses the snapshot frame Creatomate
-                // generates alongside the mp4. Click → opens full video.
-                <a href={video.render.url} target="_blank" rel="noopener" className="block">
-                  <img
-                    src={video.render.snapshot_url}
-                    alt="Render preview"
-                    className="h-24 w-24 rounded-lg border border-border object-cover"
-                  />
-                </a>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="text-[11px] text-muted-foreground tabular-nums">
-                  {video.render.width && video.render.height && (
-                    <>{video.render.width}×{video.render.height} · </>
-                  )}
-                  {video.render.duration != null && <>{video.render.duration.toFixed(1)}s · </>}
-                  id <code className="font-mono text-foreground">{video.render.id.slice(0, 8)}</code>
-                </p>
-                <a
-                  href={video.render.url}
-                  target="_blank"
-                  rel="noopener"
-                  className="mt-1 inline-flex items-center gap-1 text-[12px] font-bold text-emerald-300 hover:underline break-all"
-                >
-                  Open mp4 <ExternalLink className="h-3 w-3 shrink-0" />
-                </a>
-              </div>
-            </div>
-          )}
-        </section>
-      )}
 
       {error && (
         <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
