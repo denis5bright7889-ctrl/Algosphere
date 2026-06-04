@@ -66,6 +66,54 @@ const LOSS_CHASE_STREAK_LEN = 3
  *  trade without naming a strategy, which is the textbook impulse signature. */
 const IMPULSE_NO_STRATEGY_TAGS = new Set(['', 'impulse', 'gut', 'random', 'no plan', 'fomo'])
 
+// ── V2 institutional behavioral-intelligence thresholds ──────────────
+//
+// All thresholds are calibrated for retail trader data (24h–30d
+// windows, 8–500 trades). A future calibration pass can tune them
+// against a labelled prop-firm dataset without changing call sites.
+
+/** Confidence drift — size inflation after a winning streak.
+ *  Distinct from risk_inflation_risk: that one is risk_pct; this one
+ *  is lot_size (or risk_pct fallback) AND a selectivity collapse. */
+const CONFIDENCE_DRIFT_STREAK_LEN   = 2
+const CONFIDENCE_DRIFT_SIZE_INFLATE = 1.25
+const CONFIDENCE_DRIFT_LOOKAHEAD    = 3
+
+/** Tilt — emotional aggression after a "large" loss (loss > 2× avg loss).
+ *  We look at the next TILT_HOT_HOURS hours for risk inflation, an
+ *  abnormal trade burst, OR a negative emotion_pre / mistake tag. */
+const TILT_LOSS_MULTIPLIER = 2.0
+const TILT_HOT_HOURS       = 24
+const TILT_BURST_THRESHOLD = 3       // ≥3 trades inside 4 hours after a big loss
+
+/** Recency bias — overweighting the last outcome on a pair. */
+const RECENCY_BIAS_CHASE_HOURS  = 24    // same pair within 24h of a win
+const RECENCY_BIAS_AVOID_DAYS   = 7     // pair avoided ≥7 days after a single loss
+const RECENCY_BIAS_AVOID_BASELINE = 4   // … but only counts if pair was a normal repeat (≥4 prior trades)
+
+/** Strategy hopping — share of unique setup_tags vs total tagged trades.
+ *  Above this ratio = the trader is shopping rather than executing. */
+const STRATEGY_HOPPING_UNIQUE_RATIO = 0.45
+
+/** Drawdown resilience — minimum DD depth to score against. Anything
+ *  shallower is noise inside a normal equity ladder. */
+const RESILIENCE_MIN_DD_DEPTH = 0.04   // 4% peak-to-trough drawdown
+
+/** Patience — median inter-trade gap in minutes that maps to score=100.
+ *  Below that, score scales down toward 0. */
+const PATIENCE_TARGET_GAP_MIN = 240    // 4h between trades = textbook patient
+
+/** Maturity bands. The Trading Maturity Index lands a trader inside
+ *  one of these — used as the headline behavioral verdict. */
+export const MATURITY_BANDS = [
+  { max: 25,  name: 'Beginner'   as const, blurb: 'Building habits — focus on logging + rule adherence.' },
+  { max: 50,  name: 'Developing' as const, blurb: 'Patterns emerging — tighten risk + cut impulse trades.' },
+  { max: 70,  name: 'Competent'  as const, blurb: 'Consistent execution — refine selectivity + recovery.' },
+  { max: 85,  name: 'Advanced'   as const, blurb: 'Institutional-grade discipline — protect the edge.' },
+  { max: 100, name: 'Elite'      as const, blurb: 'Top-decile behavior — coach others; scale capital.' },
+] as const
+export type MaturityLevel = typeof MATURITY_BANDS[number]['name']
+
 
 export interface BehavioralReport {
   total_trades:        number
@@ -127,15 +175,123 @@ export interface BehavioralReport {
     other:   number
   }
 
+  // ─── V2 institutional behavioral risk metrics ──────────────────────
+
+  /** 0–100 — HIGHER IS WORSE. Size + selectivity drift after winning
+   *  streaks (separate from risk_inflation_risk which is risk_pct only). */
+  confidence_drift_risk:   number | null
+  confidence_drift_count:  number
+  confidence_drift_events: ConfidenceDriftEvent[]
+
+  /** 0–100 — HIGHER IS WORSE. Behavioral deterioration in the 24h
+   *  window after a "large" loss (loss > 2× avg loss). */
+  tilt_risk:   number | null
+  tilt_events: TiltEvent[]
+  /** 0–100 — POSITIVE inverse of tilt_risk; for radar/composite use. */
+  tilt_score:  number | null
+
+  /** 0–100 — HIGHER IS WORSE. Chasing recent winners on a pair OR
+   *  avoiding a pair after a single loss against prior history. */
+  recency_bias_risk:   number | null
+  recency_bias_events: RecencyBiasEvent[]
+
+  /** 0–100 — HIGHER IS WORSE. Frequent setup_tag switching — share of
+   *  unique tags / total tagged trades. Reflects strategy non-commitment. */
+  strategy_hopping_risk:  number | null
+  strategy_switch_count:  number
+
+  // ─── V2 institutional positive scores ─────────────────────────────
+
+  /** 0–100 — HIGHER IS BETTER. Quality of recovery after drawdowns.
+   *  Composite of recovery speed (trades to new equity high) and
+   *  recovery_efficiency (trades_in_recovery / trades_in_drawdown). */
+  resilience_score:    number | null
+  recovery_time_days:  number | null
+  recovery_efficiency: number | null
+
+  /** 0–100 — HIGHER IS BETTER. Selectivity — inter-trade gap discipline
+   *  + low impulse + low overtrade composite. */
+  patience_score: number | null
+
+  /** 0–100 — HIGHER IS BETTER. Positive flip of discipline/risk
+   *  inflation/loss chase — compliance with the trader's own rules. */
+  rule_adherence_score: number | null
+
+  /** 0–100 — HIGHER IS BETTER. Composite of low FOMO, low impulse,
+   *  low revenge, low tilt — impulse suppression under stress. */
+  self_control_score: number | null
+
+  /** 0–100 — HIGHER IS BETTER. Composite of low risk inflation, low
+   *  loss chase, low discipline_risk — risk-rule adherence specifically. */
+  risk_discipline_score: number | null
+
+  /** 0–100 — HIGHER IS BETTER. The headline institutional verdict.
+   *  Weighted: rule_adherence 25% + self_control 25% + risk_discipline
+   *  20% + resilience 15% + patience 10% + consistency 5%. */
+  trading_maturity_index: number | null
+  maturity_level:         MaturityLevel | null
+  maturity_blurb:         string | null
+
+  /** Final 6 normalized 0–100 scores surfaced to the UI as a radar.
+   *  Convenience field: rebuilds the V2 positive scores into a fixed
+   *  shape so the chart layer can iterate one object. */
+  institutional_scores: {
+    psychology:   number | null
+    discipline:   number | null
+    consistency:  number | null
+    resilience:   number | null
+    patience:     number | null
+    maturity:     number | null
+  }
+
+  /** Deterministic coaching narrative — strengths, weaknesses,
+   *  recommendations, ranked alerts. Free, always-on (no LLM). */
+  coaching: CoachingNarrative
+
   /** Honest emitted issues, ranked. Used by the coach narrative. */
   flags: BehaviorFlag[]
+}
+
+
+// ── V2 event payloads ───────────────────────────────────────────────
+
+export interface ConfidenceDriftEvent {
+  at:           string  // ISO timestamp of the post-streak trade
+  pair:         string
+  streak_len:   number
+  size_multiple: number  // size as a multiple of baseline
+}
+
+export interface TiltEvent {
+  trigger_at:    string  // ISO timestamp of the triggering large loss
+  trigger_loss:  number
+  followups:     number  // # trades inside the hot window
+  burst:         boolean // true if the hot window had a trade burst
+  risk_inflated: boolean // true if any follow-up exceeded baseline risk
+  emotion_flag:  boolean // true if any follow-up's emotion_pre was negative
+}
+
+export interface RecencyBiasEvent {
+  pair:   string
+  kind:   'chase_winner' | 'avoid_loser'
+  detail: string
+}
+
+export interface CoachingNarrative {
+  summary:        string
+  strengths:      string[]
+  weaknesses:     string[]
+  recommendations: string[]
+  alerts:         BehaviorFlag[]
 }
 
 
 export type BehaviorFlag = {
   kind: 'revenge' | 'overtrade' | 'risk_inflation' | 'rule_violation' |
         'fomo' | 'fear_paralysis' | 'consistency' | 'thin_sample' |
-        'weekend_gamble' | 'impulse' | 'loss_chase'
+        'weekend_gamble' | 'impulse' | 'loss_chase' |
+        'confidence_drift' | 'tilt' | 'recency_bias' | 'strategy_hopping' |
+        'low_resilience' | 'low_patience'
   severity: 'info' | 'warn' | 'critical'
   label:   string
   detail:  string
@@ -179,30 +335,113 @@ export function analyzeBehavior(
   const lossChase      = thinSample ? null : detectLossChase(chron, flags)
   const emotionSummary = summarizeEmotions(rows)
 
-  return {
+  // V2 institutional metrics — same thin-sample gate.
+  const confidenceDrift = thinSample ? null : detectConfidenceDrift(chron, flags)
+  const tilt            = thinSample ? null : detectTilt(chron, flags)
+  const recencyBias     = thinSample ? null : detectRecencyBias(chron, flags)
+  const strategyHopping = thinSample ? null : detectStrategyHopping(rows, flags)
+  const resilience      = thinSample ? null : computeResilience(chron, flags)
+  const patience        = thinSample ? null : computePatience(chron, impulse?.count ?? 0, overtrade?.days ?? 0, flags)
+
+  const fomoRisk          = fomo?.score ?? null
+  const overtradeRisk     = overtrade?.score ?? null
+  const revengeRisk       = revenge?.score ?? null
+  const riskInflationRisk = riskInflation?.score ?? null
+  const disciplineRisk    = discipline?.score ?? null
+  const impulseRisk       = impulse?.score ?? null
+  const lossChaseRisk     = lossChase?.score ?? null
+  const tiltRisk          = tilt?.score ?? null
+
+  // Composite positive scores. Each is null if any constituent is null
+  // — institutional reports never average around `null` to fabricate a
+  // number; the UI shows "—" when sample is thin.
+  const ruleAdherence  = invertComposite([disciplineRisk, riskInflationRisk, lossChaseRisk])
+  const selfControl    = invertComposite([fomoRisk, impulseRisk, revengeRisk, tiltRisk])
+  const riskDiscipline = invertComposite([riskInflationRisk, lossChaseRisk, disciplineRisk])
+
+  // Maturity index — weighted blend of the institutional scores.
+  // Constants documented in MEMORY → psychology-engine-v2-spec.
+  const maturityIdx = weightedScore([
+    [ruleAdherence,                       0.25],
+    [selfControl,                         0.25],
+    [riskDiscipline,                      0.20],
+    [resilience?.score ?? null,           0.15],
+    [patience,                            0.10],
+    [consistency,                         0.05],
+  ])
+  const maturityLevel = maturityIdx != null ? bandMaturity(maturityIdx) : null
+
+  const tiltScore = tiltRisk != null ? clamp01_100(100 - tiltRisk) : null
+
+  const report: BehavioralReport = {
     total_trades:        rows.length,
     closed_trades:       closed.length,
     window_days:         windowDays,
     consistency_score:   consistency,
-    revenge_risk:        revenge?.score ?? null,
+    revenge_risk:        revengeRisk,
     revenge_count:       revenge?.count ?? 0,
-    overtrade_risk:      overtrade?.score ?? null,
+    overtrade_risk:      overtradeRisk,
     overtrade_days:      overtrade?.days  ?? 0,
-    risk_inflation_risk: riskInflation?.score ?? null,
+    risk_inflation_risk: riskInflationRisk,
     risk_inflation_count: riskInflation?.count ?? 0,
-    discipline_risk:     discipline?.score ?? null,
+    discipline_risk:     disciplineRisk,
     rule_violations:     discipline?.count ?? 0,
-    fomo_risk:           fomo?.score ?? null,
+    fomo_risk:           fomoRisk,
     fomo_count:          fomo?.count ?? 0,
     weekend_gamble_risk: weekendGamble?.score ?? null,
     weekend_gamble_count: weekendGamble?.count ?? 0,
-    impulse_risk:        impulse?.score ?? null,
+    impulse_risk:        impulseRisk,
     impulse_count:       impulse?.count ?? 0,
-    loss_chase_risk:     lossChase?.score ?? null,
+    loss_chase_risk:     lossChaseRisk,
     loss_chase_count:    lossChase?.count ?? 0,
     emotion_summary:     emotionSummary,
+
+    // V2 fields
+    confidence_drift_risk:   confidenceDrift?.score ?? null,
+    confidence_drift_count:  confidenceDrift?.count ?? 0,
+    confidence_drift_events: confidenceDrift?.events ?? [],
+
+    tilt_risk:   tiltRisk,
+    tilt_events: tilt?.events ?? [],
+    tilt_score:  tiltScore,
+
+    recency_bias_risk:   recencyBias?.score ?? null,
+    recency_bias_events: recencyBias?.events ?? [],
+
+    strategy_hopping_risk: strategyHopping?.score ?? null,
+    strategy_switch_count: strategyHopping?.switches ?? 0,
+
+    resilience_score:    resilience?.score ?? null,
+    recovery_time_days:  resilience?.recovery_time_days ?? null,
+    recovery_efficiency: resilience?.recovery_efficiency ?? null,
+
+    patience_score:        patience,
+    rule_adherence_score:  ruleAdherence,
+    self_control_score:    selfControl,
+    risk_discipline_score: riskDiscipline,
+
+    trading_maturity_index: maturityIdx,
+    maturity_level:         maturityLevel?.name ?? null,
+    maturity_blurb:         maturityLevel?.blurb ?? null,
+
+    institutional_scores: {
+      psychology:  selfControl,
+      discipline:  ruleAdherence,
+      consistency: consistency,
+      resilience:  resilience?.score ?? null,
+      patience:    patience,
+      maturity:    maturityIdx,
+    },
+
+    coaching: { summary: '', strengths: [], weaknesses: [], recommendations: [], alerts: [] },
     flags,
   }
+
+  // Generate the coaching narrative against the finalized report so all
+  // V2 scores are available to it.
+  report.coaching = generateCoaching(report)
+
+  return report
 }
 
 
@@ -546,6 +785,611 @@ function summarizeEmotions(rows: JournalEntry[]) {
     fomo:    counts.fomo    / total,
     other:   counts.other   / total,
   }
+}
+
+
+// ─── V2 — Confidence Drift ──────────────────────────────────────────
+//
+// Drift = lot-size inflation + reduced selectivity after a winning
+// streak. Separate signal from risk_inflation_risk (which only watches
+// risk_pct). When lot_size is missing we fall back to risk_pct so the
+// score still computes — never silently zero-out.
+
+function detectConfidenceDrift(
+  chron: JournalEntry[],
+  flags: BehaviorFlag[],
+): { score: number; count: number; events: ConfidenceDriftEvent[] } {
+  const closed = chron.filter((r) => r.pnl != null)
+  if (closed.length < MIN_SAMPLE_PER_AXIS + CONFIDENCE_DRIFT_STREAK_LEN) {
+    return { score: 0, count: 0, events: [] }
+  }
+  const sizes = closed.map((r) =>
+    (typeof r.lot_size === 'number' && r.lot_size > 0)
+      ? r.lot_size
+      : (typeof r.risk_pct === 'number' && r.risk_pct > 0 ? r.risk_pct : null),
+  )
+  const sizeAvg = mean(sizes.filter((x): x is number => x != null))
+  if (sizeAvg == null || sizeAvg <= 0) return { score: 0, count: 0, events: [] }
+
+  let count = 0
+  let opportunities = 0
+  let streak = 0
+  const events: ConfidenceDriftEvent[] = []
+
+  for (let i = 0; i < closed.length; i++) {
+    const r = closed[i]
+    if (r == null) continue
+    if ((r.pnl ?? 0) > 0) {
+      streak++
+      if (streak >= CONFIDENCE_DRIFT_STREAK_LEN) {
+        // Examine up to LOOKAHEAD next trades for size inflation.
+        for (let j = 1; j <= CONFIDENCE_DRIFT_LOOKAHEAD; j++) {
+          const after = closed[i + j]
+          if (after == null) break
+          const sz = (typeof after.lot_size === 'number' && after.lot_size > 0)
+            ? after.lot_size
+            : (typeof after.risk_pct === 'number' ? after.risk_pct : null)
+          if (sz == null) continue
+          opportunities++
+          if (sz > sizeAvg * CONFIDENCE_DRIFT_SIZE_INFLATE) {
+            count++
+            events.push({
+              at:           after.created_at,
+              pair:         after.pair ?? '—',
+              streak_len:   streak,
+              size_multiple: Number((sz / sizeAvg).toFixed(2)),
+            })
+          }
+        }
+      }
+    } else {
+      streak = 0
+    }
+  }
+
+  if (opportunities < MIN_SAMPLE_PER_AXIS) return { score: 0, count, events }
+  const score = Math.min(100, Math.round((count / opportunities) * 140))
+  if (count >= 2) {
+    flags.push({
+      kind: 'confidence_drift',
+      severity: score >= 55 ? 'critical' : 'warn',
+      label: 'Confidence drift after wins',
+      detail: `${count} of ${opportunities} post-streak entries used ${Math.round((CONFIDENCE_DRIFT_SIZE_INFLATE - 1) * 100)}%+ size vs your baseline. Strong runs invite over-sizing.`,
+    })
+  }
+  return { score, count, events }
+}
+
+
+// ─── V2 — Tilt detection ────────────────────────────────────────────
+//
+// Tilt = the 24h after a "large" loss (loss > 2× avg loss). We flag
+// the window if any of: (a) risk_pct exceeds baseline, (b) ≥3 trades
+// inside 4h burst, (c) emotion_pre / mistakes flag negative.
+
+function detectTilt(
+  chron: JournalEntry[],
+  flags: BehaviorFlag[],
+): { score: number; events: TiltEvent[] } {
+  const closed = chron.filter((r) => r.pnl != null)
+  if (closed.length < MIN_SAMPLE_PER_AXIS) return { score: 0, events: [] }
+
+  const losses = closed.map((r) => r.pnl as number).filter((p) => p < 0)
+  if (losses.length === 0) return { score: 0, events: [] }
+  const avgLoss = Math.abs(mean(losses) ?? 0)
+  const tiltThreshold = -avgLoss * TILT_LOSS_MULTIPLIER
+
+  const avgRisk = mean(
+    closed.map((r) => r.risk_pct ?? null).filter((x): x is number => x != null),
+  ) ?? null
+
+  const events: TiltEvent[] = []
+  for (let i = 0; i < closed.length; i++) {
+    const r = closed[i]
+    if (r == null) continue
+    if ((r.pnl ?? 0) > tiltThreshold) continue   // not a "large" loss
+
+    const triggerTime = +new Date(r.created_at)
+    const followups: JournalEntry[] = []
+    for (let j = i + 1; j < closed.length; j++) {
+      const next = closed[j]
+      if (next == null) continue
+      const dt = (+new Date(next.created_at) - triggerTime) / 3_600_000
+      if (dt > TILT_HOT_HOURS) break
+      followups.push(next)
+    }
+    if (followups.length === 0) continue
+
+    // Burst: ≥3 trades inside any 4h slice of the window.
+    let burst = false
+    for (let k = 0; k <= followups.length - TILT_BURST_THRESHOLD; k++) {
+      const first = followups[k]
+      const last  = followups[k + TILT_BURST_THRESHOLD - 1]
+      if (first == null || last == null) continue
+      const span = (+new Date(last.created_at) - +new Date(first.created_at)) / 3_600_000
+      if (span <= 4) { burst = true; break }
+    }
+    const riskInflated = avgRisk != null && followups.some(
+      (f) => f.risk_pct != null && f.risk_pct > avgRisk * 1.2,
+    )
+    const emotionFlag = followups.some((f) => {
+      const e = (f.emotion_pre ?? '').toLowerCase()
+      const m = (f.mistakes ?? '').toLowerCase()
+      return e.includes('angry') || e.includes('frustrat') || e.includes('tilt') ||
+             e.includes('revenge') || m.includes('tilt') || m.includes('revenge')
+    })
+
+    if (burst || riskInflated || emotionFlag) {
+      events.push({
+        trigger_at:    r.created_at,
+        trigger_loss:  r.pnl as number,
+        followups:     followups.length,
+        burst,
+        risk_inflated: riskInflated,
+        emotion_flag:  emotionFlag,
+      })
+    }
+  }
+
+  if (events.length === 0) return { score: 0, events: [] }
+  // Score scales with event count vs total trades, soft-capped.
+  const score = Math.min(100, Math.round((events.length / Math.max(1, closed.length)) * 320))
+  flags.push({
+    kind: 'tilt',
+    severity: score >= 50 ? 'critical' : 'warn',
+    label: 'Tilt after large losses',
+    detail: `${events.length} large-loss window${events.length === 1 ? '' : 's'} showed bursts, risk inflation, or negative emotion logs. De-risk for 24h after any ${Math.round(TILT_LOSS_MULTIPLIER)}×-avg loss.`,
+  })
+  return { score, events }
+}
+
+
+// ─── V2 — Recency bias ──────────────────────────────────────────────
+//
+// Per-pair: chasing a recent winner (same pair within 24h of a win,
+// with bigger size) OR avoiding a recent loser (pair has ≥4 prior
+// trades but goes silent ≥7 days after a single loss).
+
+function detectRecencyBias(
+  chron: JournalEntry[],
+  flags: BehaviorFlag[],
+): { score: number; events: RecencyBiasEvent[] } {
+  const closed = chron.filter((r) => r.pnl != null && r.pair)
+  if (closed.length < MIN_SAMPLE_PER_AXIS) return { score: 0, events: [] }
+
+  // Group by pair.
+  const byPair = new Map<string, JournalEntry[]>()
+  for (const r of closed) {
+    const k = r.pair as string
+    if (!byPair.has(k)) byPair.set(k, [])
+    byPair.get(k)!.push(r)
+  }
+
+  // Baseline size per trader to compare chase entries against.
+  const sizes = closed.map((r) =>
+    typeof r.lot_size === 'number' ? r.lot_size
+      : typeof r.risk_pct === 'number' ? r.risk_pct : null,
+  ).filter((x): x is number => x != null)
+  const sizeAvg = mean(sizes) ?? 0
+
+  const events: RecencyBiasEvent[] = []
+  // closed is chron-asc, so newest is the LAST element.
+  const lastTradeAt = +new Date(closed[closed.length - 1]?.created_at ?? Date.now())
+
+  for (const [pair, rows] of byPair) {
+    // Chase: any (win → next-same-pair within 24h with size > baseline).
+    for (let i = 0; i < rows.length - 1; i++) {
+      const a = rows[i]; const b = rows[i + 1]
+      if (a == null || b == null) continue
+      if ((a.pnl ?? 0) <= 0) continue
+      const dtH = (+new Date(b.created_at) - +new Date(a.created_at)) / 3_600_000
+      if (dtH > RECENCY_BIAS_CHASE_HOURS) continue
+      const bSize = typeof b.lot_size === 'number' ? b.lot_size
+        : typeof b.risk_pct === 'number' ? b.risk_pct : null
+      if (bSize != null && sizeAvg > 0 && bSize > sizeAvg * 1.15) {
+        events.push({
+          pair,
+          kind: 'chase_winner',
+          detail: `Re-entered ${pair} ${Math.round(dtH)}h after a win at ${(bSize / sizeAvg).toFixed(1)}× baseline size.`,
+        })
+      }
+    }
+    // Avoid: pair has ≥ AVOID_BASELINE prior trades, last trade was a
+    // loss, and pair hasn't been re-traded in ≥ AVOID_DAYS.
+    if (rows.length >= RECENCY_BIAS_AVOID_BASELINE) {
+      const lastInPair = rows[rows.length - 1]!
+      if ((lastInPair.pnl ?? 0) < 0) {
+        const sinceDays = (lastTradeAt - +new Date(lastInPair.created_at)) / 86_400_000
+        if (sinceDays >= RECENCY_BIAS_AVOID_DAYS) {
+          events.push({
+            pair,
+            kind: 'avoid_loser',
+            detail: `Stopped trading ${pair} ${Math.round(sinceDays)}d after a single loss — sample of ${rows.length} prior.`,
+          })
+        }
+      }
+    }
+  }
+
+  if (events.length === 0) return { score: 0, events: [] }
+  const score = Math.min(100, Math.round((events.length / Math.max(1, byPair.size)) * 90))
+  if (events.length >= 2) {
+    flags.push({
+      kind: 'recency_bias',
+      severity: score >= 50 ? 'critical' : 'warn',
+      label: 'Recency bias on pair selection',
+      detail: `${events.length} pair-level pattern${events.length === 1 ? '' : 's'} — chasing recent winners or avoiding recent losers. Both signal selection bias.`,
+    })
+  }
+  return { score, events }
+}
+
+
+// ─── V2 — Strategy hopping ──────────────────────────────────────────
+//
+// High unique-setup-tag ratio = the trader is shopping setups rather
+// than committing to a tested process. Also counts setup switches
+// (current trade's setup_tag ≠ previous's) for nuance.
+
+function detectStrategyHopping(
+  rows: JournalEntry[],
+  flags: BehaviorFlag[],
+): { score: number; switches: number } {
+  const tagged = rows.filter((r) => typeof r.setup_tag === 'string' && r.setup_tag.trim().length > 0)
+  if (tagged.length < MIN_SAMPLE_PER_AXIS) return { score: 0, switches: 0 }
+
+  const tags = tagged.map((r) => (r.setup_tag as string).trim().toLowerCase())
+  const unique = new Set(tags).size
+  const uniqueRatio = unique / tagged.length
+
+  // Switches walking chronologically.
+  const chron = [...tagged].reverse()
+  let switches = 0
+  for (let i = 1; i < chron.length; i++) {
+    const prev = chron[i - 1]; const curr = chron[i]
+    if (prev == null || curr == null) continue
+    if ((prev.setup_tag ?? '').trim().toLowerCase() !== (curr.setup_tag ?? '').trim().toLowerCase()) {
+      switches++
+    }
+  }
+
+  // Combined: high unique-ratio + high switch rate both penalize.
+  const uniquePenalty = Math.max(0, (uniqueRatio - STRATEGY_HOPPING_UNIQUE_RATIO) / (1 - STRATEGY_HOPPING_UNIQUE_RATIO))
+  const switchRate    = switches / Math.max(1, tagged.length - 1)
+  const score = Math.min(100, Math.round((uniquePenalty * 60) + (switchRate * 60)))
+  if (score >= 40) {
+    flags.push({
+      kind: 'strategy_hopping',
+      severity: score >= 65 ? 'critical' : 'warn',
+      label: 'Strategy hopping',
+      detail: `${unique} distinct setups across ${tagged.length} trades (${Math.round(uniqueRatio * 100)}% unique). Edge requires repetition.`,
+    })
+  }
+  return { score, switches }
+}
+
+
+// ─── V2 — Drawdown resilience ───────────────────────────────────────
+//
+// Build the equity curve chronologically. Identify the deepest
+// peak-to-trough drawdown ≥ RESILIENCE_MIN_DD_DEPTH. Measure how many
+// trades it took to recover to the prior peak, and the efficiency
+// ratio of recovery vs drawdown duration.
+
+function computeResilience(
+  chron: JournalEntry[],
+  flags: BehaviorFlag[],
+): { score: number; recovery_time_days: number | null; recovery_efficiency: number | null } | null {
+  const closed = chron.filter((r) => r.pnl != null)
+  if (closed.length < MIN_SAMPLE_OVERALL) return null
+
+  let equity = 0
+  let peak = 0
+  const points: { eq: number; at: number; idx: number }[] = []
+  for (let i = 0; i < closed.length; i++) {
+    const r = closed[i]
+    if (r == null) continue
+    equity += r.pnl as number
+    if (equity > peak) peak = equity
+    points.push({ eq: equity, at: +new Date(r.created_at), idx: i })
+  }
+  if (points.length < MIN_SAMPLE_OVERALL) return null
+
+  // Find deepest DD: scan for peak, then trough, then recovery point.
+  let bestDD = { depth: 0, peakIdx: 0, troughIdx: 0, recoveryIdx: -1 }
+  let runningPeak = points[0]!.eq
+  let runningPeakIdx = 0
+  for (let i = 1; i < points.length; i++) {
+    const pt = points[i]!
+    if (pt.eq > runningPeak) {
+      runningPeak = pt.eq
+      runningPeakIdx = i
+      continue
+    }
+    const depth = runningPeak - pt.eq
+    const normDepth = depth / Math.max(1, Math.abs(runningPeak))
+    if (normDepth > bestDD.depth) {
+      // Find recovery point — first j>i with eq >= runningPeak.
+      let recovery = -1
+      for (let j = i + 1; j < points.length; j++) {
+        if (points[j]!.eq >= runningPeak) { recovery = j; break }
+      }
+      bestDD = { depth: normDepth, peakIdx: runningPeakIdx, troughIdx: i, recoveryIdx: recovery }
+    }
+  }
+
+  if (bestDD.depth < RESILIENCE_MIN_DD_DEPTH) {
+    // No meaningful drawdown — trader hasn't been stress-tested.
+    // Award a neutral 70 (positive but not perfect; absence of stress
+    // doesn't equal proven resilience).
+    return { score: 70, recovery_time_days: null, recovery_efficiency: null }
+  }
+
+  // Drawdown duration & recovery duration in trades.
+  const ddDurationTrades = bestDD.troughIdx - bestDD.peakIdx
+  const recovered = bestDD.recoveryIdx > 0
+  const recoveryDurationTrades = recovered
+    ? bestDD.recoveryIdx - bestDD.troughIdx
+    : closed.length - bestDD.troughIdx
+
+  const peakPt     = points[bestDD.peakIdx]!
+  const recoveryPt = recovered ? points[bestDD.recoveryIdx]! : null
+  const recoveryDays = recoveryPt
+    ? (recoveryPt.at - peakPt.at) / 86_400_000
+    : null
+
+  // Efficiency: how fast did they recover vs how fast did they fall?
+  // ≥1.0 = recovered as fast or faster than they fell (great).
+  // <1.0 = recovery took longer than the fall (typical).
+  const efficiency = recovered && ddDurationTrades > 0
+    ? ddDurationTrades / Math.max(1, recoveryDurationTrades)
+    : (recovered ? 1 : 0)
+
+  // Score: full recovery + efficiency floor of 50; bonus for fast.
+  let score: number
+  if (!recovered) {
+    score = Math.max(5, 40 - Math.round(bestDD.depth * 100))   // worse the deeper
+  } else {
+    const base = 50
+    const bonus = Math.min(50, Math.round(efficiency * 50))
+    const depthPenalty = Math.min(20, Math.round(bestDD.depth * 100))
+    score = clamp01_100(base + bonus - depthPenalty)
+  }
+
+  if (score < 35) {
+    flags.push({
+      kind: 'low_resilience',
+      severity: score < 20 ? 'critical' : 'warn',
+      label: 'Slow drawdown recovery',
+      detail: recovered
+        ? `Deepest DD ${Math.round(bestDD.depth * 100)}% took ${recoveryDurationTrades} trades to recover vs ${ddDurationTrades} to fall.`
+        : `Deepest DD ${Math.round(bestDD.depth * 100)}% not yet recovered.`,
+    })
+  }
+
+  return {
+    score,
+    recovery_time_days:  recoveryDays != null ? Number(recoveryDays.toFixed(1)) : null,
+    recovery_efficiency: Number(efficiency.toFixed(2)),
+  }
+}
+
+
+// ─── V2 — Patience ──────────────────────────────────────────────────
+//
+// Selectivity composite: median inter-trade gap (longer = more patient)
+// minus penalties for impulse + overtrading.
+
+function computePatience(
+  chron: JournalEntry[],
+  impulseCount: number,
+  overtradeDays: number,
+  flags: BehaviorFlag[],
+): number | null {
+  if (chron.length < MIN_SAMPLE_OVERALL) return null
+
+  const gaps: number[] = []
+  for (let i = 1; i < chron.length; i++) {
+    const prev = chron[i - 1]; const curr = chron[i]
+    if (prev == null || curr == null) continue
+    const dt = (+new Date(curr.created_at) - +new Date(prev.created_at)) / 60_000
+    if (dt >= 0) gaps.push(dt)
+  }
+  if (gaps.length < MIN_SAMPLE_PER_AXIS) return null
+  gaps.sort((a, b) => a - b)
+  const median = gaps[Math.floor(gaps.length / 2)] ?? 0
+
+  // Gap component: median gap → 0–100, target = PATIENCE_TARGET_GAP_MIN.
+  const gapComponent = Math.min(100, Math.round((median / PATIENCE_TARGET_GAP_MIN) * 100))
+  // Penalties: impulse ratio + overtrade days.
+  const impulsePenalty = Math.min(30, Math.round((impulseCount / Math.max(1, chron.length)) * 100))
+  const overtradePenalty = Math.min(20, overtradeDays * 4)
+
+  const score = clamp01_100(gapComponent - impulsePenalty - overtradePenalty)
+  if (score < 30) {
+    flags.push({
+      kind: 'low_patience',
+      severity: score < 15 ? 'critical' : 'warn',
+      label: 'Low patience',
+      detail: `Median inter-trade gap ${Math.round(median)} min — well under the ${PATIENCE_TARGET_GAP_MIN} min selectivity baseline.`,
+    })
+  }
+  return score
+}
+
+
+// ─── V2 — Composite scoring helpers ─────────────────────────────────
+
+/** Inverse composite: given N "risk" scores (higher=worse), returns
+ *  the 0–100 positive score (100 - mean of risks). Null if ANY input
+ *  is null — we never fabricate by averaging around missing data. */
+function invertComposite(risks: (number | null)[]): number | null {
+  if (risks.some((r) => r == null)) return null
+  const xs = risks as number[]
+  const avg = xs.reduce((a, b) => a + b, 0) / xs.length
+  return clamp01_100(100 - avg)
+}
+
+/** Weighted composite: pairs of [value, weight]. Weights are
+ *  renormalized over the non-null subset so missing axes don't pull
+ *  the score to zero (institutional-report convention). Returns null
+ *  only if every constituent is null. */
+function weightedScore(pairs: [number | null, number][]): number | null {
+  let sum = 0; let w = 0
+  for (const [v, weight] of pairs) {
+    if (v == null) continue
+    sum += v * weight
+    w   += weight
+  }
+  if (w === 0) return null
+  return clamp01_100(Math.round(sum / w))
+}
+
+function bandMaturity(score: number): typeof MATURITY_BANDS[number] {
+  for (const band of MATURITY_BANDS) {
+    if (score <= band.max) return band
+  }
+  return MATURITY_BANDS[MATURITY_BANDS.length - 1]!
+}
+
+function clamp01_100(x: number): number {
+  if (!Number.isFinite(x)) return 0
+  if (x < 0) return 0
+  if (x > 100) return 100
+  return Math.round(x)
+}
+
+
+// ─── V2 — AI coaching narrative ────────────────────────────────────
+//
+// Deterministic, always-on, free. Walks the V2 scores to produce a
+// 1-sentence summary, ranked strengths/weaknesses lists, top-3
+// recommendations, and a severity-sorted alerts feed. The Gemini
+// deep-dive layer on /psychology is independent of this — that's the
+// premium long-form layer; this is the institutional baseline.
+
+export function generateCoaching(b: BehavioralReport): CoachingNarrative {
+  const POSITIVE: Array<[string, number | null, string]> = [
+    ['Rule adherence',  b.rule_adherence_score,  'rule-following discipline'],
+    ['Self-control',    b.self_control_score,    'impulse suppression under stress'],
+    ['Risk discipline', b.risk_discipline_score, 'risk-sizing consistency'],
+    ['Resilience',      b.resilience_score,      'recovery after drawdowns'],
+    ['Patience',        b.patience_score,        'selectivity between trades'],
+    ['Consistency',     b.consistency_score,     'steady P&L distribution'],
+  ]
+  const RISKS: Array<[string, number | null, BehaviorFlag['kind']]> = [
+    ['FOMO entries',         b.fomo_risk,           'fomo'],
+    ['Impulse trades',       b.impulse_risk,        'impulse'],
+    ['Revenge trading',      b.revenge_risk,        'revenge'],
+    ['Tilt after losses',    b.tilt_risk,           'tilt'],
+    ['Overtrading',          b.overtrade_risk,      'overtrade'],
+    ['Risk inflation',       b.risk_inflation_risk, 'risk_inflation'],
+    ['Loss chasing',         b.loss_chase_risk,     'loss_chase'],
+    ['Confidence drift',     b.confidence_drift_risk,'confidence_drift'],
+    ['Strategy hopping',     b.strategy_hopping_risk,'strategy_hopping'],
+    ['Recency bias',         b.recency_bias_risk,   'recency_bias'],
+    ['Weekend gambling',     b.weekend_gamble_risk, 'weekend_gamble'],
+    ['Rule violations',      b.discipline_risk,     'rule_violation'],
+  ]
+
+  const strengths = POSITIVE
+    .filter(([, v]) => v != null && v >= 70)
+    .sort((a, b) => (b[1] as number) - (a[1] as number))
+    .slice(0, 3)
+    .map(([label, v, lens]) => `${label} ${v}/100 — strong ${lens}.`)
+
+  const weaknesses = RISKS
+    .filter(([, v]) => v != null && v >= 45)
+    .sort((a, b) => (b[1] as number) - (a[1] as number))
+    .slice(0, 3)
+    .map(([label, v]) => `${label} at ${v}/100 risk — review the flag detail.`)
+
+  // Recommendation library — keyed by the worst-axis kind. Templated,
+  // not LLM-generated: deterministic, free, and reviewable.
+  const RECOMMENDATIONS: Record<BehaviorFlag['kind'], string> = {
+    fomo:             'Add a 5-minute "cool-off" gate before any entry that wasn\'t on your watchlist before market open.',
+    impulse:          'No entry without a named setup_tag. If you can\'t name the strategy, you can\'t repeat the edge.',
+    revenge:          'Hard-stop after any loss for 60 minutes. Set a phone timer; don\'t override it.',
+    tilt:             'After any loss > 2× your average, halve risk for the next 24h and skip the next session if possible.',
+    overtrade:        'Cap daily trades at 4. If you\'re past your cap, the next trade closes the screen.',
+    risk_inflation:   'Lock max risk_pct in your platform — don\'t allow yourself to raise it mid-session.',
+    loss_chase:       'Risk-cut rule: every loss in a streak halves the next position\'s size until a green trade resets it.',
+    confidence_drift: 'After 3 wins, freeze size at baseline for the next 24h. Strong runs are when bad sizing creeps in.',
+    strategy_hopping: 'Pick 2 setups for the next 30 days. Anything else logs but does not execute.',
+    recency_bias:     'Use a static watchlist for the week — pair selection should not bend to yesterday\'s outcome.',
+    weekend_gamble:   'Set a hard rule: no trades Sat/Sun unless they\'re scheduled in your weekly plan.',
+    rule_violation:   'Run a 7-day rule-violation streak. Any violation resets the counter. Track it daily.',
+    consistency:      'Variance is the enemy of compounding. Tighten the worst-quartile trades — start by cutting your largest 10% of risk.',
+    fear_paralysis:   'Pre-define entry triggers in writing before market open. Pull the trigger when conditions match — no second guessing.',
+    thin_sample:      'Log every trade for the next 2 weeks. Behavior scoring needs 8+ closed trades to be honest.',
+    low_resilience:   'After a drawdown, run a "rebuilding mode" — minimum 50% size cut until you reclaim the prior equity high.',
+    low_patience:     'No more than 2 trades per session. If neither hits, the session is over — even if you\'re bored.',
+  }
+
+  const topWeakKinds = RISKS
+    .filter(([, v]) => v != null && v >= 45)
+    .sort((a, b) => (b[1] as number) - (a[1] as number))
+    .slice(0, 3)
+    .map(([, , kind]) => kind)
+  const recommendations = topWeakKinds
+    .map((k) => RECOMMENDATIONS[k])
+    .filter((s): s is string => typeof s === 'string' && s.length > 0)
+  // If no risks crossed the threshold, prescribe the maturity-band blurb
+  // as the recommendation so the user always gets a direction.
+  if (recommendations.length === 0 && b.maturity_blurb) {
+    recommendations.push(b.maturity_blurb)
+  }
+
+  // Summary line — leads with maturity verdict + headline strength /
+  // weakness so the page opens with signal, not noise.
+  const summary = composeSummary(b, strengths.length, weaknesses.length)
+
+  const alerts = [...b.flags]
+    .sort((a, b) => severityRank(b.severity) - severityRank(a.severity))
+    .slice(0, 6)
+
+  return { summary, strengths, weaknesses, recommendations, alerts }
+}
+
+function composeSummary(b: BehavioralReport, strengthsN: number, weaknessesN: number): string {
+  if (b.closed_trades < MIN_SAMPLE_OVERALL) {
+    return `Behavior scoring needs ${MIN_SAMPLE_OVERALL}+ closed trades — currently ${b.closed_trades}. Log a few more for an honest read.`
+  }
+  const level = b.maturity_level ?? 'Developing'
+  const idx   = b.trading_maturity_index ?? 0
+  const headPos =
+    (b.rule_adherence_score   ?? 0) >= 70 ? 'rule discipline' :
+    (b.self_control_score     ?? 0) >= 70 ? 'self-control'    :
+    (b.risk_discipline_score  ?? 0) >= 70 ? 'risk discipline' :
+    (b.resilience_score       ?? 0) >= 70 ? 'recovery'        :
+    (b.patience_score         ?? 0) >= 70 ? 'patience'        : null
+  const headNeg =
+    (b.fomo_risk    ?? 0) >= 55 ? 'FOMO entries'      :
+    (b.impulse_risk ?? 0) >= 55 ? 'impulse entries'   :
+    (b.revenge_risk ?? 0) >= 55 ? 'revenge trading'   :
+    (b.tilt_risk    ?? 0) >= 55 ? 'tilt after losses' :
+    (b.loss_chase_risk ?? 0) >= 55 ? 'loss chasing'   : null
+
+  if (headPos && headNeg) {
+    return `${level} (${idx}/100) — strong ${headPos}, but ${headNeg} is dragging the score.`
+  }
+  if (headPos) {
+    return `${level} (${idx}/100) — ${headPos} is your edge. Protect it while you scale.`
+  }
+  if (headNeg) {
+    return `${level} (${idx}/100) — ${headNeg} is the top blocker; the recommendation below targets it directly.`
+  }
+  if (strengthsN > 0) {
+    return `${level} (${idx}/100) — balanced execution profile across ${strengthsN} scored axes.`
+  }
+  if (weaknessesN > 0) {
+    return `${level} (${idx}/100) — ${weaknessesN} behavioral risk${weaknessesN === 1 ? '' : 's'} flagged. Address the top one first.`
+  }
+  return `${level} (${idx}/100) — no flagged behaviors in this window. Keep logging.`
+}
+
+function severityRank(s: BehaviorFlag['severity']): number {
+  return s === 'critical' ? 3 : s === 'warn' ? 2 : 1
 }
 
 

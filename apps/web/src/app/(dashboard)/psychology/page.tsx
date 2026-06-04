@@ -12,7 +12,10 @@
  */
 import { redirect } from 'next/navigation'
 import {
-  Brain, AlertOctagon, Repeat, Smile, Flame, Info, type LucideIcon,
+  Brain, AlertOctagon, Repeat, Smile, Flame, Info,
+  CalendarOff, Zap, TrendingDown, Award, ShieldCheck,
+  Activity, HeartPulse, Hourglass, Sparkles,
+  TriangleAlert, type LucideIcon,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
@@ -64,6 +67,15 @@ export default async function PsychologyPage() {
       </header>
 
       <PsychologyRead behavior={behavior} insights={psychInsights} entryCount={entries.length} />
+
+      {behavior && behavior.closed_trades >= 8 && (
+        <>
+          <MaturityHero behavior={behavior} />
+          <InstitutionalScores behavior={behavior} />
+          <CoachingPanel behavior={behavior} />
+          <BehavioralRiskMatrix behavior={behavior} />
+        </>
+      )}
 
       <div className="mt-6">
         <div className="mb-3 flex items-center gap-2">
@@ -148,12 +160,37 @@ function PsychologyRead({ behavior, insights, entryCount }: PsychologyReadProps)
           hint={hasEmotion ? 'log emotion_pre' : 'no emotion logs'}
         />
         <PsychTile
-          label="FOMO entries"
+          label="FOMO trades"
           icon={Flame}
-          score={hasEmotion ? fomoPct : null}
+          score={behavior.fomo_risk ?? (hasEmotion ? fomoPct : null)}
           higherIsBetter={false}
-          unit="%"
-          hint={hasEmotion ? 'log emotion_pre' : 'no emotion logs'}
+          hint={behavior.fomo_risk != null
+            ? `${behavior.fomo_count} flagged`
+            : (hasEmotion ? 'log emotion_pre' : 'no emotion logs')}
+        />
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <PsychTile
+          label="Weekend gambling"
+          icon={CalendarOff}
+          score={behavior.weekend_gamble_risk}
+          higherIsBetter={false}
+          hint={`${behavior.weekend_gamble_count} weekend trades`}
+        />
+        <PsychTile
+          label="Impulse trades"
+          icon={Zap}
+          score={behavior.impulse_risk}
+          higherIsBetter={false}
+          hint={`${behavior.impulse_count} with no setup_tag`}
+        />
+        <PsychTile
+          label="Loss chasing"
+          icon={TrendingDown}
+          score={behavior.loss_chase_risk}
+          higherIsBetter={false}
+          hint={`${behavior.loss_chase_count} kept full risk in 3+ loss streak`}
         />
       </div>
 
@@ -228,5 +265,200 @@ function PsychInsightRow({ i }: { i: CoachInsight }) {
         </div>
       </div>
     </li>
+  )
+}
+
+
+// ─── V2 — Trading Maturity hero ─────────────────────────────────────
+
+const MATURITY_TONE: Record<string, string> = {
+  Beginner:   'from-rose-500/30 to-rose-500/5 text-rose-200',
+  Developing: 'from-amber-500/25 to-amber-500/5 text-amber-200',
+  Competent:  'from-cyan-500/25 to-cyan-500/5 text-cyan-200',
+  Advanced:   'from-emerald-500/25 to-emerald-500/5 text-emerald-200',
+  Elite:      'from-fuchsia-500/30 to-fuchsia-500/5 text-fuchsia-200',
+}
+
+function MaturityHero({ behavior }: { behavior: BehavioralReport }) {
+  const idx   = behavior.trading_maturity_index
+  const level = behavior.maturity_level
+  if (idx == null || !level) return null
+  const tone = MATURITY_TONE[level] ?? 'from-amber-500/20 to-amber-500/5 text-amber-200'
+  return (
+    <div className={cn(
+      'mt-5 rounded-xl border border-border bg-gradient-to-br p-5',
+      tone,
+    )}>
+      <div className="flex items-center gap-2">
+        <Award className="h-4 w-4" strokeWidth={2} aria-hidden />
+        <h2 className="text-sm font-semibold tracking-wide">Trading Maturity Index</h2>
+        <span className="ml-auto text-[11px] opacity-70">Last {behavior.window_days}d</span>
+      </div>
+      <div className="mt-3 flex items-end gap-4">
+        <div className="text-5xl font-bold tabular-nums leading-none">{idx}</div>
+        <div className="flex-1 pb-1">
+          <div className="text-base font-semibold">{level}</div>
+          {behavior.maturity_blurb && (
+            <p className="mt-0.5 text-[12px] opacity-80">{behavior.maturity_blurb}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ─── V2 — Institutional 6-axis scoreboard ───────────────────────────
+
+function InstitutionalScores({ behavior }: { behavior: BehavioralReport }) {
+  const s = behavior.institutional_scores
+  const TILES: Array<{ label: string; icon: LucideIcon; score: number | null; hint?: string }> = [
+    { label: 'Psychology',  icon: Brain,       score: s.psychology,  hint: 'self-control composite' },
+    { label: 'Discipline',  icon: ShieldCheck, score: s.discipline,  hint: 'rule adherence' },
+    { label: 'Consistency', icon: Activity,    score: s.consistency, hint: 'P&L distribution' },
+    { label: 'Resilience',  icon: HeartPulse,  score: s.resilience,
+      hint: behavior.recovery_time_days != null
+        ? `recovered in ${behavior.recovery_time_days}d`
+        : 'recovery quality' },
+    { label: 'Patience',    icon: Hourglass,   score: s.patience,    hint: 'selectivity' },
+    { label: 'Maturity',    icon: Sparkles,    score: s.maturity,    hint: behavior.maturity_level ?? undefined },
+  ]
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-card p-5">
+      <div className="flex items-center gap-2">
+        <Sparkles className="h-4 w-4 text-amber-300" strokeWidth={2} aria-hidden />
+        <h2 className="text-sm font-semibold">Institutional Scoreboard</h2>
+        <span className="ml-auto text-[11px] text-muted-foreground">6 axes · 0–100 · higher is better</span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {TILES.map((t) => (
+          <PsychTile key={t.label} {...t} higherIsBetter />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+
+// ─── V2 — Deterministic coaching panel ──────────────────────────────
+
+function CoachingPanel({ behavior }: { behavior: BehavioralReport }) {
+  const c = behavior.coaching
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-card p-5">
+      <div className="flex items-center gap-2">
+        <Brain className="h-4 w-4 text-amber-300" strokeWidth={2} aria-hidden />
+        <h2 className="text-sm font-semibold">AI Coach Read</h2>
+        <span className="ml-auto text-[11px] text-muted-foreground">Always-on · deterministic</span>
+      </div>
+      <p className="mt-3 text-sm leading-relaxed text-foreground/90">{c.summary}</p>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div>
+          <div className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-emerald-300">
+            <ShieldCheck className="h-3 w-3" strokeWidth={2} aria-hidden /> Strengths
+          </div>
+          {c.strengths.length > 0 ? (
+            <ul className="space-y-1.5 text-[12px] text-foreground/85">
+              {c.strengths.map((s, i) => (<li key={i} className="leading-snug">{s}</li>))}
+            </ul>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">No positive axis cleared 70/100 yet.</p>
+          )}
+        </div>
+        <div>
+          <div className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-rose-300">
+            <TriangleAlert className="h-3 w-3" strokeWidth={2} aria-hidden /> Weaknesses
+          </div>
+          {c.weaknesses.length > 0 ? (
+            <ul className="space-y-1.5 text-[12px] text-foreground/85">
+              {c.weaknesses.map((s, i) => (<li key={i} className="leading-snug">{s}</li>))}
+            </ul>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">No risk metric crossed the 45/100 threshold.</p>
+          )}
+        </div>
+      </div>
+
+      {c.recommendations.length > 0 && (
+        <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/[0.04] p-3">
+          <div className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-amber-300">
+            <Zap className="h-3 w-3" strokeWidth={2} aria-hidden /> Recommendations
+          </div>
+          <ol className="space-y-1.5 text-[12px] leading-relaxed text-foreground/85">
+            {c.recommendations.map((r, i) => (
+              <li key={i} className="flex gap-2">
+                <span className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-[9px] font-bold text-amber-200">
+                  {i + 1}
+                </span>
+                <span>{r}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+// ─── V2 — Behavioral risk matrix (12 risk metrics + counts) ─────────
+
+function BehavioralRiskMatrix({ behavior }: { behavior: BehavioralReport }) {
+  const ROWS: Array<{ label: string; icon: LucideIcon; risk: number | null; count?: number; hint?: string }> = [
+    { label: 'Revenge',          icon: AlertOctagon, risk: behavior.revenge_risk,         count: behavior.revenge_count,         hint: 'post-loss aggression' },
+    { label: 'Tilt',             icon: Flame,        risk: behavior.tilt_risk,            count: behavior.tilt_events.length,    hint: '24h after large loss' },
+    { label: 'FOMO',             icon: Flame,        risk: behavior.fomo_risk,            count: behavior.fomo_count,            hint: 'chase entries' },
+    { label: 'Impulse',          icon: Zap,          risk: behavior.impulse_risk,         count: behavior.impulse_count,         hint: 'no setup_tag' },
+    { label: 'Overtrade',        icon: Repeat,       risk: behavior.overtrade_risk,       count: behavior.overtrade_days,        hint: 'daily cap blown' },
+    { label: 'Risk inflation',   icon: TrendingDown, risk: behavior.risk_inflation_risk,  count: behavior.risk_inflation_count,  hint: 'sizing up after wins' },
+    { label: 'Confidence drift', icon: Sparkles,     risk: behavior.confidence_drift_risk,count: behavior.confidence_drift_count,hint: 'size + selectivity drift' },
+    { label: 'Loss chasing',     icon: TrendingDown, risk: behavior.loss_chase_risk,      count: behavior.loss_chase_count,      hint: '3+ loss streak, full risk' },
+    { label: 'Strategy hopping', icon: Repeat,       risk: behavior.strategy_hopping_risk,count: behavior.strategy_switch_count, hint: 'setup_tag switching' },
+    { label: 'Recency bias',     icon: Activity,     risk: behavior.recency_bias_risk,    count: behavior.recency_bias_events.length, hint: 'pair-selection bias' },
+    { label: 'Weekend gamble',   icon: CalendarOff,  risk: behavior.weekend_gamble_risk,  count: behavior.weekend_gamble_count,  hint: 'Sat/Sun trades' },
+    { label: 'Rule violations',  icon: TriangleAlert,risk: behavior.discipline_risk,      count: behavior.rule_violations,       hint: 'self-reported' },
+  ]
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-card p-5">
+      <div className="flex items-center gap-2">
+        <TriangleAlert className="h-4 w-4 text-rose-300" strokeWidth={2} aria-hidden />
+        <h2 className="text-sm font-semibold">Behavioral Risk Matrix</h2>
+        <span className="ml-auto text-[11px] text-muted-foreground">12 risks · higher is worse</span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
+        {ROWS.map((r) => (
+          <RiskCell key={r.label} {...r} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function RiskCell({ label, icon: Icon, risk, count, hint }: {
+  label: string
+  icon: LucideIcon
+  risk: number | null
+  count?: number
+  hint?: string
+}) {
+  const tone =
+    risk == null              ? 'border-border/30 bg-background/30 text-muted-foreground' :
+    risk >= 60                ? 'border-rose-500/40 bg-rose-500/[0.05] text-rose-200' :
+    risk >= 35                ? 'border-amber-500/40 bg-amber-500/[0.05] text-amber-200' :
+                                'border-emerald-500/30 bg-emerald-500/[0.04] text-emerald-200'
+  return (
+    <div className={cn('rounded-lg border p-2.5', tone)}>
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider opacity-90">
+        <Icon className="h-3 w-3" strokeWidth={2} aria-hidden />{label}
+      </div>
+      <div className="mt-0.5 text-lg font-semibold tabular-nums leading-none">
+        {risk == null ? '—' : risk}
+        <span className="text-[10px] opacity-50">/100</span>
+      </div>
+      <div className="mt-1 text-[10px] opacity-70">
+        {count != null ? `${count} event${count === 1 ? '' : 's'}` : ''}{count != null && hint ? ' · ' : ''}{hint}
+      </div>
+    </div>
   )
 }
