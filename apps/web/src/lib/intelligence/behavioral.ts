@@ -376,6 +376,151 @@ function computeConsistency(closed: JournalEntry[], flags: BehaviorFlag[]): numb
 }
 
 
+// ─── FOMO score ──────────────────────────────────────────────────────
+//
+// Distinct from emotion_summary.fomo (a raw ratio). This is the gated,
+// flag-emitting score the Psychology page surfaces. Pulls from
+// emotion_pre, ai_tags, and a notes-keyword scan.
+
+function detectFomo(
+  rows: JournalEntry[],
+  flags: BehaviorFlag[],
+): { score: number; count: number } {
+  let count = 0
+  for (const r of rows) {
+    if (rowSignalsFomo(r)) count++
+  }
+  if (rows.length < MIN_SAMPLE_PER_AXIS) return { score: 0, count }
+  const ratio = count / rows.length
+  const score = Math.min(100, Math.round(ratio * 180))
+  if (count >= 2) {
+    flags.push({
+      kind: 'fomo',
+      severity: score >= 50 ? 'critical' : 'warn',
+      label: 'FOMO entries detected',
+      detail: `${count} of ${rows.length} trades flagged as FOMO-driven (emotion, notes, or AI tag). Chase entries collapse expectancy.`,
+    })
+  }
+  return { score, count }
+}
+
+function rowSignalsFomo(r: JournalEntry): boolean {
+  const emo = (r.emotion_pre ?? '').toLowerCase()
+  if (emo.includes('fomo') || emo.includes('rush') || emo.includes('impuls')) return true
+  const tags = (r.ai_tags ?? []).map((t) => t.toLowerCase())
+  if (tags.some((t) => t.includes('fomo') || t.includes('chase'))) return true
+  const notes = (r.notes ?? '').toLowerCase()
+  if (notes.includes('fomo') || notes.includes('chase') || notes.includes("couldn't wait")) return true
+  return false
+}
+
+
+// ─── Weekend gambling ────────────────────────────────────────────────
+//
+// Trades opened Saturday/Sunday UTC. Forex doesn't trade weekends, but
+// crypto does — so a sustained weekend cadence on a retail account often
+// indicates the trader is sitting at a screen when they should not be.
+
+function detectWeekendGamble(
+  rows: JournalEntry[],
+  flags: BehaviorFlag[],
+): { score: number; count: number } {
+  let count = 0
+  for (const r of rows) {
+    const d = new Date(r.created_at).getUTCDay()  // 0=Sun, 6=Sat
+    if (d === 0 || d === 6) count++
+  }
+  if (rows.length < MIN_SAMPLE_PER_AXIS) return { score: 0, count }
+  const ratio = count / rows.length
+  const score = Math.min(100, Math.round(ratio * 220))
+  if (count >= 2) {
+    flags.push({
+      kind: 'weekend_gamble',
+      severity: score >= 40 ? 'critical' : 'warn',
+      label: 'Weekend trading pattern',
+      detail: `${count} of ${rows.length} trades opened on Sat/Sun (UTC). Sustained weekend activity is a fatigue / boredom flag.`,
+    })
+  }
+  return { score, count }
+}
+
+
+// ─── Impulse — no strategy attribution ──────────────────────────────
+//
+// `setup_tag` is the trader's named strategy/edge. A blank tag, or one
+// explicitly marked impulse/gut/random/no-plan, is — by the trader's
+// own admission — an unrepeatable entry. We count those.
+
+function detectImpulse(
+  rows: JournalEntry[],
+  flags: BehaviorFlag[],
+): { score: number; count: number } {
+  let count = 0
+  for (const r of rows) {
+    const tag = (r.setup_tag ?? '').trim().toLowerCase()
+    if (IMPULSE_NO_STRATEGY_TAGS.has(tag)) count++
+  }
+  if (rows.length < MIN_SAMPLE_PER_AXIS) return { score: 0, count }
+  const ratio = count / rows.length
+  const score = Math.min(100, Math.round(ratio * 160))
+  if (count >= 2) {
+    flags.push({
+      kind: 'impulse',
+      severity: score >= 50 ? 'critical' : 'warn',
+      label: 'Impulse trades (no strategy)',
+      detail: `${count} of ${rows.length} trades have no setup_tag — by your own log, you can't reproduce that edge.`,
+    })
+  }
+  return { score, count }
+}
+
+
+// ─── Loss chasing — N consecutive losses without de-risking ─────────
+//
+// Differs from revenge (single post-loss aggression within 60min): this
+// catches the slow-bleed pattern where a trader stays at full risk
+// through a 3+ loss streak instead of pulling size down.
+
+function detectLossChase(
+  chron: JournalEntry[],
+  flags: BehaviorFlag[],
+): { score: number; count: number } {
+  const closed = chron.filter((r) => r.pnl != null)
+  if (closed.length < MIN_SAMPLE_PER_AXIS + LOSS_CHASE_STREAK_LEN) {
+    return { score: 0, count: 0 }
+  }
+  const avgRisk = mean(
+    closed.map((r) => r.risk_pct ?? null).filter((x): x is number => x != null),
+  )
+  if (avgRisk == null || avgRisk <= 0) return { score: 0, count: 0 }
+
+  let count = 0
+  let lossStreak = 0
+  for (let i = 0; i < closed.length; i++) {
+    const r = closed[i]
+    if (r == null) continue
+    if ((r.pnl ?? 0) < 0) {
+      lossStreak++
+      if (lossStreak >= LOSS_CHASE_STREAK_LEN && r.risk_pct != null) {
+        if (r.risk_pct >= avgRisk) count++
+      }
+    } else {
+      lossStreak = 0
+    }
+  }
+  const score = Math.min(100, Math.round((count / Math.max(1, closed.length)) * 220))
+  if (count >= 2) {
+    flags.push({
+      kind: 'loss_chase',
+      severity: score >= 35 ? 'critical' : 'warn',
+      label: 'Loss-chasing pattern',
+      detail: `${count} trade${count === 1 ? '' : 's'} during a ${LOSS_CHASE_STREAK_LEN}+ loss streak kept risk at/above baseline. De-risk during slumps.`,
+    })
+  }
+  return { score, count }
+}
+
+
 // ─── Emotion mix ─────────────────────────────────────────────────────
 
 function summarizeEmotions(rows: JournalEntry[]) {
@@ -401,29 +546,6 @@ function summarizeEmotions(rows: JournalEntry[]) {
     fomo:    counts.fomo    / total,
     other:   counts.other   / total,
   }
-}
-
-
-// ─── Detectors stubbed pending in-flight implementation ─────────────
-// analyzeBehavior() references four detectors that aren't yet wired:
-// detectFomo, detectWeekendGamble, detectImpulse, detectLossChase.
-// Each is expected to return { score, count } | null (matching the
-// BehavioralReport field shapes). Until they land, return null so
-// the report renders insufficient-data states for these signals
-// instead of crashing the build.
-//
-// Touch points (call sites): lines ~176-179 / report fields ~195-202.
-function detectFomo(_rows: JournalEntry[], _flags: BehaviorFlag[]): { score: number; count: number } | null {
-  return null
-}
-function detectWeekendGamble(_rows: JournalEntry[], _flags: BehaviorFlag[]): { score: number; count: number } | null {
-  return null
-}
-function detectImpulse(_rows: JournalEntry[], _flags: BehaviorFlag[]): { score: number; count: number } | null {
-  return null
-}
-function detectLossChase(_chron: JournalEntry[], _flags: BehaviorFlag[]): { score: number; count: number } | null {
-  return null
 }
 
 
