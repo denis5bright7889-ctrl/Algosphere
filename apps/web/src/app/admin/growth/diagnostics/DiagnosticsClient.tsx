@@ -67,6 +67,7 @@ const GROUP_LABEL: Record<string, string> = {
   meta:            'Meta (Facebook + Instagram)',
   linkedin:        'LinkedIn',
   x:               'X (Twitter)',
+  video:           'Video (Creatomate)',
 }
 
 export default function DiagnosticsClient() {
