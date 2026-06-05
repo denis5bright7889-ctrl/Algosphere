@@ -21,7 +21,7 @@ import { postToDiscord } from './adapters/discord'
 import { postToX } from './adapters/x'
 import { postToLinkedIn } from './adapters/linkedin'
 import {
-  postToFacebook, postToInstagram, postToInstagramReels,
+  postToFacebook, postToFacebookVideo, postToInstagram, postToInstagramReels,
 } from './adapters/meta'
 import { postToYouTube, postToYouTubeShorts } from './adapters/youtube'
 import { postToWhatsAppChannel } from './adapters/whatsapp'
@@ -53,7 +53,7 @@ async function postViaAdapter(
     case 'discord':          return postToDiscord(text, { contentKind: ctx.kind, imageUrl, videoUrl })
     case 'x':                return postToX(text)
     case 'linkedin':         return postToLinkedIn(text)
-    case 'facebook':         return postToFacebook(text)
+    case 'facebook':         return videoUrl ? postToFacebookVideo(text, videoUrl) : postToFacebook(text)
     case 'instagram':        return postToInstagram(text, imageUrl)
     case 'instagram_reels':  return postToInstagramReels(text, videoUrl)
     case 'youtube':          return postToYouTube(text, videoUrl)
