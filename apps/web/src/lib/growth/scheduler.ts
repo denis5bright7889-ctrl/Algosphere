@@ -44,18 +44,20 @@ export interface PublishOutcome {
 async function postViaAdapter(
   channel: Channel,
   text:    string,
-  ctx:     { hero?: string | null; kind?: string },
+  ctx:     { hero?: string | null; kind?: string; imageUrl?: string | null; videoUrl?: string | null },
 ): Promise<AdapterResult> {
+  const imageUrl = ctx.imageUrl ?? ctx.hero ?? undefined
+  const videoUrl = ctx.videoUrl ?? undefined
   switch (channel) {
-    case 'telegram':         return postToTelegram(text)
-    case 'discord':          return postToDiscord(text, { contentKind: ctx.kind })
+    case 'telegram':         return postToTelegram(text, { imageUrl, videoUrl })
+    case 'discord':          return postToDiscord(text, { contentKind: ctx.kind, imageUrl, videoUrl })
     case 'x':                return postToX(text)
     case 'linkedin':         return postToLinkedIn(text)
     case 'facebook':         return postToFacebook(text)
-    case 'instagram':        return postToInstagram(text, ctx.hero ?? undefined)
-    case 'instagram_reels':  return postToInstagramReels(text)
-    case 'youtube':          return postToYouTube(text)
-    case 'youtube_shorts':   return postToYouTubeShorts(text)
+    case 'instagram':        return postToInstagram(text, imageUrl)
+    case 'instagram_reels':  return postToInstagramReels(text, videoUrl)
+    case 'youtube':          return postToYouTube(text, videoUrl)
+    case 'youtube_shorts':   return postToYouTubeShorts(text, videoUrl)
     case 'whatsapp_channel': return postToWhatsAppChannel(text)
   }
 }
@@ -151,10 +153,18 @@ export async function publishOne(scheduledId: string): Promise<PublishOutcome> {
     assetUrls['weekly_stats_card'] ??
     null
   const heroUrl = sched.hero_image_url ?? kindHero ?? content.hero_image_url ?? null
+  // Pick produced media from asset_urls: a video (mp4, non-thumbnail) and an
+  // image (card hero, else any image asset). The adapters attach these so a
+  // post carries the worker's rendered visual, not just text.
+  const videoUrl = Object.entries(assetUrls)
+    .find(([k, v]) => /\.mp4(\?|$)/i.test(v) && !k.endsWith('_thumbnail'))?.[1] ?? null
+  const imageUrl = heroUrl
+    ?? Object.entries(assetUrls).find(([, v]) => /\.(png|jpe?g|webp)(\?|$)/i.test(v))?.[1]
+    ?? null
   const adapter   = await postViaAdapter(
     sched.channel as Channel,
     formatted.text,
-    { hero: heroUrl, kind: content.kind },
+    { hero: heroUrl, kind: content.kind, imageUrl, videoUrl },
   )
   const durationMs = Date.now() - startedAt
   const nextAttempt = (sched.attempts ?? 0) + 1

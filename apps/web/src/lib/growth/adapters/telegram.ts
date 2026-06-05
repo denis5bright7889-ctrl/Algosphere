@@ -26,25 +26,35 @@ interface TelegramSendResp {
   description?: string
 }
 
-export async function postToTelegram(text: string): Promise<AdapterResult> {
+export async function postToTelegram(
+  text: string,
+  opts?: { imageUrl?: string; videoUrl?: string },
+): Promise<AdapterResult> {
   const token   = process.env.TELEGRAM_BOT_TOKEN
   const chatId  = process.env.GROWTH_TELEGRAM_CHANNEL_ID
 
   if (!token)  return { ok: false, error: 'TELEGRAM_BOT_TOKEN not configured' }
   if (!chatId) return { ok: false, error: 'GROWTH_TELEGRAM_CHANNEL_ID not configured' }
 
+  // Telegram fetches media by URL. sendVideo/sendPhoto cap captions at
+  // 1024 chars (plain messages allow 4096), so media posts get a trimmed
+  // caption. Falls back to a text message when no media is attached.
+  const method =
+    opts?.videoUrl ? 'sendVideo' : opts?.imageUrl ? 'sendPhoto' : 'sendMessage'
+  const payload: Record<string, unknown> =
+    method === 'sendVideo'
+      ? { chat_id: chatId, video: opts!.videoUrl, caption: text.slice(0, 1024), parse_mode: 'Markdown', supports_streaming: true }
+    : method === 'sendPhoto'
+      ? { chat_id: chatId, photo: opts!.imageUrl, caption: text.slice(0, 1024), parse_mode: 'Markdown' }
+      : { chat_id: chatId, text, parse_mode: 'Markdown', disable_web_page_preview: false }
+
   try {
     const res = await fetch(
-      `https://api.telegram.org/bot${token}/sendMessage`,
+      `https://api.telegram.org/bot${token}/${method}`,
       {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          chat_id:                  chatId,
-          text,
-          parse_mode:               'Markdown',
-          disable_web_page_preview: false,
-        }),
+        body:    JSON.stringify(payload),
       },
     )
     const json = (await res.json().catch(() => ({}))) as TelegramSendResp
@@ -52,7 +62,7 @@ export async function postToTelegram(text: string): Promise<AdapterResult> {
       return {
         ok:    false,
         error: json.description ?? `Telegram API HTTP ${res.status}`,
-        response: { status: res.status, description: json.description ?? null },
+        response: { status: res.status, description: json.description ?? null, method },
       }
     }
 
