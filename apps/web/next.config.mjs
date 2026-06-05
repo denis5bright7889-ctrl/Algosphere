@@ -1,5 +1,13 @@
 /** @type {import('next').NextConfig} */
 const config = {
+  // Stop Next.js auto-308'ing trailing-slash URLs. Required because
+  // TikTok's domain-verifier hits /tiktok<hash>.txt/ (with the slash),
+  // and TikTok's HTTP client does NOT follow redirects — it just sees
+  // a 308 with no body and reports "couldn't find verification
+  // signature". With this off, the proxy.ts middleware below rewrites
+  // /<path>/ to /<path> internally so the static file responds 200.
+  skipTrailingSlashRedirect: true,
+
   images: {
     remotePatterns: [
       {

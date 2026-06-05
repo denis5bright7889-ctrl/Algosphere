@@ -29,6 +29,20 @@ function attachVisitorCookie(req: NextRequest, res: NextResponse): NextResponse 
 }
 
 export async function proxy(request: NextRequest) {
+  // ── TikTok (and similar) site-verification trailing-slash handling.
+  //
+  // TikTok's verifier hits /tiktok<hash>.txt/ (with the slash). With
+  // skipTrailingSlashRedirect: true (next.config), Next.js no longer
+  // auto-308's the trailing slash away, so we rewrite internally here.
+  // Constrained to .txt/ paths so we don't accidentally rewrite app
+  // routes that legitimately use trailing slashes.
+  const pathname = request.nextUrl.pathname
+  if (pathname.endsWith('.txt/')) {
+    const url = request.nextUrl.clone()
+    url.pathname = pathname.replace(/\/$/, '')
+    return NextResponse.rewrite(url)
+  }
+
   // Skip Supabase session handling if env vars are not configured yet
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
     return attachVisitorCookie(request, NextResponse.next())
