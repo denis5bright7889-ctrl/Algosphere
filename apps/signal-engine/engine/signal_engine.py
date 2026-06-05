@@ -3,6 +3,7 @@ AlgoSphere Ensemble Signal Engine
 Three sub-strategies with weighted voting, regime-adaptive weights, and ATR-based TP/SL.
 """
 from __future__ import annotations
+import os
 from dataclasses import dataclass
 from typing import Optional, Literal
 from loguru import logger
@@ -240,6 +241,32 @@ _REGIME_THRESHOLD: dict[str, float] = {
     'unknown':      0.24,
 }
 _DEFAULT_THRESHOLD = 0.22
+
+# ─── Shadow calibration (staged rollout — see /admin/signals coverage) ───────
+# Production evidence (live score logs): only 1–2 of 8 strategies vote per
+# cycle, so net |scores| cluster at 0.04–0.27 and the LIVE thresholds above
+# sit in the middle of that distribution → 33/34 symbols stuck at
+# no_ensemble_consensus (yield 0.3%). These SHADOW thresholds are a gradual
+# (~25–30% lower), regime-aware recalibration aligned to the observed
+# clusters (e.g. trending 0.09 captures the dense +0.09–0.118 band).
+#
+# SAFETY: shadow is OFF by default — the engine keeps using the LIVE
+# thresholds and merely LOGS where a shadow threshold WOULD have fired
+# (ENSEMBLE_SHADOW_WOULD_FIRE), so the signal-yield impact is measurable on
+# real data BEFORE any live change. Set ENSEMBLE_SHADOW_PROMOTE=true to
+# activate the lower thresholds. Risk gate, drawdown protection, regime
+# gating and the active cap are UNCHANGED and still run on every proposal.
+_SHADOW_THRESHOLD: dict[str, float] = {
+    'trending':     0.09,
+    'expansion':    0.10,
+    'volatile':     0.16,
+    'ranging':      0.15,
+    'transitional': 0.17,
+    'exhaustion':   0.18,
+    'unknown':      0.18,
+}
+_DEFAULT_SHADOW = 0.17
+
 TOTAL_ENGINES = 8
 
 # Base weights for the strategies the regime engine doesn't explicitly weight
@@ -257,6 +284,15 @@ _EXTRA_STRATEGY_WEIGHTS = {
 
 def _threshold_for(regime_value: str) -> float:
     return _REGIME_THRESHOLD.get(regime_value, _DEFAULT_THRESHOLD)
+
+
+def _shadow_threshold_for(regime_value: str) -> float:
+    return _SHADOW_THRESHOLD.get(regime_value, _DEFAULT_SHADOW)
+
+
+def _shadow_promoted() -> bool:
+    """True → the engine uses the lower (shadow) thresholds for real."""
+    return os.environ.get('ENSEMBLE_SHADOW_PROMOTE', '').strip().lower() == 'true'
 
 
 def _signed(v: StrategyVote) -> float:
@@ -309,7 +345,12 @@ def ensemble_signal(
     # Signal liquidity (FIX 2): how many engines actually voted. Used for
     # observability + confidence context — NEVER to block trading.
     signal_liquidity = round(valid_votes / TOTAL_ENGINES, 2)
-    T = _threshold_for(regime_value)
+    # Active threshold: shadow (lower) ONLY when explicitly promoted; else the
+    # unchanged live threshold. Default = no behaviour change.
+    T_live   = _threshold_for(regime_value)
+    T_shadow = _shadow_threshold_for(regime_value)
+    promoted = _shadow_promoted()
+    T = T_shadow if promoted else T_live
 
     direction: Optional[Direction] = None
     if weighted_score > T:
@@ -322,8 +363,20 @@ def ensemble_signal(
         brk = ', '.join(f"{v.strategy}={v.direction}({v.strength:.2f})" for v in voted)
         tag = 'STRATEGY_SIGNAL_ACCEPTED' if direction else 'STRATEGY_SIGNAL_REJECTED'
         logger.info(f"[{symbol}] {tag} regime={regime_value} votes=[{brk}] "
-                    f"score={weighted_score:+.3f} T={T:.2f} liquidity={signal_liquidity} "
-                    f"completeness={completeness:.2f}")
+                    f"score={weighted_score:+.3f} T={T:.2f} mode={'shadow' if promoted else 'live'} "
+                    f"liquidity={signal_liquidity} completeness={completeness:.2f}")
+
+    # Shadow measurement (no behaviour change): when running LIVE thresholds
+    # and the live gate rejected, log where the SHADOW threshold WOULD have
+    # fired so the calibration's signal-yield impact is measurable before we
+    # promote. This NEVER produces a signal.
+    if not promoted and direction is None:
+        shadow_dir = ('buy'  if weighted_score >  T_shadow else
+                      'sell' if weighted_score < -T_shadow else None)
+        if shadow_dir:
+            logger.info(f"[{symbol}] ENSEMBLE_SHADOW_WOULD_FIRE regime={regime_value} "
+                        f"score={weighted_score:+.3f} T_live={T_live:.2f} "
+                        f"T_shadow={T_shadow:.2f} dir={shadow_dir} liquidity={signal_liquidity}")
 
     if direction is None:
         return None
