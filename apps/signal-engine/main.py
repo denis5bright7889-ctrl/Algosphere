@@ -106,6 +106,25 @@ def _build_scheduler(worker: SignalWorker, monitor: LifecycleMonitor):
         misfire_grace_time=120,
     )
 
+    # Broker Reality Sync (truth layer) — DORMANT unless explicitly enabled
+    # (broker_sync_enabled). Polls each connected broker's real positions
+    # read-only and reconciles them into execution_events → journal →
+    # observability. Off by default so it never journals testnet/paper noise.
+    if settings.broker_sync_enabled:
+        from worker.broker_reconciler import BrokerReconciler
+        reconciler = BrokerReconciler()
+        scheduler.add_job(
+            reconciler.reconcile_all,
+            trigger='interval',
+            seconds=max(5, settings.broker_sync_interval_s),
+            id='broker_reconcile',
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=30,
+            next_run_time=datetime.now(timezone.utc),
+        )
+        logger.info(f"Broker Reality Sync ENABLED — every {settings.broker_sync_interval_s}s")
+
     return scheduler
 
 

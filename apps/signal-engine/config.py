@@ -64,6 +64,13 @@ class Settings(BaseSettings):
     daily_loss_cap: int = 5
     max_active_per_symbol: int = 1
 
+    # Broker Reality Sync (truth layer). DORMANT by default: the reconciler
+    # only runs when explicitly enabled, so it never journals paper/testnet
+    # noise. Enable once a LIVE broker is connected. Interval can drop to
+    # 5–15s once live; default conservative to respect broker rate limits.
+    broker_sync_enabled: bool = False
+    broker_sync_interval_s: int = 30
+
     # App
     port: int = 8001
     environment: str = 'production'
