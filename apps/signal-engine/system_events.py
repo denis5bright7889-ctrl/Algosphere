@@ -39,6 +39,18 @@ from config import get_settings
 # Lazy singleton — same pattern as paper_adapter._db.
 _db: Optional[Client] = None
 
+# Warn-once guard so a persistent misconfiguration is logged loudly ONCE
+# rather than spamming every cycle (or hiding at DEBUG, which is what let
+# the 2026-06 observability outage go unnoticed for ~35h).
+_warned: set[str] = set()
+
+
+def _warn_once(key: str, msg: str) -> None:
+    if key in _warned:
+        return
+    _warned.add(key)
+    logger.warning(msg)
+
 
 def _client() -> Optional[Client]:
     """Service-role client. Returns None if Supabase isn't configured —
@@ -50,11 +62,18 @@ def _client() -> Optional[Client]:
     try:
         s = get_settings()
         if not s.has_supabase:
+            _warn_once('no_supabase',
+                       'system_events: OBSERVABILITY DISABLED — supabase_url / '
+                       'supabase_service_role_key not set; heartbeats + '
+                       'system_event_log will NOT be written.')
             return None
         _db = create_client(s.supabase_url, s.supabase_service_role_key)
         return _db
     except Exception as e:
-        logger.debug(f"system_events: supabase client init failed: {e}")
+        # Elevated from debug → error: a client-init failure silently
+        # disables ALL observability (the exact 2026-06 outage signature).
+        logger.error(f"system_events: supabase client init FAILED — "
+                     f"observability disabled: {e!r}")
         return None
 
 
@@ -85,7 +104,11 @@ def heartbeat(
             'context':   context or {},
         }, on_conflict='component').execute()
     except Exception as e:
-        logger.debug(f"system_events: heartbeat({component}) failed: {e}")
+        # Elevated from debug → warning: a failing heartbeat makes the
+        # component look dead on the diagnostics dashboard even when it's
+        # alive. This must be visible in the Railway logs.
+        logger.warning(f"system_events: heartbeat({component}) WRITE FAILED — "
+                       f"liveness will look stale: {e!r}")
 
 
 # ─── Generic event writer ─────────────────────────────────────────────
