@@ -90,6 +90,75 @@ export function getRiskTelemetry():  Promise<Result<RiskTelemetry>>  { return ge
 export function getCircuitBreakers(): Promise<Result<CircuitBreakers>> { return getJson('/circuit-breaker') }
 
 
+// ─── Signal pipeline diagnostics (admin observability) ──────────────
+//
+// Mirrors the engine's GET /api/v1/diagnostics/full (api/diagnostics.py).
+// Requires the engine admin key (X-Engine-Api-Key header). Surfaced by
+// /api/admin/signals/diagnostics → the /admin/signals dashboard.
+
+export interface SignalDiagnostics {
+  generated_at: string
+  settings: {
+    signal_engine_enabled: boolean
+    signal_dry_run:        boolean
+    scan_interval_minutes: number | null
+    timeframe:             string | null
+    max_active_per_symbol: number | null
+    symbol_count:          number
+    symbols:               string[]
+    has_supabase:          boolean
+  }
+  heartbeats: Array<{
+    component: string; last_at: string; status: string
+    context?: Record<string, unknown>; age_seconds: number | null
+  }>
+  heartbeat_error: string | null
+  risk_state:      Record<string, unknown>
+  signal_counts:   { last_1h: number; last_6h: number; last_24h: number }
+  last_signal: {
+    id: string; pair: string; direction: string
+    confidence_score: number | null; published_at: string; age_seconds?: number
+  } | null
+  drought: { in_drought: boolean; drought_hours: number; last_signal_age_s: number | null }
+  per_symbol: Record<string, { last_event: string; last_reason: string | null; last_at: string }>
+  symbols_missing_from_log: string[]
+  top_rejections_24h: Array<{ reason: string; count: number }>
+  execution_events_24h: number
+  journal_entries_24h:  number
+}
+
+/**
+ * Full engine diagnostics. Uses the admin key header the diagnostics
+ * router expects (X-Engine-Api-Key), distinct from the x-engine-key used
+ * by /execute. Honest Result — never throws into the render layer.
+ */
+export async function getSignalDiagnostics(): Promise<Result<SignalDiagnostics>> {
+  const base = engineBase()
+  if (!base) return { ok: false, error: 'SIGNAL_ENGINE_URL not configured' }
+  const key = process.env.ENGINE_API_KEY ?? ''
+  if (!key) return { ok: false, error: 'ENGINE_API_KEY not configured' }
+
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 8000)
+  try {
+    const res = await fetch(`${base}/api/v1/diagnostics/full`, {
+      signal:  ctrl.signal,
+      headers: { accept: 'application/json', 'X-Engine-Api-Key': key },
+      cache:   'no-store',
+    })
+    if (!res.ok) return { ok: false, error: `engine /diagnostics/full → HTTP ${res.status}` }
+    return { ok: true, data: (await res.json()) as SignalDiagnostics }
+  } catch (e) {
+    const msg = e instanceof Error
+      ? (e.name === 'AbortError' ? 'timeout' : e.message)
+      : 'fetch failed'
+    return { ok: false, error: msg }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+
 // ─── Historical OHLCV (for /backtest real-data mode) ────────────────
 
 export interface OhlcvBar {
