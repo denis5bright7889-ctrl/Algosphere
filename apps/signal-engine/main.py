@@ -125,6 +125,24 @@ def _build_scheduler(worker: SignalWorker, monitor: LifecycleMonitor):
         )
         logger.info(f"Broker Reality Sync ENABLED — every {settings.broker_sync_interval_s}s")
 
+    # Broker-truth snapshot layer (V4.1) — DORMANT unless equity_snapshot_enabled.
+    # Persists account/position/equity snapshots from real broker polls. Enable
+    # only after migration 20240101000073 is applied.
+    if settings.equity_snapshot_enabled:
+        from worker.equity_snapshot_worker import EquitySnapshotWorker
+        snap = EquitySnapshotWorker()
+        scheduler.add_job(
+            snap.snapshot_all,
+            trigger='interval',
+            seconds=max(15, settings.equity_snapshot_interval_s),
+            id='equity_snapshot',
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=30,
+            next_run_time=datetime.now(timezone.utc),
+        )
+        logger.info(f"Equity Snapshot worker ENABLED — every {settings.equity_snapshot_interval_s}s")
+
     return scheduler
 
 

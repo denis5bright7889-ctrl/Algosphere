@@ -84,6 +84,12 @@ class Settings(BaseSettings):
     broker_sync_enabled: bool = False
     broker_sync_interval_s: int = 30
 
+    # Broker-truth snapshot layer (V4.1). DORMANT by default — enable AFTER the
+    # 20240101000073 migration is applied. Persists account/position/equity
+    # snapshots from real broker polls (read-only) for historical reconstruction.
+    equity_snapshot_enabled: bool = False
+    equity_snapshot_interval_s: int = 60
+
     # App
     port: int = 8001
     environment: str = 'production'
