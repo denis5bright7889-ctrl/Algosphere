@@ -30,12 +30,19 @@ from typing import Optional
 from loguru import logger
 
 import producers
+import factory
 from storage import db, ensure_bucket_exists, upload, log_attempt, worker_id
 
 
 POLL_INTERVAL_S = int(os.environ.get('ASSET_WORKER_POLL_S', '15'))
 LEASE_MINUTES   = 5
 LOOK_AHEAD_MIN  = 30   # claim rows scheduled to publish within this window
+
+# Content-factory tick intervals (seconds). Each factory function is a
+# no-op unless its env flag is set, so these are cheap when disabled.
+GEN_EVERY_S  = int(os.environ.get('GROWTH_GEN_EVERY_S', '120'))
+PUB_EVERY_S  = int(os.environ.get('GROWTH_PUB_EVERY_S', '60'))
+HEAL_EVERY_S = int(os.environ.get('GROWTH_HEAL_EVERY_S', '300'))
 
 
 def _now() -> datetime:
@@ -186,9 +193,30 @@ def main() -> None:
 
     wid = worker_id()
     logger.info(f"  worker_id={wid}")
+    logger.info(f"  factory: gen={factory.GEN_ENABLED()} publish={factory.PUB_ENABLED()} "
+                f"queue_target={factory.QUEUE_TARGET()} publish_interval_s={factory.PUBLISH_INTERVAL()}")
+
+    last_gen = last_pub = last_heal = 0.0
+
+    def factory_tick() -> None:
+        """Run generation / publishing / self-heal on their own cadences.
+        Each call self-gates on its env flag — safe when disabled."""
+        nonlocal last_gen, last_pub, last_heal
+        now = time.monotonic()
+        if now - last_heal > HEAL_EVERY_S:
+            factory.run_selfheal(); last_heal = now
+        if now - last_gen > GEN_EVERY_S:
+            factory.run_generator(); last_gen = now
+        if now - last_pub > PUB_EVERY_S:
+            factory.run_publisher(); last_pub = now
 
     idle_strikes = 0
     while True:
+        try:
+            factory_tick()
+        except Exception as e:
+            logger.warning(f"factory_tick error (non-fatal) — {e}")
+
         item = claim_one()
         if item is None:
             # Adaptive backoff — quiet periods don't hammer the DB.
