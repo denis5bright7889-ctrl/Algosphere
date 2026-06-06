@@ -218,21 +218,28 @@ function ConfirmSheet({ signal, brokers, onClose }: {
       aria-modal="true"
       onClick={onClose}
     >
+      {/* Container = column with capped height. The form body scrolls
+          INSIDE so the header (title) and footer (action buttons /
+          outcome banner) are ALWAYS visible — the user can never lose
+          the "Place order" button below the fold on a short viewport. */}
       <div
-        className="w-full max-w-sm rounded-t-2xl border border-border bg-card p-5 shadow-2xl sm:rounded-2xl"
+        className="flex w-full max-w-sm flex-col max-h-[calc(100dvh-1rem)] rounded-t-2xl border border-border bg-card shadow-2xl sm:max-h-[calc(100vh-2rem)] sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-bold">Confirm order</h3>
+        {/* Sticky header */}
+        <div className="flex items-center justify-between border-b border-border/60 px-5 py-3">
+          <h3 className="text-sm font-bold">{outcome ? 'Order result' : 'Confirm order'}</h3>
           <button type="button" onClick={onClose} aria-label="Close" className="text-muted-foreground hover:text-foreground">
             <X className="h-4 w-4" strokeWidth={2} aria-hidden />
           </button>
         </div>
 
-        {outcome ? (
-          <OutcomeView outcome={outcome} onClose={onClose} />
-        ) : (
-          <>
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {outcome ? (
+            <OutcomeBody outcome={outcome} />
+          ) : (
+            <>
             {/* Order summary — exactly what will be sent. */}
             <div className="rounded-lg border border-border/60 bg-background/40 p-3 text-[12px]">
               <div className="flex items-center justify-between">
@@ -348,13 +355,31 @@ function ConfirmSheet({ signal, brokers, onClose }: {
 
             <p className="mt-3 flex items-start gap-1.5 text-[10px] leading-relaxed text-muted-foreground">
               <AlertTriangle className="mt-px h-3 w-3 shrink-0" strokeWidth={2} aria-hidden />
-              A market order is submitted to your broker through the engine&apos;s risk firewall, which may
-              reject it. Fills depend on live liquidity and can differ from the levels shown. Not financial advice.
+              Market order — fills can differ from the levels shown. Not financial advice.
             </p>
 
             {error && <p className="mt-2 text-[11px] text-rose-400">{error}</p>}
+            </>
+          )}
+        </div>
 
-            <div className="mt-4 flex gap-2">
+        {/* Sticky footer — buttons are ALWAYS visible. */}
+        <div className="border-t border-border/60 bg-card px-5 py-3">
+          {outcome ? (
+            <button
+              type="button"
+              onClick={onClose}
+              className={cn(
+                'w-full rounded-lg px-3 py-2 text-xs font-bold transition',
+                outcome.kind === 'rejected'
+                  ? 'border border-border'
+                  : 'bg-gradient-primary text-black hover:opacity-90',
+              )}
+            >
+              Done
+            </button>
+          ) : (
+            <div className="flex gap-2">
               <button type="button" onClick={onClose} className="flex-1 rounded-lg border border-border px-3 py-2 text-xs font-medium">
                 Cancel
               </button>
@@ -373,46 +398,65 @@ function ConfirmSheet({ signal, brokers, onClose }: {
                   : <><Zap className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden /> {needsLiveAck ? 'Place LIVE order' : 'Place order'}</>}
               </button>
             </div>
-          </>
-        )}
+          )}
+        </div>
       </div>
     </div>
   )
 }
 
-function OutcomeView({ outcome, onClose }: { outcome: Outcome; onClose: () => void }) {
+function OutcomeBody({ outcome }: { outcome: Outcome }) {
   if (outcome.kind === 'rejected') {
     return (
-      <div className="py-2">
-        <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/[0.06] p-3 text-[12px] text-amber-200">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-          <div>
-            <p className="font-semibold">Order rejected</p>
-            <p className="mt-0.5 opacity-90">{outcome.reason}</p>
-          </div>
+      <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/[0.06] p-3 text-[12.5px] text-amber-200">
+        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" strokeWidth={2} aria-hidden />
+        <div>
+          <p className="text-sm font-bold">Order rejected</p>
+          <p className="mt-1 opacity-90">{outcome.reason}</p>
+          <p className="mt-2 text-[10.5px] opacity-75">No order was sent to the broker. Adjust size or risk and try again.</p>
         </div>
-        <button type="button" onClick={onClose} className="mt-4 w-full rounded-lg border border-border px-3 py-2 text-xs font-medium">
-          Close
-        </button>
       </div>
     )
   }
+  const filled = outcome.kind === 'filled'
   return (
-    <div className="py-2">
-      <div className="flex items-start gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/[0.06] p-3 text-[12px] text-emerald-200">
-        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-        <div>
-          <p className="font-semibold">{outcome.kind === 'filled' ? 'Order filled' : 'Order submitted'}</p>
-          <p className="mt-0.5 opacity-90 tabular-nums">
-            {outcome.price != null && <>Fill price {outcome.price}. </>}
-            {outcome.brokerOrderId && <>Ref {outcome.brokerOrderId}.</>}
+    <div className="space-y-3">
+      <div className="flex items-start gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/[0.08] p-4 text-[12.5px] text-emerald-200">
+        <CheckCircle2 className="mt-0.5 h-6 w-6 shrink-0" strokeWidth={2.25} aria-hidden />
+        <div className="min-w-0">
+          <p className="text-base font-bold">
+            {filled ? '✓ Order filled' : '✓ Order submitted to broker'}
           </p>
-          <p className="mt-1 text-[10px] opacity-75">Track it on the Brokers page and your trade journal.</p>
+          <p className="mt-1 opacity-95 tabular-nums">
+            {filled
+              ? 'Your trade is live in the market.'
+              : 'Your broker received the order. It will fill on the next available tick.'}
+          </p>
         </div>
       </div>
-      <button type="button" onClick={onClose} className="mt-4 w-full rounded-lg bg-gradient-primary px-3 py-2 text-xs font-bold text-black hover:opacity-90">
-        Done
-      </button>
+
+      {(outcome.price != null || outcome.brokerOrderId) && (
+        <dl className="rounded-lg border border-border/60 bg-background/40 p-3 text-[11.5px]">
+          {outcome.price != null && (
+            <div className="flex items-center justify-between">
+              <dt className="text-muted-foreground">Fill price</dt>
+              <dd className="font-mono font-bold tabular-nums">{outcome.price}</dd>
+            </div>
+          )}
+          {outcome.brokerOrderId && (
+            <div className="mt-1.5 flex items-center justify-between">
+              <dt className="text-muted-foreground">Broker reference</dt>
+              <dd className="font-mono text-[10.5px] tabular-nums">{outcome.brokerOrderId}</dd>
+            </div>
+          )}
+        </dl>
+      )}
+
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
+        Track this position on the{' '}
+        <a href="/brokers" className="font-semibold text-amber-300 hover:underline">Brokers page</a>{' '}
+        and in your <a href="/journal" className="font-semibold text-amber-300 hover:underline">trade journal</a>.
+      </p>
     </div>
   )
 }
