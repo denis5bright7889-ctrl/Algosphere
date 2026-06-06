@@ -341,17 +341,21 @@ def _discord_webhook(channel_hint: str) -> str | None:
     return os.environ.get(key) or os.environ.get('DISCORD_WEBHOOK_GENERAL_URL')
 
 
-def _pick_asset(asset_urls: dict | None) -> tuple[str | None, bool]:
-    """Return (url, is_video). Prefer video, else first image."""
-    if not asset_urls:
-        return None, False
-    for k, u in asset_urls.items():
-        if isinstance(u, str) and (u.endswith('.mp4') or 'reel' in k or 'video' in k):
-            return u, True
-    for u in asset_urls.values():
-        if isinstance(u, str) and u:
-            return u, False
-    return None, False
+def _split_assets(asset_urls: dict | None) -> tuple[str | None, str | None]:
+    """Return (image_url, video_url) from an item's asset_urls. Prefers a
+    real card image over a video thumbnail for the image slot."""
+    image = thumb = video = None
+    for k, u in (asset_urls or {}).items():
+        if not isinstance(u, str) or not u:
+            continue
+        if u.endswith('.mp4'):
+            video = video or u
+        elif u.endswith(('.jpg', '.jpeg', '.png')):
+            if 'thumbnail' in str(k) or 'thumb' in u:
+                thumb = thumb or u
+            else:
+                image = image or u
+    return (image or thumb), video
 
 
 def run_publisher() -> None:
@@ -377,9 +381,12 @@ def run_publisher() -> None:
     if not rows:
         return
     it = rows[0]
-    url, is_video = _pick_asset(it.get('asset_urls'))
+    image_url, video_url = _split_assets(it.get('asset_urls'))
+    # Primary channels (TG / Discord / FB) prefer the richer video when present.
+    url = video_url or image_url
     if not url:
         return
+    is_video = url == video_url and video_url is not None
     caption = (it.get('body_md') or it.get('title') or '') + '\n\n→ algospherequant.com'
 
     # Telegram
@@ -407,7 +414,13 @@ def run_publisher() -> None:
     except Exception as e:
         fb = 'err:' + str(e)[:40]
     try:
-        ig = _post_instagram(caption, url, is_video)
+        # Instagram is most reliable with a plain image — its API rejects
+        # media_type=REELS on some apps ("Only photo or video can be
+        # accepted"). Post the card image when we have one; only fall back
+        # to a reel for video-only items.
+        ig_url = image_url or video_url
+        ig_is_video = image_url is None and video_url is not None
+        ig = _post_instagram(caption, ig_url, ig_is_video)
     except Exception as e:
         ig = 'err:' + str(e)[:40]
 
