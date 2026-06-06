@@ -1,22 +1,69 @@
-# Shrinks `railway up` uploads for the signal-engine service (root directory =
-# apps/signal-engine). Only the engine is built from a `railway up`, so exclude
-# the heavy sibling apps + media assets. Railway-only — does NOT affect Vercel
-# (web) or git-based deploys.
+# Multi-service repo. This file is rewritten per deploy depending on which
+# Railway service is being pushed. The committed copy is tuned for whichever
+# service was last deployed; non-target subtrees are excluded to keep the
+# upload size sane.
+#
+# Current target: asset-worker (apps/asset-worker/Dockerfile).
+# Required paths in build context:
+#   - apps/asset-worker/
+#   - marketing/videos/      (Remotion composition + package.json)
+# Everything else is excluded.
+
+# Sibling apps (none needed by the asset-worker Dockerfile)
 /apps/web
-/apps/asset-worker
 /apps/copy-engine
 /apps/desktop
 /apps/telegram-bot
 /apps/mt5-bridge
-/marketing
+/apps/signal-engine
+
+# Other repo subtrees not used by this Dockerfile
 /docs
 /supabase
+/scripts
+/packages
 /.git
+/.claude
+/.next
+
+# Pre-rendered showcase artifacts under marketing/videos/public/v* —
+# Root.tsx imports each dir's timings.json at bundle time, so the JSON
+# must reach the build context. MP3s + MP4s + SRTs in those dirs are
+# only needed for the legacy `Video` composition at staticFile lookup
+# time; the event_video composition the asset-worker uses doesn't
+# touch them.
+/marketing/videos/public/v2/*.mp3
+/marketing/videos/public/v2/*.mp4
+/marketing/videos/public/v2/*.srt
+/marketing/videos/public/v49/*.mp3
+/marketing/videos/public/v49/*.mp4
+/marketing/videos/public/v49/*.srt
+/marketing/videos/public/v58/*.mp3
+/marketing/videos/public/v58/*.mp4
+/marketing/videos/public/v58/*.srt
+/marketing/videos/public/v69/*.mp3
+/marketing/videos/public/v69/*.mp4
+/marketing/videos/public/v69/*.srt
+/marketing/videos/public/v82/*.mp3
+/marketing/videos/public/v82/*.mp4
+/marketing/videos/public/v82/*.srt
+/marketing/videos/out
+
+# Heavyweight binaries + caches
 **/__pycache__
 **/node_modules
+**/.next
+**/.turbo
+**/dist
+**/build
+**/tsconfig.tsbuildinfo
+
+# Media binaries — generated at runtime, never needed at build
 *.mp4
 *.mov
-*.png
-*.jpg
-*.jpeg
 *.webp
+
+# Env / state files
+*.local
+.env
+.env.*

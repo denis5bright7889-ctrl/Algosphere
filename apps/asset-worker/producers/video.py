@@ -1,338 +1,363 @@
 """
-Video producer — Media Engine V2 (no voice, music-only).
+Video producer — Media Engine V3 (ffmpeg-only, music-only, no narration).
+
+Why V3: the Remotion/Node render path failed 100% in production
+("No entry point specified", "could not determine executable to run") —
+every signal_reel attempt errored, leaving content_items stuck at
+asset_state='partial' so they never published. V3 removes the Node /
+Remotion dependency entirely. Videos are built from PIL-rendered
+vertical scene frames assembled with ffmpeg (both already in the worker
+image), so a render can never fail for lack of Node tooling.
 
 Pipeline:
-  1. Build a per-kind scene script from the event payload. No TTS — each
-     scene's duration is computed from text length + a configurable
-     minimum dwell time, so captions remain readable.
-  2. Write timings.json (the dynamic-data props the Remotion composition
-     reads via staticFile lookup at render time).
-  3. Run `npx remotion render event_video` as a subprocess against the
-     marketing/videos project. Output is a silent MP4 with captions +
-     motion graphics + chart accents.
-  4. If a royalty-free music track is present under
-     marketing/videos/public/music/{theme}.mp3, ffmpeg-mux it under the
-     video at low gain with a tail fade. Missing track = silent video
-     (production-safe; never breaks the render).
-  5. Extract a thumbnail JPG with FFmpeg.
-  6. Return both files for upload by the worker.
+  1. Build a per-kind scene script from the payload (captions, no TTS).
+  2. Render each scene as a 1080x1920 branded PNG (PIL).
+  3. ffmpeg: turn each frame into a Ken-Burns clip of its dwell time,
+     concat the clips into one silent vertical MP4.
+  4. Mux theme music under the video. Track resolution order:
+       a. ALGOSPHERE_AUDIO_THEME / per-kind theme MP3 in a music dir, else
+       b. a synthesized royalty-free theme bed (ffmpeg lavfi) so every
+          video has contextual music with no copyrighted files.
+     Narration is never used — music-only is the default and the only mode.
+  5. Extract a thumbnail JPG.
 
-The same `event_video` composition lives in marketing/videos/src/ and
-reads its props from the timings.json — every kind shares the same
-Remotion code, only the script + visual recipe change.
-
-Music selection is per-kind via _MUSIC_THEME. Override globally with
-the ALGOSPHERE_AUDIO_THEME env var (set in Railway). To swap tracks,
-drop new MP3s into marketing/videos/public/music/ — no code change.
+Music-only is guaranteed: if even the synth fails, the video is promoted
+silent rather than failing the whole job (production-safe).
 """
 from __future__ import annotations
 import json
+import math
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Dict, List
 
+from PIL import Image, ImageDraw
 from loguru import logger
 
-
-# Where the Remotion project lives. Resolved relative to this file
-# so the worker works from any cwd.
-_REMOTION_ROOT = Path(__file__).resolve().parent.parent.parent / 'marketing' / 'videos'
-_MUSIC_DIR     = _REMOTION_ROOT / 'public' / 'music'
+from . import _brand as B
 
 
-# Per-kind caption script. Each entry becomes one Remotion scene with
-# motion + caption. Placeholders are pulled from the event payload at
-# render time. Keep lines short — these are captions, not narration.
+FPS    = 30
+WIDTH  = 1080
+HEIGHT = 1920
+
+
+# Optional drop-in real music. Drop MP3s here (or set a music dir via
+# ALGOSPHERE_MUSIC_DIR) to override the synthesized beds — no code change.
+def _music_dir() -> Path | None:
+    env = os.environ.get('ALGOSPHERE_MUSIC_DIR', '').strip()
+    cands = [Path(env)] if env else []
+    here = Path(__file__).resolve()
+    cands += [
+        here.parent.parent / 'assets' / 'music',
+        here.parent.parent / 'marketing' / 'videos' / 'public' / 'music',
+        here.parent.parent.parent.parent / 'marketing' / 'videos' / 'public' / 'music',
+    ]
+    for c in cands:
+        if c and c.is_dir():
+            return c
+    return None
+
+
+# Per-kind caption script + theme. Captions, not narration — short lines.
 _SCENE_SCRIPTS: dict[str, dict] = {
-    'signal_reel': {
-        'theme': 'tense',
-        'lines': [
-            ('hook',     'New signal · {pair} · {direction}'),
-            ('levels',   'Entry {entry} · SL {stop_loss} · TP {take_profit}'),
-            ('conf',     'Conviction {confidence}/100'),
-            ('gate',     '15 institutional risk gates · CLEARED'),
-            ('cta',      'algospherequant.com'),
-        ],
-    },
-    'trade_recap_video': {
-        'theme': 'reflective',
-        'lines': [
-            ('hook',    '{pair} {direction} · CLOSED'),
-            ('pnl',     'Result · {pnl} USD'),
-            ('process', 'Process grade · {process_grade}'),
-            ('cta',     'Track every trade — algospherequant.com'),
-        ],
-    },
-    'weekly_recap_video': {
-        'theme': 'institutional',
-        'lines': [
-            ('hook',    'Weekly recap · Net P&L {net_pnl} USD'),
-            ('rate',    'Win rate {win_rate}% · {trades} trades'),
-            ('pf',      'Profit factor {profit_factor}'),
-            ('dd',      'Max drawdown {max_drawdown}% · discipline held'),
-            ('cta',     'Next week — algospherequant.com'),
-        ],
-    },
-    'monthly_recap_video': {
-        'theme': 'institutional',
-        'lines': [
-            ('hook',    'Monthly performance · {growth_pct}% return'),
-            ('aum',     'AUM · {aum} USD'),
-            ('sharpe',  'Sharpe {sharpe} · Max DD {max_drawdown}%'),
-            ('cta',     'Full update on the blog'),
-        ],
-    },
-    'daily_market_video': {
-        'theme': 'tense',
-        'lines': [
-            ('hook',    'Markets today · {headline}'),
-            ('regime',  'Regime {regime_state} · Vol {volatility_state}'),
-            ('cta',     'Live read · algospherequant.com'),
-        ],
-    },
-    'educational_video': {
-        'theme': 'institutional',
-        'lines': [
-            ('hook',     '{hook}'),
-            ('concept',  '{concept}'),
-            ('takeaway', '{takeaway}'),
-            ('cta',      'Learn more · algospherequant.com'),
-        ],
-    },
-    'feature_demo_video': {
-        'theme': 'lift',
-        'lines': [
-            ('hook',     'New in AlgoSphere · {feature}'),
-            ('problem',  '{problem}'),
-            ('solution', '{solution}'),
-            ('cta',      'Try it · algospherequant.com'),
-        ],
-    },
-    'achievement_video': {
-        'theme': 'lift',
-        'lines': [
-            ('hook',     'Milestone · {achievement}'),
-            ('detail',   '{description}'),
-            ('cta',      'Join · algospherequant.com'),
-        ],
-    },
-    'investor_update_video': {
-        'theme': 'institutional',
-        'lines': [
-            ('hook',    'Investor update · {period}'),
-            ('return',  '{growth_pct}% return · Sharpe {sharpe}'),
-            ('risk',    'Drawdown contained at {max_drawdown}%'),
-            ('cta',     'Full report — link in bio'),
-        ],
-    },
+    'signal_reel': {'theme': 'tense', 'lines': [
+        ('hook',   'New signal'),
+        ('pair',   '{pair} · {direction}'),
+        ('levels', 'Entry {entry}\nSL {stop_loss} · TP {take_profit}'),
+        ('conf',   'Conviction {confidence}/100'),
+        ('gate',   '15 risk gates · CLEARED'),
+        ('cta',    'algospherequant.com'),
+    ]},
+    'trade_recap_video': {'theme': 'reflective', 'lines': [
+        ('hook', '{pair} {direction}'),
+        ('res',  'CLOSED'),
+        ('pnl',  '{pnl} USD'),
+        ('proc', 'Process grade {process_grade}'),
+        ('cta',  'algospherequant.com'),
+    ]},
+    'weekly_recap_video': {'theme': 'institutional', 'lines': [
+        ('hook', 'Weekly recap'),
+        ('pnl',  'Net P&L {net_pnl} USD'),
+        ('rate', 'Win rate {win_rate}% · {trades} trades'),
+        ('pf',   'Profit factor {profit_factor}'),
+        ('cta',  'algospherequant.com'),
+    ]},
+    'monthly_recap_video': {'theme': 'institutional', 'lines': [
+        ('hook',  'Monthly performance'),
+        ('ret',   '{growth_pct}% return'),
+        ('risk',  'Max DD {max_drawdown}%'),
+        ('cta',   'algospherequant.com'),
+    ]},
+    'daily_market_video': {'theme': 'tense', 'lines': [
+        ('hook',   'Markets today'),
+        ('head',   '{headline}'),
+        ('regime', 'Regime {regime_state}'),
+        ('cta',    'algospherequant.com'),
+    ]},
+    'educational_video': {'theme': 'calm', 'lines': [
+        ('hook',  '{hook}'),
+        ('conc',  '{concept}'),
+        ('take',  '{takeaway}'),
+        ('cta',   'algospherequant.com'),
+    ]},
+    'feature_demo_video': {'theme': 'lift', 'lines': [
+        ('hook', 'New in AlgoSphere'),
+        ('feat', '{feature}'),
+        ('sol',  '{solution}'),
+        ('cta',  'algospherequant.com'),
+    ]},
+    'achievement_video': {'theme': 'lift', 'lines': [
+        ('hook', 'Milestone'),
+        ('ach',  '{achievement}'),
+        ('det',  '{description}'),
+        ('cta',  'algospherequant.com'),
+    ]},
+    'investor_update_video': {'theme': 'institutional', 'lines': [
+        ('hook', 'Investor update'),
+        ('ret',  '{growth_pct}% return'),
+        ('risk', 'Drawdown {max_drawdown}%'),
+        ('cta',  'algospherequant.com'),
+    ]},
 }
 
+# Theme → (accent colour, synth root Hz, tremolo Hz, lowpass Hz).
+_THEME_AUDIO = {
+    'tense':         (B.ROSE,    164.81, 5.0, 1200),  # E3, restless
+    'reflective':    (B.SKY,     146.83, 2.5, 800),   # D3, slow
+    'institutional': (B.AMBER,   130.81, 2.0, 700),   # C3, grounded
+    'calm':          (B.EMERALD, 174.61, 1.8, 650),   # F3, soft
+    'lift':          (B.AMBER,   196.00, 3.5, 1500),  # G3, bright
+}
 
-# Default scene dwell time tuning. Captions need to be readable, so
-# every scene gets at least MIN_S, and longer captions stretch to
-# READING_RATE seconds per word. Capped at MAX_S to keep clips snappy
-# for Reels/Shorts/TikTok pacing.
-_MIN_SCENE_S      = 2.4
-_MAX_SCENE_S      = 5.0
-_READING_RATE_WPS = 2.6   # words per second (calm caption reading)
-_SCENE_GAP_S      = 0.25  # small ease between scenes
+_MIN_SCENE_S = 2.2
+_MAX_SCENE_S = 4.0
+_WPS         = 2.6
 
 
 def _fmt(template: str, payload: dict) -> str:
-    """Replace {keys} with payload values; missing → em-dash so a missing
-    field never reads as the literal placeholder string."""
-    def sub(m):
-        key = m.group(1)
-        v = payload.get(key)
-        if v is None or v == '':
-            return '—'
-        return str(v)
     import re
+    def sub(m):
+        v = payload.get(m.group(1))
+        return '—' if v is None or v == '' else str(v)
     return re.sub(r'\{(\w+)\}', sub, template)
 
 
-def _scene_duration_s(text: str) -> float:
-    """Calm-reading dwell time for a caption."""
-    words = max(1, len(text.split()))
-    raw = max(_MIN_SCENE_S, words / _READING_RATE_WPS + 0.6)
-    return min(_MAX_SCENE_S, round(raw, 3))
+def _scene_dur(text: str) -> float:
+    words = max(1, len(text.replace('\n', ' ').split()))
+    return min(_MAX_SCENE_S, max(_MIN_SCENE_S, round(words / _WPS + 0.8, 2)))
 
 
-def _build_timings(asset_kind: str, payload: dict) -> dict:
+def _build_scenes(asset_kind: str, payload: dict) -> tuple[list[dict], str]:
     spec = _SCENE_SCRIPTS.get(asset_kind, _SCENE_SCRIPTS['signal_reel'])
-    cursor = 0.0
-    lines: List[dict] = []
-    for line_id, tmpl in spec['lines']:
+    scenes = []
+    for sid, tmpl in spec['lines']:
         text = _fmt(tmpl, payload)
-        dur  = _scene_duration_s(text)
-        lines.append({
-            'id':      line_id,
-            'text':    text,
-            # mp3 kept in the schema for backward-compat with the
-            # Remotion composition's optional <Audio> reference; the
-            # composition tolerates a missing/empty file and renders
-            # silent (see event_video.tsx Audio fallback logic).
-            'mp3':     '',
-            'start_s': round(cursor, 3),
-            'dur_s':   dur,
-        })
-        cursor += dur + _SCENE_GAP_S
-    total = max(_MIN_SCENE_S, cursor - _SCENE_GAP_S)
-    return {
-        'id':         f'event_video_{asset_kind}',
-        'title':      asset_kind,
-        'theme':      spec.get('theme', 'institutional'),
-        'voice':      'music_only',
-        'total_s':    round(total, 3),
-        'gap_s':      _SCENE_GAP_S,
-        'fps':        30,
-        'width':      1080,
-        'height':     1920,
-        'lines':      lines,
-        'asset_kind': asset_kind,
-        'payload':    payload,
-    }
+        scenes.append({'id': sid, 'text': text, 'dur': _scene_dur(text)})
+    return scenes, spec.get('theme', 'institutional')
+
+
+def _wrap(draw: ImageDraw.ImageDraw, text: str, fnt, max_w: int) -> list[str]:
+    out: list[str] = []
+    for para in text.split('\n'):
+        words, line = para.split(), ''
+        for w in words:
+            t = (line + ' ' + w).strip()
+            if draw.textlength(t, font=fnt) <= max_w:
+                line = t
+            else:
+                if line:
+                    out.append(line)
+                line = w
+        out.append(line)
+    return out or ['']
+
+
+def _render_frame(scene: dict, title: str, theme: str, idx: int, total: int,
+                  out: Path) -> Path:
+    accent = _THEME_AUDIO.get(theme, _THEME_AUDIO['institutional'])[0]
+    im = Image.new('RGBA', (WIDTH, HEIGHT), (*B.BG, 255))
+    # vertical gradient wash for depth
+    grad = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(grad)
+    for y in range(HEIGHT):
+        a = int(60 * (y / HEIGHT))
+        gd.line([(0, y), (WIDTH, y)], fill=(*accent, a // 6))
+    im.alpha_composite(grad)
+    B.draw_radial_glow(im, color=accent, center_xy=(WIDTH, 0), max_radius=900)
+    B.draw_radial_glow(im, color=accent, center_xy=(0, HEIGHT), max_radius=700)
+    d = ImageDraw.Draw(im)
+    B.draw_brand_mark(d, 70, 80)
+
+    # progress pips
+    for i in range(total):
+        x = 70 + i * 34
+        on = i <= idx
+        d.ellipse([x, 170, x + 18, 188], fill=accent if on else B.DARK_BORDER)
+
+    # title (small caps top)
+    d.text((WIDTH // 2, 320), title.upper()[:42], fill=B.MUTED, font=B.font(38), anchor='mm')
+
+    # main caption — wrapped, centered
+    is_cta = scene['id'] == 'cta'
+    size = 96 if scene['id'] in ('hook', 'pair', 'ach', 'feat') else 78
+    if is_cta:
+        size = 64
+    fnt = B.font(size)
+    lines = _wrap(d, scene['text'], fnt, WIDTH - 160)
+    line_h = int(size * 1.25)
+    total_h = line_h * len(lines)
+    y0 = HEIGHT // 2 - total_h // 2
+    for i, ln in enumerate(lines):
+        col = accent if is_cta else B.WHITE
+        d.text((WIDTH // 2, y0 + i * line_h), ln, fill=col, font=fnt, anchor='mm')
+
+    # accent rule under caption
+    d.rectangle([WIDTH // 2 - 80, y0 + total_h + 40, WIDTH // 2 + 80,
+                 y0 + total_h + 46], fill=accent)
+
+    B.draw_footer_url(d, WIDTH, HEIGHT)
+    im.convert('RGB').save(out, 'PNG')
+    return out
 
 
 def _have(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
-def _remotion_render(timings: dict, mp4_path: Path) -> None:
-    """Run `npx remotion render event_video` against the composition.
-    Renders SILENT — music is muxed in a follow-up ffmpeg step. The
-    composition reads its timings + asset_kind + payload from a static
-    file written into public/event_video_<asset_kind>/.
-    """
-    if not _have('npx'):
-        raise RuntimeError('npx not available — install Node + Remotion deps in the worker image')
-
-    composition_id = 'event_video'
-    serve_dir = _REMOTION_ROOT / 'public' / f'event_video_{timings["asset_kind"]}'
-    serve_dir.mkdir(parents=True, exist_ok=True)
-    (serve_dir / 'timings.json').write_text(json.dumps(timings, indent=2), encoding='utf-8')
-
-    cmd = ['npx', 'remotion', 'render', composition_id, str(mp4_path),
-           '--props=' + json.dumps({'asset_kind': timings['asset_kind']}),
-           '--log=warn']
-    res = subprocess.run(cmd, cwd=str(_REMOTION_ROOT),
-                         capture_output=True, text=True, timeout=600)
-    if res.returncode != 0:
-        raise RuntimeError(f'remotion render failed (exit {res.returncode}): '
-                           f'{(res.stderr or res.stdout)[-400:]}')
+def _scene_clip(frame: Path, dur: float, out: Path) -> None:
+    """One Ken-Burns clip from a still frame."""
+    frames = max(1, int(dur * FPS))
+    zexpr = "min(zoom+0.0012,1.10)"
+    vf = (f"scale={WIDTH}:{HEIGHT},zoompan=z='{zexpr}':d={frames}:"
+          f"s={WIDTH}x{HEIGHT}:fps={FPS},format=yuv420p")
+    cmd = ['ffmpeg', '-y', '-loop', '1', '-i', str(frame), '-t', f'{dur:.2f}',
+           '-vf', vf, '-r', str(FPS), '-an', str(out)]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    if r.returncode != 0:
+        raise RuntimeError(f'scene clip failed: {(r.stderr or "")[-200:]}')
 
 
-def _pick_music_track(theme: str) -> Path | None:
-    """Resolve a royalty-free background-music track for the given theme.
+def _concat(clips: List[Path], out: Path, work: Path) -> None:
+    lst = work / 'concat.txt'
+    lst.write_text(''.join(f"file '{c.as_posix()}'\n" for c in clips), encoding='utf-8')
+    cmd = ['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', str(lst),
+           '-c', 'copy', str(out)]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    if r.returncode != 0:
+        # re-encode fallback (clips already uniform, but be safe)
+        cmd = ['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', str(lst),
+               '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(out)]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=240)
+        if r.returncode != 0:
+            raise RuntimeError(f'concat failed: {(r.stderr or "")[-200:]}')
 
-    Resolution order:
-      1. ALGOSPHERE_AUDIO_THEME env override (force-pin one track).
-      2. `public/music/<theme>.mp3`.
-      3. `public/music/default.mp3`.
-      4. `public/music/*.mp3` (alphabetical first) — last-resort
-         so a single dropped track applies to every kind.
 
-    Returns None if `public/music/` is empty — render stays silent.
-    """
-    if not _MUSIC_DIR.is_dir():
+def _resolve_track(theme: str) -> Path | None:
+    md = _music_dir()
+    if not md:
         return None
     override = os.environ.get('ALGOSPHERE_AUDIO_THEME', '').strip()
-    if override:
-        cand = _MUSIC_DIR / f'{override}.mp3'
-        if cand.is_file():
-            return cand
-    cand = _MUSIC_DIR / f'{theme}.mp3'
-    if cand.is_file():
-        return cand
-    cand = _MUSIC_DIR / 'default.mp3'
-    if cand.is_file():
-        return cand
-    tracks = sorted(_MUSIC_DIR.glob('*.mp3'))
+    for name in [override, theme, 'default']:
+        if name:
+            p = md / f'{name}.mp3'
+            if p.is_file():
+                return p
+    tracks = sorted(md.glob('*.mp3'))
     return tracks[0] if tracks else None
 
 
-def _ffmpeg_mux_music(silent_mp4: Path, music: Path, out_mp4: Path,
-                     total_s: float) -> None:
-    """Loop the background-music track under the video, normalise gain,
-    fade the tail, and clip to the video duration.
-
-    -25dB keeps the music supportive rather than overpowering the
-    motion graphics; the tail fade (last 0.5s) avoids an audio cliff.
-    """
-    if not _have('ffmpeg'):
-        raise RuntimeError('ffmpeg not available — install in the worker image')
-    fade_start = max(0.0, total_s - 0.5)
+def _synth_bed(theme: str, dur: float, out: Path) -> Path | None:
+    """Synthesize a royalty-free ambient theme bed with ffmpeg lavfi.
+    A soft triad pad (root + maj third + fifth) with tremolo, low-pass
+    and a short echo. Never copyrighted; always available."""
+    _, root, trem, lp = _THEME_AUDIO.get(theme, _THEME_AUDIO['institutional'])
+    third = root * (2 ** (4 / 12))   # major third
+    fifth = root * (2 ** (7 / 12))   # perfect fifth
     cmd = [
         'ffmpeg', '-y',
-        '-i', str(silent_mp4),
-        '-stream_loop', '-1', '-i', str(music),
+        '-f', 'lavfi', '-i', f'sine=frequency={root:.2f}:duration={dur:.2f}',
+        '-f', 'lavfi', '-i', f'sine=frequency={third:.2f}:duration={dur:.2f}',
+        '-f', 'lavfi', '-i', f'sine=frequency={fifth:.2f}:duration={dur:.2f}',
         '-filter_complex',
-        f'[1:a]volume=-25dB,afade=t=out:st={fade_start:.2f}:d=0.5[aud]',
-        '-map', '0:v:0', '-map', '[aud]',
-        '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k',
-        '-shortest', '-movflags', '+faststart',
-        str(out_mp4),
+        (f'[0][1][2]amix=inputs=3:normalize=1,'
+         f'tremolo=f={trem}:d=0.4,lowpass=f={lp},aecho=0.8:0.88:220:0.3,'
+         f'afade=t=in:st=0:d=1.5,afade=t=out:st={max(0,dur-1.2):.2f}:d=1.2,'
+         f'volume=1.2[a]'),
+        '-map', '[a]', '-c:a', 'aac', '-b:a', '128k', str(out),
     ]
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-    if res.returncode != 0:
-        raise RuntimeError(f'ffmpeg mux failed (exit {res.returncode}): '
-                           f'{(res.stderr or "")[-300:]}')
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    return out if r.returncode == 0 and out.exists() and out.stat().st_size > 0 else None
 
 
-def _ffmpeg_thumbnail(mp4_path: Path, jpg_path: Path, at_seconds: float = 1.5) -> None:
-    if not _have('ffmpeg'):
-        raise RuntimeError('ffmpeg not available — install in the worker image')
-    cmd = ['ffmpeg', '-y', '-ss', str(at_seconds), '-i', str(mp4_path),
-           '-vframes', '1', '-q:v', '3', str(jpg_path)]
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    if res.returncode != 0 or not jpg_path.exists() or jpg_path.stat().st_size == 0:
-        raise RuntimeError(f'ffmpeg thumbnail failed: {(res.stderr or "")[-300:]}')
+def _mux(silent: Path, audio: Path, out: Path, dur: float, loop: bool) -> None:
+    fade = max(0.0, dur - 0.6)
+    inp = (['-stream_loop', '-1', '-i', str(audio)] if loop else ['-i', str(audio)])
+    cmd = ['ffmpeg', '-y', '-i', str(silent), *inp,
+           '-filter_complex',
+           f'[1:a]volume=-22dB,afade=t=out:st={fade:.2f}:d=0.6[aud]',
+           '-map', '0:v:0', '-map', '[aud]',
+           '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k',
+           '-shortest', '-movflags', '+faststart', str(out)]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    if r.returncode != 0:
+        raise RuntimeError(f'mux failed: {(r.stderr or "")[-200:]}')
+
+
+def _thumbnail(mp4: Path, jpg: Path, at: float) -> None:
+    cmd = ['ffmpeg', '-y', '-ss', f'{at:.2f}', '-i', str(mp4),
+           '-vframes', '1', '-q:v', '3', str(jpg)]
+    subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
 
 def produce(item: dict, out_dir: Path, asset_kind: str = 'signal_reel') -> Dict[str, Path]:
-    """
-    Render one music-backed caption video for the given asset_kind.
+    if not _have('ffmpeg'):
+        raise RuntimeError('ffmpeg not available — install in the worker image')
 
-    Output files:
-      out_dir/<kind>.mp4
-      out_dir/<kind>_thumbnail.jpg
-
-    Honest behaviors:
-      • If no royalty-free track is bundled, the final MP4 is silent —
-        not a failure. Renders complete; uploads happen as usual.
-      • Captions never run shorter than 2.4s nor longer than 5.0s.
-      • A 0.5s tail audio fade prevents a cliff cut.
-    """
     prov = item.get('provenance') or {}
     payload = prov.get('payload') or prov
+    title = item.get('title') or asset_kind.replace('_', ' ').title()
 
-    timings = _build_timings(asset_kind, payload)
+    scenes, theme = _build_scenes(asset_kind, payload)
+    total_s = sum(s['dur'] for s in scenes)
+    final_mp4 = out_dir / f'{asset_kind}.mp4'
+    silent    = out_dir / f'{asset_kind}_silent.mp4'
+    thumb     = out_dir / f'{asset_kind}_thumbnail.jpg'
 
-    silent_mp4 = out_dir / f'{asset_kind}_silent.mp4'
-    final_mp4  = out_dir / f'{asset_kind}.mp4'
-    thumb      = out_dir / f'{asset_kind}_thumbnail.jpg'
+    with tempfile.TemporaryDirectory(prefix='vid-') as tmp:
+        work = Path(tmp)
+        clips: list[Path] = []
+        for i, sc in enumerate(scenes):
+            frame = _render_frame(sc, title, theme, i, len(scenes), work / f'f{i}.png')
+            clip = work / f'c{i}.mp4'
+            _scene_clip(frame, sc['dur'], clip)
+            clips.append(clip)
+        _concat(clips, silent, work)
 
-    _remotion_render(timings, silent_mp4)
+        # Music: real track (loop) > synth bed (exact length) > silent.
+        track = _resolve_track(theme)
+        try:
+            if track is not None:
+                _mux(silent, track, final_mp4, total_s, loop=True)
+                logger.info(f"video {asset_kind} + music={track.name} "
+                            f"({final_mp4.stat().st_size}b)")
+            else:
+                bed = _synth_bed(theme, total_s, work / 'bed.m4a')
+                if bed is not None:
+                    _mux(silent, bed, final_mp4, total_s, loop=False)
+                    logger.info(f"video {asset_kind} + synth bed ({theme}) "
+                                f"({final_mp4.stat().st_size}b)")
+                else:
+                    shutil.copy(silent, final_mp4)
+                    logger.warning(f"video {asset_kind} silent — synth bed failed")
+        except Exception as e:
+            # Music must never sink the job — promote the silent render.
+            shutil.copy(silent, final_mp4)
+            logger.warning(f"video {asset_kind} music step failed ({e}); silent")
 
-    music = _pick_music_track(timings['theme'])
-    if music is None:
-        # No track bundled — promote the silent render as the final.
-        # We do this via a copy so the silent intermediate is still
-        # available in tmp until the worker cleans up; the final file
-        # name matches uploaded-asset expectations.
-        shutil.copy(silent_mp4, final_mp4)
-        logger.info(f"video {asset_kind} rendered silent "
-                    f"({final_mp4.stat().st_size} bytes; no music track present)")
-    else:
-        _ffmpeg_mux_music(silent_mp4, music, final_mp4, timings['total_s'])
-        logger.info(f"video {asset_kind} rendered with music={music.name} "
-                    f"({final_mp4.stat().st_size} bytes)")
+        _thumbnail(final_mp4, thumb, at=min(1.5, total_s / 4))
 
-    _ffmpeg_thumbnail(final_mp4, thumb, at_seconds=min(2.0, max(0.5, timings['total_s'] / 4)))
-
-    return {
-        asset_kind:                    final_mp4,
-        f'{asset_kind}_thumbnail':     thumb,
-    }
+    return {asset_kind: final_mp4, f'{asset_kind}_thumbnail': thumb}

@@ -30,8 +30,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && apt-get install -y --no-install-recommends nodejs \
  && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY apps/asset-worker/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Bring in the Remotion project so `npx remotion render event_video`
 # resolves the composition + node_modules. The render is invoked from
