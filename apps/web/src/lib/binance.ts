@@ -22,15 +22,25 @@ export interface CryptoSymbol {
   label: string
 }
 
-/** The tracked majors + tokenised gold (ties into the FX/Gold desk). */
+/**
+ * The tracked crypto universe — aligned 2026-06 with the signal engine's
+ * scan list (apps/signal-engine/config.py). Previously the web showed
+ * BNB + PAXG which the engine never scanned, creating UI drift where
+ * users pinned crypto they couldn't get tradable signals for. Now both
+ * sides quote the same 10 instruments. Binance streams live ticks; the
+ * engine fetches OHLCV from Coinbase (US-region safe).
+ */
 export const CRYPTO_SYMBOLS: CryptoSymbol[] = [
   { symbol: 'BTCUSDT',  label: 'BTC'  },
   { symbol: 'ETHUSDT',  label: 'ETH'  },
   { symbol: 'SOLUSDT',  label: 'SOL'  },
-  { symbol: 'BNBUSDT',  label: 'BNB'  },
   { symbol: 'XRPUSDT',  label: 'XRP'  },
+  { symbol: 'ADAUSDT',  label: 'ADA'  },
+  { symbol: 'AVAXUSDT', label: 'AVAX' },
+  { symbol: 'LINKUSDT', label: 'LINK' },
+  { symbol: 'LTCUSDT',  label: 'LTC'  },
+  { symbol: 'DOTUSDT',  label: 'DOT'  },
   { symbol: 'DOGEUSDT', label: 'DOGE' },
-  { symbol: 'PAXGUSDT', label: 'Gold' },
 ]
 
 const SYMBOL_SET = new Set(CRYPTO_SYMBOLS.map((s) => s.symbol))
