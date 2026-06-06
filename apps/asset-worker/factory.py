@@ -202,9 +202,15 @@ def run_generator() -> None:
     if not GEN_ENABLED():
         return
     try:
+        # Bound by UNPUBLISHED factory backlog (pending + producing + ready +
+        # partial), not just the render queue — otherwise generation churns
+        # while the rate-limited publisher drains 'ready' slowly.
         backlog = (db().table('growth_content_items')
                    .select('id', count='exact', head=True)
-                   .in_('asset_state', ['pending', 'producing']).execute()).count or 0
+                   .eq('provenance->>source', 'factory')
+                   .neq('status', 'published')
+                   .in_('asset_state', ['pending', 'producing', 'ready', 'partial'])
+                   .execute()).count or 0
     except Exception as e:
         logger.warning(f"factory.generator: backlog count failed — {e}")
         return
