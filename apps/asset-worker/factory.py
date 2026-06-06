@@ -154,7 +154,7 @@ def _build_specs(n: int, snap: dict, seed: int) -> list[dict]:
             'body_md': f"✅ {snap['win_rate']}% verified win rate — {snap['wins']}W / {snap['losses']}L across {snap['closed']} closed signals. Transparency first.",
             'channels': ['telegram', 'discord:announcements'],
             'asset_kinds': card_or_video('achievement_card', 'achievement_video'),
-            'payload': {'achievement': f"{snap['win_rate']}% Win Rate",
+            'payload': {'eyebrow': 'Verified Performance', 'achievement': f"{snap['win_rate']}% Win Rate",
                         'description': f"{snap['wins']} wins / {snap['losses']} losses across {snap['closed']} closed signals — verified."},
         })
 
@@ -166,8 +166,8 @@ def _build_specs(n: int, snap: dict, seed: int) -> list[dict]:
         'body_md': f"💡 {tip[0]} — {tip[1]}",
         'channels': ['telegram', 'discord:education'],
         'asset_kinds': card_or_video('feature_card', 'educational_video'),
-        'payload': {'feature': tip[0], 'description': tip[1], 'hook': tip[0],
-                    'concept': tip[1], 'takeaway': 'Make it a rule.'},
+        'payload': {'eyebrow': 'Trading Tip', 'feature': tip[0], 'description': tip[1],
+                    'hook': tip[0], 'concept': tip[1], 'takeaway': 'Make it a rule.'},
     })
 
     # 4) Feature spotlight
@@ -178,7 +178,7 @@ def _build_specs(n: int, snap: dict, seed: int) -> list[dict]:
         'body_md': f"🤖 {feat[0]} — {feat[1]}",
         'channels': ['telegram', 'discord:general'],
         'asset_kinds': card_or_video('feature_card', 'feature_demo_video'),
-        'payload': {'feature': feat[0], 'description': feat[1],
+        'payload': {'eyebrow': 'Inside AlgoSphere', 'feature': feat[0], 'description': feat[1],
                     'problem': 'Trading is hard.', 'solution': feat[1]},
     })
 
@@ -190,7 +190,7 @@ def _build_specs(n: int, snap: dict, seed: int) -> list[dict]:
         'body_md': f"🧠 {ps[0]} — {ps[1]}",
         'channels': ['telegram', 'discord:education'],
         'asset_kinds': ['feature_card'],
-        'payload': {'feature': ps[0], 'description': ps[1]},
+        'payload': {'eyebrow': 'Trading Psychology', 'feature': ps[0], 'description': ps[1]},
     })
 
     rng.shuffle(specs)
@@ -269,6 +269,67 @@ def _http_post_json(url: str, body: dict, timeout: int = 30) -> int:
         return 0
 
 
+_GRAPH = 'https://graph.facebook.com/v21.0'
+
+
+def _graph_post(path: str, params: dict, timeout: int = 60) -> dict:
+    """POST to the Meta Graph API (form-encoded). Returns parsed JSON or
+    {'error':...}. Never raises."""
+    import urllib.parse
+    data = urllib.parse.urlencode(params).encode()
+    req = urllib.request.Request(f'{_GRAPH}/{path}', data=data,
+                                 headers={'User-Agent': 'AlgoSphere-Factory/1.0'})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode() or '{}')
+    except urllib.error.HTTPError as e:
+        try:
+            return {'error': json.loads(e.read().decode()).get('error', {}).get('message', str(e.code))}
+        except Exception:
+            return {'error': str(e.code)}
+    except Exception as e:
+        return {'error': str(e)[:80]}
+
+
+def _post_facebook(caption: str, url: str, is_video: bool) -> str:
+    tok = os.environ.get('META_PAGE_ACCESS_TOKEN')
+    page = os.environ.get('META_FB_PAGE_ID')
+    if not (tok and page):
+        return 'skip'
+    if is_video:
+        r = _graph_post(f'{page}/videos', {'file_url': url, 'description': caption, 'access_token': tok})
+    else:
+        r = _graph_post(f'{page}/photos', {'url': url, 'caption': caption, 'access_token': tok})
+    return 'ok' if r.get('id') or r.get('post_id') else 'err:' + str(r.get('error'))[:60]
+
+
+def _post_instagram(caption: str, url: str, is_video: bool) -> str:
+    tok = os.environ.get('META_PAGE_ACCESS_TOKEN')
+    ig = os.environ.get('META_IG_USER_ID')
+    if not (tok and ig):
+        return 'skip'
+    params = {'caption': caption, 'access_token': tok}
+    if is_video:
+        params['media_type'] = 'REELS'; params['video_url'] = url
+    else:
+        params['image_url'] = url
+    cont = _graph_post(f'{ig}/media', params)
+    cid = cont.get('id')
+    if not cid:
+        return 'err:' + str(cont.get('error'))[:60]
+    # Reels need processing time before publish — poll status briefly.
+    if is_video:
+        for _ in range(10):
+            time.sleep(6)
+            st = _graph_post(f'{cid}', {'fields': 'status_code', 'access_token': tok})
+            if st.get('status_code') == 'FINISHED':
+                break
+            if st.get('status_code') == 'ERROR':
+                return 'err:reel_processing'
+    pub = _graph_post(f'{ig}/media_publish', {'creation_id': cid, 'access_token': tok})
+    return 'ok' if pub.get('id') else 'err:' + str(pub.get('error'))[:60]
+
+
 def _discord_webhook(channel_hint: str) -> str | None:
     key = {
         'signals': 'DISCORD_WEBHOOK_SIGNALS_FREE_URL',
@@ -339,6 +400,17 @@ def run_publisher() -> None:
                 else {'embeds': [{'description': caption, 'image': {'url': url}}]})
         dc = _http_post_json(wh, body)
 
+    # Meta (Facebook + Instagram) — best-effort, never blocks the publish.
+    fb = ig = 'skip'
+    try:
+        fb = _post_facebook(caption, url, is_video)
+    except Exception as e:
+        fb = 'err:' + str(e)[:40]
+    try:
+        ig = _post_instagram(caption, url, is_video)
+    except Exception as e:
+        ig = 'err:' + str(e)[:40]
+
     ok = tg == 200
     try:
         db().table('growth_content_items').update({
@@ -350,7 +422,8 @@ def run_publisher() -> None:
     if ok:
         _last_publish = time.time()
         logger.success(f"factory.publisher: posted {it['title'][:40]!r} "
-                       f"({'video' if is_video else 'image'}) TG:{tg} Discord:{dc}")
+                       f"({'video' if is_video else 'image'}) "
+                       f"TG:{tg} Discord:{dc} FB:{fb} IG:{ig}")
     else:
         logger.warning(f"factory.publisher: TG post failed ({tg}) for {it['id'][:8]}")
 
