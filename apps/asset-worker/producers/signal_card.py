@@ -96,13 +96,18 @@ def _draw_radial_glow(im: Image.Image, color=AMBER) -> None:
 
 
 def _fmt_num(v) -> str:
+    """Trading-aware precision. Forex pairs ≥1 (EURUSD 1.1523) need 5dp or
+    their entry/stop/target collapse to the same '1.15'; JPY pairs (~150)
+    need 3dp; indices/crypto/metals (≥1000) get 2dp + thousands separator."""
     try:
         f = float(v)
     except (TypeError, ValueError):
         return '—'
-    if abs(f) >= 1000: return f'{f:,.2f}'
-    if abs(f) >= 1:    return f'{f:.2f}'
-    return f'{f:.5f}'
+    a = abs(f)
+    if a >= 1000: return f'{f:,.2f}'
+    if a >= 100:  return f'{f:.3f}'   # JPY pairs ~150
+    if a >= 10:   return f'{f:.4f}'
+    return f'{f:.5f}'                 # EURUSD 1.15230, AUDUSD 0.70421
 
 
 def _footer(d: ImageDraw.ImageDraw) -> None:
@@ -212,7 +217,11 @@ def produce(item: dict, out_dir: Path, asset_kind: str = 'signal_card') -> Dict[
             d.text((x, grid_y), lab, fill=MUTED, font=_font(30), anchor='mm')
             d.text((x, grid_y + 64), val, fill=col, font=_fit_font(d, val, col_max, 56, 30), anchor='mm')
         if rr is not None:
-            d.text((W // 2, grid_y + 205), f'R:R  {_fmt_num(rr)}', fill=AMBER, font=_font(46), anchor='mm')
+            try:
+                rr_s = f'{float(rr):.2f}'
+            except (TypeError, ValueError):
+                rr_s = str(rr)
+            d.text((W // 2, grid_y + 205), f'R:R  {rr_s}', fill=AMBER, font=_font(46), anchor='mm')
 
     if confidence is not None and pnl is None:
         try:
