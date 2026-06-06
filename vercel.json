@@ -6,5 +6,15 @@
   "outputDirectory": "apps/web/.next",
   "git": {
     "deploymentEnabled": true
-  }
+  },
+  "crons": [
+    { "path": "/api/cron/daily-content",     "schedule": "0 6 * * *"   },
+    { "path": "/api/cron/growth-discovery",  "schedule": "0 7 * * *"   },
+    { "path": "/api/cron/health-summary",    "schedule": "0 8 * * *"   },
+    { "path": "/api/cron/performance-recap", "schedule": "30 8 * * *"  },
+    { "path": "/api/cron/growth-publish",    "schedule": "0 9 * * *"   },
+    { "path": "/api/cron/growth-copilot",    "schedule": "30 9 * * *"  },
+    { "path": "/api/cron/weekly-digest",     "schedule": "0 10 * * *"  },
+    { "path": "/api/cron/engine-watchdog",   "schedule": "*/30 * * * *" }
+  ]
 }
