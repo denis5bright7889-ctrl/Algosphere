@@ -343,18 +343,24 @@ def _discord_webhook(channel_hint: str) -> str | None:
 
 def _split_assets(asset_urls: dict | None) -> tuple[str | None, str | None]:
     """Return (image_url, video_url) from an item's asset_urls. Prefers a
-    real card image over a video thumbnail for the image slot."""
+    real card image over a video thumbnail for the image slot.
+
+    Uses substring matching (not endswith) + asset_kind key hints because
+    Supabase get_public_url appends a trailing '?' (so URLs end in '.jpg?',
+    not '.jpg')."""
     image = thumb = video = None
     for k, u in (asset_urls or {}).items():
         if not isinstance(u, str) or not u:
             continue
-        if u.endswith('.mp4'):
+        ks = str(k)
+        is_thumb = 'thumbnail' in ks or 'thumb' in u
+        is_video = ('.mp4' in u) or (('reel' in ks or 'video' in ks) and not is_thumb)
+        if is_video and not is_thumb:
             video = video or u
-        elif u.endswith(('.jpg', '.jpeg', '.png')):
-            if 'thumbnail' in str(k) or 'thumb' in u:
-                thumb = thumb or u
-            else:
-                image = image or u
+        elif is_thumb:
+            thumb = thumb or u
+        else:
+            image = image or u
     return (image or thumb), video
 
 
