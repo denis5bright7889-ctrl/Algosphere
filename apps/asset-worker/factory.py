@@ -248,7 +248,12 @@ _last_publish = 0.0
 
 def _http_post_json(url: str, body: dict, timeout: int = 30) -> int:
     data = json.dumps(body).encode()
-    req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
+    # Discord's Cloudflare 403s the default 'Python-urllib' UA — a real
+    # User-Agent is required. Telegram is indifferent but it's harmless.
+    req = urllib.request.Request(url, data=data, headers={
+        'Content-Type': 'application/json',
+        'User-Agent': 'AlgoSphere-Factory/1.0 (+https://algospherequant.com)',
+    })
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status
