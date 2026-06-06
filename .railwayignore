@@ -1,0 +1,22 @@
+# Shrinks `railway up` uploads for the signal-engine service (root directory =
+# apps/signal-engine). Only the engine is built from a `railway up`, so exclude
+# the heavy sibling apps + media assets. Railway-only — does NOT affect Vercel
+# (web) or git-based deploys.
+/apps/web
+/apps/asset-worker
+/apps/copy-engine
+/apps/desktop
+/apps/telegram-bot
+/apps/mt5-bridge
+/marketing
+/docs
+/supabase
+/.git
+**/__pycache__
+**/node_modules
+*.mp4
+*.mov
+*.png
+*.jpg
+*.jpeg
+*.webp

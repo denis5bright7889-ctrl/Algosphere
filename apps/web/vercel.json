@@ -30,6 +30,10 @@
     {
       "path": "/api/cron/daily-content",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/engine-watchdog",
+      "schedule": "*/30 * * * *"
     }
   ]
 }

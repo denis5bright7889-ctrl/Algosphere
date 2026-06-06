@@ -144,6 +144,99 @@ export async function postToInstagram(text: string, imageUrl?: string): Promise<
   }
 }
 
-export async function postToInstagramReels(_text: string, _videoUrl?: string): Promise<AdapterResult> {
-  return { ok: false, error: 'IG Reels adapter not implemented — requires a hosted video URL + a multi-step Graph API container flow. Set up via /reels endpoint when ready.' }
+/**
+ * Poll an IG/FB media container until processing finishes. Video
+ * containers (Reels) aren't publishable until status_code === 'FINISHED'.
+ * Bounded so a stuck container fails cleanly instead of hanging the cron.
+ */
+async function waitForContainer(
+  containerId: string, token: string, timeoutMs = 90_000, intervalMs = 4000,
+): Promise<{ ok: boolean; error?: string }> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, intervalMs))
+    const res = await fetch(
+      `https://graph.facebook.com/v20.0/${containerId}?fields=status_code,status&access_token=${encodeURIComponent(token)}`,
+      { cache: 'no-store' },
+    )
+    const j = (await res.json().catch(() => ({}))) as { status_code?: string; status?: string }
+    if (j.status_code === 'FINISHED') return { ok: true }
+    if (j.status_code === 'ERROR')    return { ok: false, error: `container processing failed: ${j.status ?? 'ERROR'}` }
+  }
+  return { ok: false, error: 'container processing timed out (video not ready in time)' }
+}
+
+/**
+ * Instagram Reels — three-step Graph API flow: create a REELS container
+ * from a hosted video URL, poll until the upload is processed, publish.
+ * Requires META_PAGE_ACCESS_TOKEN + META_IG_USER_ID and a public video_url.
+ */
+export async function postToInstagramReels(text: string, videoUrl?: string): Promise<AdapterResult> {
+  const t = TOKEN(); const u = IG_USER_ID(); const p = FB_PAGE_ID()
+  if (!t || !u)   return { ok: false, error: 'Instagram Reels not configured — set META_PAGE_ACCESS_TOKEN + META_IG_USER_ID in Vercel env.' }
+  if (!videoUrl)  return { ok: false, error: 'IG Reels requires a hosted video_url.' }
+
+  const pageToken = p ? await getPageAccessToken(t, p) : null
+  const token = pageToken ?? t
+
+  try {
+    const create = await fetch(`https://graph.facebook.com/v20.0/${u}/media`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        media_type:    'REELS',
+        video_url:     videoUrl,
+        caption:       text,
+        share_to_feed: true,
+        access_token:  token,
+      }),
+    })
+    const created = (await create.json().catch(() => ({}))) as { id?: string; error?: { message?: string } }
+    if (!create.ok || !created.id) return { ok: false, error: created.error?.message ?? `IG Reels container HTTP ${create.status}` }
+
+    const ready = await waitForContainer(created.id, token)
+    if (!ready.ok) return { ok: false, error: ready.error }
+
+    const publish = await fetch(`https://graph.facebook.com/v20.0/${u}/media_publish`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ creation_id: created.id, access_token: token }),
+    })
+    const pub = (await publish.json().catch(() => ({}))) as { id?: string; error?: { message?: string } }
+    if (!publish.ok || !pub.id) return { ok: false, error: pub.error?.message ?? `IG Reels publish HTTP ${publish.status}` }
+
+    return { ok: true, external_id: pub.id, response: { media_id: pub.id } }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'unknown' }
+  }
+}
+
+/**
+ * Facebook video — posts a hosted video to the Page via /{page-id}/videos
+ * (non-resumable file_url upload). Requires META_PAGE_ACCESS_TOKEN +
+ * META_FB_PAGE_ID and a public video_url.
+ */
+export async function postToFacebookVideo(text: string, videoUrl?: string): Promise<AdapterResult> {
+  const t = TOKEN(); const p = FB_PAGE_ID()
+  if (!t || !p)  return { ok: false, error: 'Facebook video not configured — set META_PAGE_ACCESS_TOKEN + META_FB_PAGE_ID in Vercel env.' }
+  if (!videoUrl) return { ok: false, error: 'Facebook video requires a hosted video_url.' }
+
+  const pageToken = await getPageAccessToken(t, p)
+  const token = pageToken ?? t
+
+  try {
+    const res = await fetch(`https://graph.facebook.com/v20.0/${p}/videos`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ file_url: videoUrl, description: text, access_token: token }),
+    })
+    const json = (await res.json().catch(() => ({}))) as { id?: string; error?: { message?: string } }
+    if (!res.ok || json.error || !json.id) return {
+      ok: false, error: json.error?.message ?? `Facebook video HTTP ${res.status}`,
+      response: { used_page_token: pageToken !== null },
+    }
+    return { ok: true, external_id: json.id, response: { video_id: json.id, used_page_token: pageToken !== null } }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'unknown' }
+  }
 }

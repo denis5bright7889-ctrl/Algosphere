@@ -6,5 +6,6 @@ python-dotenv==1.0.1
 loguru==0.7.2
 matplotlib==3.9.2
 weasyprint==62.3
-edge-tts==7.2.8
-mutagen==1.47.0
+# Media Engine V2 (2026-06-06): edge-tts + mutagen removed.
+# Videos render silent via Remotion; background music is muxed by ffmpeg
+# from royalty-free MP3s in marketing/videos/public/music/.

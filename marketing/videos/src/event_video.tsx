@@ -5,6 +5,12 @@
  * variant is driven by `timings.asset_kind` and the per-line scene
  * lookup table.
  *
+ * Media Engine V2 — silent rendering. No <Audio> tracks on the Remotion
+ * side; background music is muxed in a post-render ffmpeg pass by the
+ * Python producer (apps/asset-worker/producers/video.py). The `mp3`
+ * field on each line is retained for schema backward-compat with older
+ * timings.json files but is no longer rendered.
+ *
  * The asset-worker writes timings.json into
  * public/event_video_<kind>/ then invokes
  *   npx remotion render event_video <out> --props '{"asset_kind":"signal_reel"}'
@@ -16,14 +22,18 @@
  */
 import React from 'react'
 import {
-  AbsoluteFill, Audio, Sequence, useCurrentFrame, useVideoConfig,
+  AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig,
   interpolate, spring, staticFile, delayRender, continueRender,
 } from 'remotion'
 
 export interface EventVideoTimings {
   id:         string
   title:      string
+  /** "music_only" for V2 renders; legacy values ('en-US-...') tolerated. */
   voice:      string
+  /** Music theme name resolved by the producer to a public/music/*.mp3
+   *  file at mux time. The composition itself ignores this. */
+  theme?:     string
   total_s:    number
   gap_s:      number
   fps:        number
@@ -34,7 +44,8 @@ export interface EventVideoTimings {
   lines: Array<{
     id:       string
     text:     string
-    mp3:      string
+    /** Legacy field — V2 renders silent and ignores this. */
+    mp3?:     string
     start_s:  number
     dur_s:    number
   }>
@@ -78,7 +89,6 @@ const Rendered: React.FC<{ timings: EventVideoTimings; assetKind: string }> = ({
         const dur  = Math.round(line.dur_s * fps) + 10
         return (
           <Sequence key={line.id} from={from} durationInFrames={dur}>
-            <Audio src={staticFile(`event_video_${assetKind}/${line.mp3}`)} />
             <LineSlide
               text={line.text}
               kind={assetKind}

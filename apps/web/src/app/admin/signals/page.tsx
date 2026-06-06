@@ -1,5 +1,7 @@
 import { createClient as serviceClient } from '@supabase/supabase-js'
 import SignalManager from './SignalManager'
+import SignalDiagnostics from './SignalDiagnostics'
+import SymbolCoveragePanel from './SymbolCoveragePanel'
 import type { Strategy } from '@/lib/types'
 
 export const metadata = { title: 'Admin — Intelligence Feed' }
@@ -30,6 +32,14 @@ export default async function AdminSignalsPage() {
           </p>
         </div>
       </div>
+      {/* Phase 1 — signal pipeline observability (real-time, from the
+          engine's /diagnostics/full). Answers "why no signals?" up top. */}
+      <SignalDiagnostics />
+
+      {/* Layer 6 — symbol coverage: which symbols fire / are silently
+          filtered, and why (real data from system_event_log). */}
+      <SymbolCoveragePanel />
+
       <SignalManager
         initialSignals={(signals ?? []) as Parameters<typeof SignalManager>[0]['initialSignals']}
         strategies={(strategies ?? []) as Strategy[]}

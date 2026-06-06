@@ -59,6 +59,14 @@ TWELVE_SYMBOL_MAP = {
     # Free-tier coverage of energy is NOT guaranteed; if TD returns empty the
     # symbol is marked OFFLINE in /health/symbols (never fabricated).
     'USOIL': 'WTI/USD', 'UKOIL': 'BZ',   # WTI + Brent (BZ) — verified on TD Grow
+    # Phase-2 indices expansion (2026-06). Free-tier coverage of indices on
+    # TD is plan-dependent — some return 'plan_does_not_allow' even with a
+    # valid key. Explicit mapping ensures _serves() lets the request through;
+    # if TD declines, the fallback chain hands it to Polygon (I:SPX, I:DAX,
+    # I:UKX). Never fabricated — empty bars → OFFLINE in symbol health.
+    'SPX500': 'SPX',     # S&P 500
+    'GER40':  'DAX',     # DAX 40
+    'UK100':  'UKX',     # FTSE 100
 }
 
 
@@ -317,9 +325,12 @@ class PolygonProvider(MarketDataProvider):
         # Indices (engine convention: prefix 'I:' or known names)
         if s.startswith('I:'):
             return s
-        if s in {'SPX','NDX','DJI','RUT','VIX','GER40','UK100','JPN225','NAS100','US30'}:
-            # Engine-friendly names → Polygon index tickers (NAS100→NDX, US30→DJI)
-            return f'I:{ {"NAS100":"NDX","US30":"DJI"}.get(s, s) }'
+        if s in {'SPX','NDX','DJI','RUT','VIX','GER40','UK100','JPN225','NAS100','US30','SPX500'}:
+            # Engine-friendly names → Polygon index tickers
+            #   NAS100 → NDX, US30 → DJI, SPX500 → SPX
+            # GER40/UK100/JPN225 pass through as-is (Polygon may decline on
+            # current plan; chain moves on if so — never fabricated).
+            return f'I:{ {"NAS100":"NDX","US30":"DJI","SPX500":"SPX"}.get(s, s) }'
         # Equities: plain ticker (AAPL, MSFT, TSLA, SPY, QQQ ...)
         if s.isalpha() and 1 <= len(s) <= 5:
             return s

@@ -79,7 +79,7 @@ function pickWebhookUrl(opts: { target?: DiscordGrowthTarget; contentKind?: stri
 
 export async function postToDiscord(
   text:  string,
-  opts?: { target?: DiscordGrowthTarget; contentKind?: string },
+  opts?: { target?: DiscordGrowthTarget; contentKind?: string; imageUrl?: string; videoUrl?: string },
 ): Promise<AdapterResult> {
   const { url, picked } = pickWebhookUrl(opts ?? {})
   if (!url) {
@@ -89,13 +89,18 @@ export async function postToDiscord(
     }
   }
 
+  // Discord unfurls a public media URL appended to the message content
+  // (mp4 → inline player, image → embed). Keep within the 2000-char cap.
+  const media = opts?.videoUrl ?? opts?.imageUrl
+  const content = media ? `${text.slice(0, 1900)}\n${media}` : text.slice(0, 2000)
+
   try {
     const endpoint = url + (url.includes('?') ? '&' : '?') + 'wait=true'
     const res = await fetch(endpoint, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
-        content: text.slice(0, 2000),
+        content,
         allowed_mentions: { parse: [] },
       }),
     })

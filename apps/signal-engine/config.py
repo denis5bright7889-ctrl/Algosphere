@@ -42,27 +42,53 @@ class Settings(BaseSettings):
     signal_dry_run: bool = False
     scan_interval_minutes: int = 5
     # Default scan universe — keep this in sync with the SYMBOLS env var in
-    # production. TD-served symbols (forex / metals) each cost 1 credit per
-    # scan; with the TwelveData Basic plan (800 credits/day, 8/min) the safe
-    # ceiling is ~8 TD symbols at the current scan_interval_minutes=5.
-    # Crypto via Coinbase is keyless and unmetered, so we list them broadly.
+    # production. TD-served symbols (forex / metals / energy / indices) each
+    # cost 1 credit per scan; with the TwelveData Basic plan (800/day, 8/min)
+    # the safe ceiling is ~8 TD symbols at scan_interval_minutes=5.
+    # Crypto via Coinbase is keyless and unmetered.
     #
-    # Forex coverage expanded 2026-05-30 to include the remaining majors
-    # (USDCHF / USDCAD / NZDUSD) plus the highest-volume yen cross (EURJPY).
-    # If the deploy's TwelveData plan can't sustain 9 symbols at this scan
-    # cadence, raise scan_interval_minutes to 8 or drop the cross before
-    # lowering the major coverage — majors are the platform's promise.
+    # Phase-2 multi-asset expansion (2026-06): the institutional universe is
+    #   Forex 10 + Metals 2 + Indices 5 + Energy 2 + Crypto 9 = 28 symbols.
+    # Of those, 19 are TD-served — at the 5-min cadence that is ~5,472
+    # credits/day, requiring a TD plan ≥ Pro ($79/mo, 8,000 credits/day).
+    # On Grow ($29, 2,500/day), raise scan_interval_minutes to 12 or wider.
+    # Indices may decline on TD free tier; Polygon (MASSIVE_API_KEY /
+    # POLYGON_API_KEY) is the fallback for SPX500/GER40/UK100/NAS100/US30.
+    #
+    # DOGEUSDT kept from the prior universe to honour the "don't remove
+    # working assets" preservation rule even though the target spec omits it.
     symbols: str = (
-        'XAUUSD,EURUSD,GBPUSD,USDJPY,AUDUSD,'              # original forex + gold (TD)
-        'USDCHF,USDCAD,NZDUSD,EURJPY,'                     # added majors + cross (TD)
-        'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,ADAUSDT,'         # majors (Coinbase)
-        'DOGEUSDT,AVAXUSDT,LINKUSDT,LTCUSDT,DOTUSDT'       # second tier (Coinbase)
+        # ── Forex (10 TD) ──
+        'EURUSD,GBPUSD,USDJPY,AUDUSD,USDCHF,'
+        'USDCAD,NZDUSD,EURJPY,GBPJPY,EURGBP,'
+        # ── Metals (2 TD) ──
+        'XAUUSD,XAGUSD,'
+        # ── Indices (5 TD primary, Polygon fallback) ──
+        'NAS100,SPX500,US30,GER40,UK100,'
+        # ── Energy (2 TD) ──
+        'USOIL,UKOIL,'
+        # ── Crypto (9 target + 1 preserved = 10 Coinbase, unmetered) ──
+        'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,ADAUSDT,'
+        'AVAXUSDT,LINKUSDT,LTCUSDT,DOTUSDT,DOGEUSDT'
     )
     timeframe: str = '1h'
     min_confidence: int = 55
     max_consecutive_losses: int = 3
     daily_loss_cap: int = 5
     max_active_per_symbol: int = 1
+
+    # Broker Reality Sync (truth layer). DORMANT by default: the reconciler
+    # only runs when explicitly enabled, so it never journals paper/testnet
+    # noise. Enable once a LIVE broker is connected. Interval can drop to
+    # 5–15s once live; default conservative to respect broker rate limits.
+    broker_sync_enabled: bool = False
+    broker_sync_interval_s: int = 30
+
+    # Broker-truth snapshot layer (V4.1). DORMANT by default — enable AFTER the
+    # 20240101000073 migration is applied. Persists account/position/equity
+    # snapshots from real broker polls (read-only) for historical reconstruction.
+    equity_snapshot_enabled: bool = False
+    equity_snapshot_interval_s: int = 60
 
     # App
     port: int = 8001
