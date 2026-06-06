@@ -190,9 +190,10 @@ def produce(item: dict, out_dir: Path, asset_kind: str = 'signal_card') -> Dict[
     badge_w, badge_h = 240, 64
     bx0 = (W - badge_w) // 2
     by0 = 330
-    d.rounded_rectangle([bx0, by0, bx0 + badge_w, by0 + badge_h], radius=32,
-                        fill=(*dir_color, 38), outline=dir_color, width=3)
-    d.text((W // 2, by0 + badge_h // 2 + 2), dir_label, fill=dir_color, font=_font(40), anchor='mm')
+    # Solid pill + dark label (alpha fills don't composite on convert('RGB'),
+    # and same-colour label on the pill was invisible).
+    d.rounded_rectangle([bx0, by0, bx0 + badge_w, by0 + badge_h], radius=32, fill=dir_color)
+    d.text((W // 2, by0 + badge_h // 2 + 2), dir_label, fill=BG, font=_font(40), anchor='mm')
 
     grid_y = 500
     if pnl is not None:
@@ -201,14 +202,17 @@ def produce(item: dict, out_dir: Path, asset_kind: str = 'signal_card') -> Dict[
         d.text((W // 2, grid_y + 50), f'{sign}{_fmt_num(pnl)}', fill=pnl_color, font=_font(160), anchor='mm')
         d.text((W // 2, grid_y + 175), 'P&L', fill=MUTED, font=_font(36), anchor='mm')
     else:
-        col_x = [W // 4, W // 2, 3 * W // 4]
+        # Wide column spacing + per-value auto-fit so long (5-decimal forex)
+        # numbers never collide.
+        col_x = [216, W // 2, W - 216]
+        col_max = 300
         for x, lab, val, col in zip(col_x, ['ENTRY', 'STOP', 'TARGET'],
                                     [_fmt_num(entry), _fmt_num(stop_loss), _fmt_num(take_profit)],
                                     [WHITE, ROSE, EMERALD]):
-            d.text((x, grid_y),       lab, fill=MUTED, font=_font(30), anchor='mm')
-            d.text((x, grid_y + 62),  val, fill=col,  font=_font(60), anchor='mm')
+            d.text((x, grid_y), lab, fill=MUTED, font=_font(30), anchor='mm')
+            d.text((x, grid_y + 64), val, fill=col, font=_fit_font(d, val, col_max, 56, 30), anchor='mm')
         if rr is not None:
-            d.text((W // 2, grid_y + 200), f'R:R  {_fmt_num(rr)}', fill=AMBER, font=_font(46), anchor='mm')
+            d.text((W // 2, grid_y + 205), f'R:R  {_fmt_num(rr)}', fill=AMBER, font=_font(46), anchor='mm')
 
     if confidence is not None and pnl is None:
         try:
