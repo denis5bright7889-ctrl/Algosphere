@@ -34,31 +34,18 @@ function WorkspaceShell() {
   const ws = useWorkspace()
   const [theaterPanelId, setTheaterPanelId] = useState<string | null>(null)
 
-  // Fullscreen state — uses the native Fullscreen API on the workspace
-  // root, so the workspace fills the entire screen with no dashboard
-  // chrome / browser tabs visible. 'f' toggles; Esc exits (the browser
-  // handles that natively when in fullscreen). The state mirrors
-  // `document.fullscreenElement` via the `fullscreenchange` event, so
-  // it stays correct even if the user exits via Esc.
+  // Fullscreen — CSS-based (position:fixed inset:0 z:50). Works in
+  // every browser context including iframes, embedded webviews, and
+  // any CSP/permission policy. The native Fullscreen API often gets
+  // blocked (no user-gesture trace through React events, iframe
+  // missing allow="fullscreen", strict CSP, etc.) — CSS sidesteps
+  // every one of those failure modes. Esc exits via the keyboard
+  // handler below.
   const shellRef = useRef<HTMLDivElement>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
 
-  const toggleFullscreen = useCallback(async () => {
-    try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen()
-      } else if (shellRef.current) {
-        await shellRef.current.requestFullscreen()
-      }
-    } catch {
-      // Some embedded contexts disallow fullscreen — silently no-op.
-    }
-  }, [])
-
-  useEffect(() => {
-    function onChange() { setIsFullscreen(!!document.fullscreenElement) }
-    document.addEventListener('fullscreenchange', onChange)
-    return () => document.removeEventListener('fullscreenchange', onChange)
+  const toggleFullscreen = useCallback(() => {
+    setIsFullscreen((cur) => !cur)
   }, [])
 
   // Workspace-scoped shortcuts. We only intercept when no input/textarea
@@ -72,11 +59,15 @@ function WorkspaceShell() {
       if (map[e.key]) { e.preventDefault(); ws.setLayout(map[e.key]!); return }
       if (e.key === 'n') { e.preventDefault(); ws.createTab(); return }
       if (e.key === 'f') { e.preventDefault(); toggleFullscreen(); return }
-      if (e.key === 'Escape' && theaterPanelId) { e.preventDefault(); setTheaterPanelId(null); return }
+      if (e.key === 'Escape') {
+        // Esc unwinds in reverse-priority order: theater → fullscreen.
+        if (theaterPanelId) { e.preventDefault(); setTheaterPanelId(null); return }
+        if (isFullscreen)   { e.preventDefault(); setIsFullscreen(false); return }
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [ws, theaterPanelId, toggleFullscreen])
+  }, [ws, theaterPanelId, isFullscreen, toggleFullscreen])
 
   const compact = ws.state.density === 'compact'
 
@@ -89,14 +80,17 @@ function WorkspaceShell() {
   // negative margin and reset our own padding to zero.
   return (
     <div ref={shellRef} className={cn(
-      // Negate the dashboard's <main> padding so the workspace runs edge-to-
-      // edge; h-full inherits from the flex-bounded parent — no viewport math.
-      // In native fullscreen, the negative margins don't matter (the element
-      // fills the screen), but `h-screen` overrides h-full so the body
-      // doesn't get clipped by the fullscreen API's default sizing.
-      '-m-3 flex min-h-[640px] flex-col overflow-hidden bg-background md:-m-6',
-      isFullscreen ? 'h-screen' : 'h-full',
+      'flex min-h-[640px] flex-col overflow-hidden bg-background',
       compact ? 'text-[12px]' : 'text-[13px]',
+      // Normal mode: negate the dashboard's <main> padding so the
+      // workspace runs edge-to-edge within the dashboard chrome.
+      // Fullscreen mode: cover the viewport with fixed positioning
+      // (works in iframes / CSP-locked / embedded contexts the native
+      // Fullscreen API can't). z-50 sits above the sidebar (z-40) +
+      // sticky header (z-30) but below any modal (z-100).
+      isFullscreen
+        ? 'fixed inset-0 z-50 h-screen w-screen'
+        : '-m-3 h-full md:-m-6',
     )}>
       {/* Top chrome — wrapped in a boundary so a tabs crash can't kill
           the workspace (the chart grid is still usable without tabs). */}
