@@ -19,6 +19,7 @@ import LayoutPicker    from '@/components/workspace/LayoutPicker'
 import SymbolSidebar   from '@/components/workspace/SymbolSidebar'
 import ChartGrid       from '@/components/workspace/ChartGrid'
 import WorkspaceAIRail from '@/components/workspace/WorkspaceAIRail'
+import SectionBoundary from '@/components/workspace/SectionBoundary'
 import type { LayoutMode, Density } from '@/lib/workspace-store'
 
 export default function WorkspaceClient() {
@@ -65,8 +66,9 @@ function WorkspaceShell() {
       '-m-3 flex h-full min-h-[640px] flex-col overflow-hidden bg-background md:-m-6',
       compact ? 'text-[12px]' : 'text-[13px]',
     )}>
-      {/* Top chrome */}
-      <WorkspaceTabs />
+      {/* Top chrome — wrapped in a boundary so a tabs crash can't kill
+          the workspace (the chart grid is still usable without tabs). */}
+      <SectionBoundary section="tabs"><WorkspaceTabs /></SectionBoundary>
       <div className="flex items-center gap-2 border-b border-border/60 bg-card/30 px-2 py-1.5">
         <LayoutPicker />
         <DensityToggle density={ws.state.density} onChange={ws.setDensity} />
@@ -90,19 +92,25 @@ function WorkspaceShell() {
         </span>
       </div>
 
-      {/* Body: sidebar | grid | rail */}
+      {/* Body: sidebar | grid | rail.
+          Each section is wrapped in its own boundary so a crash in one
+          (e.g. a leaf component in the AI rail consuming a malformed
+          API response) cannot take down the entire route. The user
+          still gets the chart even if the AI rail dies. */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {ws.state.sidebarOpen && (
           <div className="hidden w-56 shrink-0 md:block">
-            <SymbolSidebar />
+            <SectionBoundary section="sidebar"><SymbolSidebar /></SectionBoundary>
           </div>
         )}
         <main className="min-w-0 flex-1 overflow-hidden">
-          <ChartGrid theaterPanelId={theaterPanelId} onToggleTheater={toggleTheater} />
+          <SectionBoundary section="chart-grid">
+            <ChartGrid theaterPanelId={theaterPanelId} onToggleTheater={toggleTheater} />
+          </SectionBoundary>
         </main>
         {ws.state.railOpen && (
           <div className="hidden w-80 shrink-0 lg:block xl:w-96">
-            <WorkspaceAIRail />
+            <SectionBoundary section="ai-rail"><WorkspaceAIRail /></SectionBoundary>
           </div>
         )}
       </div>
