@@ -7,7 +7,6 @@
   "git": {
     "deploymentEnabled": true
   },
-  "comment_crons": "Hobby plan limit: 2 crons/project, 1x/day each. The 6 remaining cron routes (growth-discovery, health-summary, performance-recap, growth-copilot, weekly-digest, engine-watchdog) are still defined in the codebase and can be fired manually with Bearer CRON_SECRET, or via Railway scheduler / GitHub Actions / scripts/growth-autopost.mjs. Upgrade to Pro to register them with Vercel.",
   "crons": [
     { "path": "/api/cron/daily-content",  "schedule": "0 6 * * *" },
     { "path": "/api/cron/growth-publish", "schedule": "0 9 * * *" }
