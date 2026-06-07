@@ -44,6 +44,18 @@ export default function CorrelationPanel({ symbol }: { symbol: string }) {
 
   const base = baseOf(symbol)
 
+  // The /api/market/correlations response is typed as Resp, but the
+  // `as Promise<Resp>` cast at fetch time doesn't validate runtime
+  // shape. When the engine has no correlation pairs for the current
+  // universe yet (a transient state during cold starts and after
+  // universe-expansion deploys), the endpoint returns 200 with
+  // `matrix` undefined — and `resp.matrix.length` then crashed the
+  // ENTIRE /workspace route into the error boundary with the message
+  // "Cannot read properties of undefined (reading 'length')".
+  // Coerce defensively so a malformed payload degrades to the
+  // empty-state UI instead of throwing.
+  const matrix = Array.isArray(resp?.matrix) ? resp.matrix : []
+
   return (
     <section className="rounded-xl border border-border/60 bg-card/40 p-3.5">
       <div className="mb-2 flex items-center justify-between">
@@ -59,11 +71,11 @@ export default function CorrelationPanel({ symbol }: { symbol: string }) {
         <SkeletonText lines={3} />
       ) : error ? (
         <p className="text-xs text-muted-foreground">Correlations unavailable.</p>
-      ) : !resp || resp.matrix.length === 0 ? (
+      ) : matrix.length === 0 ? (
         <p className="text-xs text-muted-foreground">No correlations on record.</p>
       ) : (
         <ul className="space-y-1">
-          {resp.matrix.map((r) => {
+          {matrix.map((r) => {
             const highlight = r.a === base || r.b === base
             const c = r.correlation
             return (
