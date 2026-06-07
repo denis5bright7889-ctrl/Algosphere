@@ -59,6 +59,7 @@ export default function TradingViewEmbed({
 
   useEffect(() => {
     let cancelled = false
+    let revealTimer: ReturnType<typeof setTimeout> | undefined
     setStatus('loading')
 
     loadTv()
@@ -91,13 +92,16 @@ export default function TradingViewEmbed({
         }
         new window.TradingView.widget(cfg)
         // The simple embed exposes no ready callback; reveal after a beat.
-        const t = setTimeout(() => { if (!cancelled) setStatus('ready') }, 600)
-        return () => clearTimeout(t)
+        revealTimer = setTimeout(() => { if (!cancelled) setStatus('ready') }, 600)
       })
       .catch(() => { if (!cancelled) setStatus('error') })
 
-    return () => { cancelled = true }
-  }, [tvSymbol, interval, compareKey, compareSymbols])
+    return () => { cancelled = true; clearTimeout(revealTimer) }
+    // `compareKey` is the stable proxy for `compareSymbols` (a fresh array on
+    // every parent render); depending on the array itself would re-mount the
+    // widget on every workspace interaction.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tvSymbol, interval, compareKey])
 
   if (status === 'error') {
     return (
