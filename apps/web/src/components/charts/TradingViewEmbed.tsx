@@ -121,11 +121,22 @@ export default function TradingViewEmbed({
   return (
     <div className="relative h-full w-full">
       {status === 'loading' && (
-        <div className="absolute inset-0 z-10 p-4">
+        // pointer-events-none so the skeleton CANNOT intercept clicks /
+        // wheel / touch events meant for the chart iframe — otherwise
+        // the user's first pan / zoom attempts during the 600ms reveal
+        // window silently die on the skeleton.
+        <div className="pointer-events-none absolute inset-0 z-10 p-4">
           <Skeleton className="h-full w-full rounded-lg" />
         </div>
       )}
-      <div id={idRef.current} ref={containerRef} className="h-full w-full" />
+      {/* touch-none keeps two-finger pinch + wheel-zoom events inside
+          the iframe instead of bubbling up to scroll/zoom the page.
+          The chart widget handles the gestures itself. */}
+      <div
+        id={idRef.current}
+        ref={containerRef}
+        className="h-full w-full touch-none"
+      />
     </div>
   )
 }
