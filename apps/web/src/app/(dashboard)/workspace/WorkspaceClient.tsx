@@ -10,8 +10,8 @@
  * Esc exits theater. "/" focuses the sidebar search (registered
  * inside SymbolSidebar).
  */
-import { useEffect, useState } from 'react'
-import { Sidebar as SidebarIcon, PanelRight, LayoutGrid } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Sidebar as SidebarIcon, PanelRight, LayoutGrid, Maximize2, Minimize2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import WorkspaceProvider, { useWorkspace } from '@/components/workspace/WorkspaceProvider'
 import WorkspaceTabs   from '@/components/workspace/WorkspaceTabs'
@@ -34,6 +34,33 @@ function WorkspaceShell() {
   const ws = useWorkspace()
   const [theaterPanelId, setTheaterPanelId] = useState<string | null>(null)
 
+  // Fullscreen state — uses the native Fullscreen API on the workspace
+  // root, so the workspace fills the entire screen with no dashboard
+  // chrome / browser tabs visible. 'f' toggles; Esc exits (the browser
+  // handles that natively when in fullscreen). The state mirrors
+  // `document.fullscreenElement` via the `fullscreenchange` event, so
+  // it stays correct even if the user exits via Esc.
+  const shellRef = useRef<HTMLDivElement>(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen()
+      } else if (shellRef.current) {
+        await shellRef.current.requestFullscreen()
+      }
+    } catch {
+      // Some embedded contexts disallow fullscreen — silently no-op.
+    }
+  }, [])
+
+  useEffect(() => {
+    function onChange() { setIsFullscreen(!!document.fullscreenElement) }
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+
   // Workspace-scoped shortcuts. We only intercept when no input/textarea
   // is focused so we never eat user typing.
   useEffect(() => {
@@ -44,11 +71,12 @@ function WorkspaceShell() {
       const map: Record<string, LayoutMode> = { '1': 'single', '2': 'split-v', '3': 'split-h', '4': 'quad' }
       if (map[e.key]) { e.preventDefault(); ws.setLayout(map[e.key]!); return }
       if (e.key === 'n') { e.preventDefault(); ws.createTab(); return }
+      if (e.key === 'f') { e.preventDefault(); toggleFullscreen(); return }
       if (e.key === 'Escape' && theaterPanelId) { e.preventDefault(); setTheaterPanelId(null); return }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [ws, theaterPanelId])
+  }, [ws, theaterPanelId, toggleFullscreen])
 
   const compact = ws.state.density === 'compact'
 
@@ -60,10 +88,14 @@ function WorkspaceShell() {
   // workspace wants edge-to-edge density, so we negate that with a
   // negative margin and reset our own padding to zero.
   return (
-    <div className={cn(
+    <div ref={shellRef} className={cn(
       // Negate the dashboard's <main> padding so the workspace runs edge-to-
       // edge; h-full inherits from the flex-bounded parent — no viewport math.
-      '-m-3 flex h-full min-h-[640px] flex-col overflow-hidden bg-background md:-m-6',
+      // In native fullscreen, the negative margins don't matter (the element
+      // fills the screen), but `h-screen` overrides h-full so the body
+      // doesn't get clipped by the fullscreen API's default sizing.
+      '-m-3 flex min-h-[640px] flex-col overflow-hidden bg-background md:-m-6',
+      isFullscreen ? 'h-screen' : 'h-full',
       compact ? 'text-[12px]' : 'text-[13px]',
     )}>
       {/* Top chrome — wrapped in a boundary so a tabs crash can't kill
@@ -86,9 +118,18 @@ function WorkspaceShell() {
                               ws.state.railOpen && 'bg-accent/40 text-foreground')}>
           <PanelRight className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
         </button>
+        <button type="button" onClick={toggleFullscreen}
+                aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                title={isFullscreen ? 'Exit fullscreen (f)' : 'Fullscreen edge-to-edge (f)'}
+                className={cn('rounded-md border border-border/60 p-1.5 text-muted-foreground hover:text-foreground',
+                              isFullscreen && 'bg-amber-500/15 text-amber-300')}>
+          {isFullscreen
+            ? <Minimize2 className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+            : <Maximize2 className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />}
+        </button>
         <span className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground">
           <LayoutGrid className="h-3 w-3" strokeWidth={1.75} aria-hidden />
-          {ws.activeTab.panels.length} panel{ws.activeTab.panels.length === 1 ? '' : 's'} · keys 1/2/3/4 · n new · Esc exit theater
+          {ws.activeTab.panels.length} panel{ws.activeTab.panels.length === 1 ? '' : 's'} · keys 1/2/3/4 · n new · f fullscreen · Esc exit
         </span>
       </div>
 
