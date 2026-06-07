@@ -137,7 +137,28 @@ export function loadState(): WorkspaceState {
     if (tabs.length === 0) return defaultState()
     const activeTab = tabs.some((t) => t.id === parsed.activeTab) ? parsed.activeTab! : tabs[0]!.id
 
-    return { ...defaultState(), ...parsed, tabs, activeTab } as WorkspaceState
+    // Sanitize the rest. A corrupt localStorage row could deliver
+    // non-array favorites/recents (e.g. someone overwrote it manually
+    // via devtools) and downstream `.includes()` / `.filter()` would
+    // throw "is not a function" — crashing the entire /workspace route
+    // into the error boundary. Validate every consumer-facing field.
+    const cleanStrArr = (v: unknown, max: number): string[] =>
+      Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(0, max) : []
+    const cleanBool = (v: unknown, fallback: boolean): boolean =>
+      typeof v === 'boolean' ? v : fallback
+
+    const base = defaultState()
+    return {
+      version:     SCHEMA_VERSION,
+      tabs,
+      activeTab,
+      favorites:   cleanStrArr(parsed.favorites, MAX_FAVORITES),
+      recents:     cleanStrArr(parsed.recents,   MAX_RECENTS),
+      density:     parsed.density === 'compact' || parsed.density === 'comfortable'
+                     ? parsed.density : base.density,
+      sidebarOpen: cleanBool(parsed.sidebarOpen, base.sidebarOpen),
+      railOpen:    cleanBool(parsed.railOpen,    base.railOpen),
+    }
   } catch {
     return defaultState()
   }

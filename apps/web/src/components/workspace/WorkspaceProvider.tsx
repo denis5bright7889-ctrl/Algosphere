@@ -78,12 +78,24 @@ export default function WorkspaceProvider({ children }: { children: React.ReactN
   }, [state])
 
   // ── Derived ────────────────────────────────────────────────────────────
-  const activeTab = useMemo(
-    () => state.tabs.find((t) => t.id === state.activeTab) ?? state.tabs[0]!,
+  // Both `state.tabs` and `activeTab.panels` are guaranteed non-empty by
+  // loadState's sanitizer + the action-creators (deleteTab keeps ≥1 tab,
+  // fitPanelsToLayout returns ≥1 panel). The fallbacks below are a
+  // belt-and-braces guard so a hypothetical state corruption (e.g. a
+  // dev clearing tabs in devtools) can never render `undefined` and
+  // crash the whole route into the error boundary.
+  const activeTab = useMemo<WorkspaceTab>(
+    () =>
+      state.tabs.find((t) => t.id === state.activeTab)
+      ?? state.tabs[0]
+      ?? makeTab(),
     [state.tabs, state.activeTab],
   )
-  const activePanel = useMemo(
-    () => activeTab.panels.find((p) => p.id === activeTab.activePanelId) ?? activeTab.panels[0]!,
+  const activePanel = useMemo<ChartPanelState>(
+    () =>
+      activeTab.panels.find((p) => p.id === activeTab.activePanelId)
+      ?? activeTab.panels[0]
+      ?? makePanel('BTCUSDT', 'crypto'),
     [activeTab],
   )
 
