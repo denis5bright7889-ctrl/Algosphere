@@ -129,13 +129,17 @@ export default function TradingViewEmbed({
           <Skeleton className="h-full w-full rounded-lg" />
         </div>
       )}
-      {/* touch-none keeps two-finger pinch + wheel-zoom events inside
-          the iframe instead of bubbling up to scroll/zoom the page.
-          The chart widget handles the gestures itself. */}
+      {/* overscroll-contain stops the page from rubber-banding /
+          chaining vertical scroll when the user pans the chart, but
+          UNLIKE touch-action:none it doesn't block legitimate
+          intra-chart gestures (price-axis drag-pan, vertical wheel
+          zoom, two-finger pinch). The TradingView iframe handles
+          every gesture internally; we just keep the page from
+          stealing the up/down ones. */}
       <div
         id={idRef.current}
         ref={containerRef}
-        className="h-full w-full touch-none"
+        className="h-full w-full overscroll-contain"
       />
     </div>
   )
