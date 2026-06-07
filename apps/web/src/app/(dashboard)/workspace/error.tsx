@@ -55,9 +55,24 @@ export default function WorkspaceError({
       </p>
 
       {/* Actual error message — gives the operator something to act on. */}
-      <pre className="mt-4 w-full max-w-md whitespace-pre-wrap rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-left text-[11px] font-mono text-rose-200/90">
+      <pre className="mt-4 w-full max-w-2xl whitespace-pre-wrap rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-left text-[11px] font-mono text-rose-200/90">
         {error.message || 'Unknown error'}
       </pre>
+
+      {/* Stack trace — abbreviated (first 8 frames) so the operator can
+          pinpoint which component/line is throwing. Lives in a details
+          block so it doesn't dominate the UI on the common case where
+          a state-reset fixes the issue. */}
+      {error.stack && (
+        <details className="mt-3 w-full max-w-2xl rounded-lg border border-border/60 bg-background/40 px-3 py-2 text-left text-[10px] font-mono text-muted-foreground">
+          <summary className="cursor-pointer select-none text-xs font-semibold text-foreground">
+            Stack trace (paste this to support)
+          </summary>
+          <pre className="mt-2 whitespace-pre-wrap break-all">
+            {error.stack.split('\n').slice(0, 12).join('\n')}
+          </pre>
+        </details>
+      )}
 
       <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
         <button
