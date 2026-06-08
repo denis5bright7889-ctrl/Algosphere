@@ -235,6 +235,9 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/intelligence-health', label: 'Intelligence Health', icon: Activity,
         adminOnly: true,
         keywords: 'admin ops observability provider health credits fallback cache telemetry intelligence engines' },
+      { href: '/admin/feedback', label: 'Feedback Triage', icon: MessagesSquare,
+        adminOnly: true,
+        keywords: 'admin feedback triage ratings questions bugs feature requests reviews user reports' },
     ],
   },
   {
@@ -244,10 +247,11 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/api-keys',  label: 'API Access',     icon: KeyRound,        minTier: 'premium', keywords: 'developer token rest webhook' },
       { href: '/prop',      label: 'Prop Toolkit',   icon: Briefcase,       minTier: 'premium', keywords: 'ftmo challenge funded' },
-      { href: '/settings',  label: 'Settings',       icon: UserCog,         keywords: 'account security 2fa devices preferences profile notifications' },
-      { href: '/upgrade',   label: 'Billing & Plan', icon: BadgeDollarSign, keywords: 'subscription billing plan renew upgrade' },
-      { href: '/referrals', label: 'Affiliate',      icon: Handshake,       keywords: 'referral commission' },
-      { action: 'logout',   label: 'Logout',         icon: LogOut,          keywords: 'sign out' },
+      { href: '/settings',  label: 'Settings',         icon: UserCog,         keywords: 'account security 2fa devices preferences profile notifications' },
+      { href: '/feedback',  label: 'Feedback Center',  icon: MessagesSquare,  keywords: 'feedback rate review question bug report feature request idea support help' },
+      { href: '/upgrade',   label: 'Billing & Plan',   icon: BadgeDollarSign, keywords: 'subscription billing plan renew upgrade' },
+      { href: '/referrals', label: 'Affiliate',        icon: Handshake,       keywords: 'referral commission' },
+      { action: 'logout',   label: 'Logout',           icon: LogOut,          keywords: 'sign out' },
     ],
   },
 ]
