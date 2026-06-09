@@ -113,6 +113,7 @@ export async function GET() {
     event_type_counts:  eventTypeCounts,
     journal_by_source:  journalBySource,
     sample_order_filled_payloads: sampleFills ?? [],
+    test_insert: await runTestInsert(db, sampleFills ?? []),
     trigger_check_sql: [
       "Run these in Supabase → SQL Editor to confirm trigger is installed:",
       "  SELECT proname FROM pg_proc WHERE proname = 'auto_journal_from_event';",
@@ -120,4 +121,65 @@ export async function GET() {
       "Each should return one row. If empty, migration 29 was never applied — apply it via: supabase db push --linked",
     ],
   })
+}
+
+/**
+ * Test the trigger's exact INSERT shape against the prod schema.
+ * Uses the first sample ORDER_FILLED payload (real broker fill, real
+ * user_id), tries to INSERT a row matching the trigger's body, then
+ * rolls back via DELETE on the inserted row. Surfaces the actual
+ * Postgres error if any — which the trigger's EXCEPTION block
+ * swallows in production.
+ *
+ * The synthetic row has trade_date = '1970-01-01' + a marker
+ * auto_position_id so we can identify + clean up any failure to
+ * delete.
+ */
+async function runTestInsert(
+  db:      ReturnType<typeof svc>,
+  samples: unknown[],
+): Promise<unknown> {
+  if (samples.length === 0) {
+    return { skipped: 'no ORDER_FILLED payload in last 24h to test against' }
+  }
+  const s = samples[0] as { user_id: string; broker: string; payload: Record<string, unknown> }
+  const p = s.payload
+  const TEST_MARKER = '__diag_test__' + Math.random().toString(36).slice(2, 8)
+
+  const row = {
+    user_id:            s.user_id,
+    pair:               String(p.symbol ?? 'TEST'),
+    direction:          String(p.side ?? 'buy').toLowerCase() === 'sell' ? 'sell' : 'buy',
+    entry_price:        Number(p.avg_fill_price ?? 0),
+    lot_size:           Number(p.filled_qty ?? 0.01),
+    trade_date:         '1970-01-01',
+    source:             'auto_human',
+    auto_position_id:   TEST_MARKER,
+    broker:             s.broker,
+    session:            'off_hours',
+  }
+
+  const { data, error } = await db.from('journal_entries').insert(row).select('id').single()
+
+  if (error) {
+    return {
+      attempted_row: row,
+      inserted:      false,
+      error_code:    error.code,
+      error_message: error.message,
+      error_details: error.details,
+      hint:          error.hint,
+      verdict:       'THIS IS THE ERROR THE TRIGGER IS SWALLOWING. Match the error_message against journal_entries CHECK constraints / NOT NULL columns / FK references.',
+    }
+  }
+
+  // Insert succeeded — clean up the test row.
+  if (data?.id) {
+    await db.from('journal_entries').delete().eq('id', data.id)
+  }
+  return {
+    attempted_row: row,
+    inserted:      true,
+    verdict:       'INSERT WORKS WHEN CALLED DIRECTLY. The trigger must be either not installed or has a different bug — check trigger_check_sql below.',
+  }
 }
