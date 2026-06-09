@@ -69,6 +69,29 @@ export interface EvaluatorInput {
 }
 
 
+export type LetterGrade = 'A+' | 'A' | 'B+' | 'B' | 'C+' | 'C' | 'D'
+
+/**
+ * Map a 0-100 quality_score to a letter grade per the AlgoSphere V2
+ * grade band. Display-only; the underlying numeric score is the
+ * canonical source of truth (letter is a UI nicety).
+ *
+ *    95–100 → A+         85–89 → B+         70–79 → C+
+ *    90–94  → A          80–84 → B          60–69 → C
+ *    <60                                    → D
+ */
+export function letterGradeFor(score: number | null | undefined): LetterGrade | null {
+  if (score == null || !Number.isFinite(score)) return null
+  const s = Math.round(score)
+  if (s >= 95) return 'A+'
+  if (s >= 90) return 'A'
+  if (s >= 85) return 'B+'
+  if (s >= 80) return 'B'
+  if (s >= 70) return 'C+'
+  if (s >= 60) return 'C'
+  return 'D'
+}
+
 export interface CoachEvaluation {
   // Overall (existing public contract)
   quality_score:    number   // 0-100

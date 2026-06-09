@@ -1236,6 +1236,100 @@ class SymbolRequest(AccountRequest):
     symbol: str
 
 
+class ClosedDealsRequest(AccountRequest):
+    # Unix epoch seconds. Bridge selects deals from this time to "now".
+    # Defaults to 30 days back if not supplied — matches
+    # broker_reconciler's lookback for the open-set rebuild.
+    since: int | None = None
+
+
+@app.post('/closed_deals', dependencies=[Depends(_verify_bridge_key)])
+async def closed_deals(req: ClosedDealsRequest):
+    """Returns CLOSED deals from the MT5 history table since `since`.
+
+    Phase 1 of the broker-reality enrichment: the reconciler currently
+    detects "position closed" by noticing it vanished from
+    positions_get(), but has no way to learn HOW it closed (exit price,
+    realized pnl, commission, swap). Those fields live in the deal
+    history record, which requires HistorySelect() + HistoryDealsGet()
+    to fetch.
+
+    Returns ONE row per closing position_id (deduplicated). The closing
+    deal is the one with entry in {DEAL_ENTRY_OUT, DEAL_ENTRY_OUT_BY},
+    where profit/commission/swap are populated. Opening deals
+    (DEAL_ENTRY_IN) are ignored — they have no exit metrics.
+    """
+    from datetime import datetime, timezone, timedelta
+    since_ts = req.since if req.since is not None else int(
+        (datetime.now(timezone.utc) - timedelta(days=30)).timestamp()
+    )
+    async with _mt5_session(req.login, req.password, req.server):
+        mt5 = _load_mt5()
+
+        from_dt = datetime.fromtimestamp(since_ts, tz=timezone.utc)
+        to_dt   = datetime.now(timezone.utc)
+
+        ok = await asyncio.to_thread(mt5.history_select, from_dt, to_dt)
+        if not ok:
+            return {'deals': [], 'count': 0, 'note': 'history_select returned False'}
+
+        rows = await asyncio.to_thread(mt5.history_deals_get, from_dt, to_dt) or []
+
+        # Closing deals only — these carry exit price, profit, commission, swap.
+        # entry values:
+        #   DEAL_ENTRY_IN     (0) → opening (no exit metrics; skip)
+        #   DEAL_ENTRY_OUT    (1) → closing
+        #   DEAL_ENTRY_INOUT  (2) → reversal: closes one position, opens another
+        #   DEAL_ENTRY_OUT_BY (3) → offset close
+        DEAL_ENTRY_OUT     = getattr(mt5, 'DEAL_ENTRY_OUT',     1)
+        DEAL_ENTRY_INOUT   = getattr(mt5, 'DEAL_ENTRY_INOUT',   2)
+        DEAL_ENTRY_OUT_BY  = getattr(mt5, 'DEAL_ENTRY_OUT_BY',  3)
+        CLOSE_ENTRIES = {DEAL_ENTRY_OUT, DEAL_ENTRY_INOUT, DEAL_ENTRY_OUT_BY}
+
+        # Deduplicate by position_id. If multiple closing deals exist
+        # (partial closes), keep the latest one — it has the cumulative
+        # realized state of the position from the broker's perspective.
+        by_pos: dict[str, dict] = {}
+        for d in rows:
+            if d.entry not in CLOSE_ENTRIES:
+                continue
+            posid = str(d.position_id)
+            if posid == '0' or posid == '':
+                continue
+            # type 0=BUY, 1=SELL on the DEAL itself; on a CLOSING deal
+            # this is the OPPOSITE of the position's direction. We surface
+            # it raw so the adapter can normalize.
+            entry_type = 'BUY' if d.type == mt5.DEAL_TYPE_BUY else 'SELL'
+            existing = by_pos.get(posid)
+            this_time = int(d.time)
+            if existing is None or this_time > existing['time_epoch']:
+                by_pos[posid] = {
+                    'position_id':  posid,
+                    'deal_id':      int(d.ticket),
+                    'symbol':       d.symbol,
+                    'volume':       float(d.volume),
+                    'entry_type':   entry_type,
+                    'price':        float(d.price),
+                    'profit':       float(d.profit),
+                    'commission':   float(d.commission),
+                    'swap':         float(d.swap),
+                    'time_epoch':   this_time,
+                    # ISO-8601 UTC for the wire — broker_reconciler
+                    # serialises datetimes the same way elsewhere.
+                    'time':         datetime.fromtimestamp(this_time, tz=timezone.utc)
+                                            .isoformat().replace('+00:00', 'Z'),
+                }
+
+        deals = list(by_pos.values())
+        # Sort newest-first so consumers can take the first match cheaply.
+        deals.sort(key=lambda d: d['time_epoch'], reverse=True)
+        # Strip the helper field from the wire payload.
+        for d in deals:
+            d.pop('time_epoch', None)
+
+        return {'deals': deals, 'count': len(deals)}
+
+
 @app.post('/symbol_spec', dependencies=[Depends(_verify_bridge_key)])
 async def symbol_spec(req: SymbolRequest):
     async with _mt5_session(req.login, req.password, req.server):

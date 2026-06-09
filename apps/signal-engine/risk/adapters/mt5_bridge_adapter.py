@@ -351,3 +351,56 @@ class MT5BridgeAdapter(ExecutionAdapter):
         except Exception as e:
             logger.warning(f'bridge /positions failed: {e}')
             return []
+
+    async def get_closed_deals(self, since_epoch: int | None = None) -> list[dict]:
+        """Fetch closing-deal records from MT5 history since `since_epoch`.
+
+        Each returned dict carries the close-side fields the reconciler
+        needs to enrich its POSITION_CLOSED event:
+            position_id   — string, matches the open position's id
+            exit_price    — price of the closing deal
+            realized_pnl  — broker-reported profit (excludes commission/swap)
+            commission    — broker fee
+            swap          — overnight financing
+            close_time    — ISO-8601 UTC timestamp
+            symbol        — instrument symbol
+            volume        — closed volume in lots
+
+        Empty list on any error / no bridge configured — never raises.
+        """
+        url = _bridge_url()
+        if not url: return []
+        body: dict[str, object] = {
+            'login':    self._login_id,
+            'password': self.password,
+            'server':   self.server,
+        }
+        if since_epoch is not None:
+            body['since'] = int(since_epoch)
+        try:
+            async with httpx.AsyncClient(timeout=TIMEOUT_S) as c:
+                r = await c.post(
+                    f'{url}/closed_deals',
+                    headers={'X-Bridge-Key': _bridge_key()},
+                    json=body,
+                )
+            if r.status_code >= 400:
+                logger.warning(f'bridge /closed_deals {r.status_code}: {r.text[:200]}')
+                return []
+            out: list[dict] = []
+            for d in r.json().get('deals', []) or []:
+                out.append({
+                    'position_id':  str(d.get('position_id') or ''),
+                    'deal_id':      str(d.get('deal_id') or ''),
+                    'symbol':       d.get('symbol'),
+                    'volume':       float(d.get('volume') or 0),
+                    'exit_price':   float(d.get('price') or 0),
+                    'realized_pnl': float(d.get('profit') or 0),
+                    'commission':   float(d.get('commission') or 0),
+                    'swap':         float(d.get('swap') or 0),
+                    'close_time':   d.get('time'),
+                })
+            return out
+        except Exception as e:
+            logger.warning(f'bridge /closed_deals failed: {e}')
+            return []

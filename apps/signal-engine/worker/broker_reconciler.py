@@ -143,20 +143,150 @@ class BrokerReconciler:
             })
             logger.warning(f"broker_reconciler: DETECTED external position {broker} {p.symbol} {p.side} (pos {pid})")
 
+        # Enrich detected closes with real broker-history data. Only the
+        # MT5 bridge adapter currently exposes get_closed_deals (Phase 1
+        # of the close-enrichment work). Other adapters fall through to
+        # the unenriched path until their adapters add the method.
+        closed_deals_by_pos: dict[str, dict] = {}
+        if closed_ids and hasattr(adapter, 'get_closed_deals'):
+            try:
+                # Look back the same window as the open-set so we always
+                # find the matching close, even if the loop missed a cycle.
+                since_epoch = int(
+                    (datetime.now(timezone.utc) - timedelta(days=_OPEN_LOOKBACK_DAYS)).timestamp()
+                )
+                deals = await adapter.get_closed_deals(since_epoch)  # type: ignore[attr-defined]
+                # First match wins per position_id (adapter returns
+                # newest-first, latest-deal already deduped on the bridge).
+                for d in deals or []:
+                    posid = d.get('position_id')
+                    if posid and posid in closed_ids and posid not in closed_deals_by_pos:
+                        closed_deals_by_pos[posid] = d
+            except Exception as e:
+                logger.warning(f"broker_reconciler: get_closed_deals failed for {broker}: {e}")
+
         for pid in closed_ids:
+            deal = closed_deals_by_pos.get(pid)
+            payload: dict[str, object] = {
+                'order_id':      pid,
+                'position_id':   pid,
+                'broker_pos_id': pid,
+                'source':        'detected',
+                'reason':        'broker_position_gone',
+            }
+            if deal:
+                payload.update({
+                    'enriched':     True,
+                    'exit':         deal.get('exit_price'),
+                    'realized_pnl': deal.get('realized_pnl'),
+                    'commission':   deal.get('commission'),
+                    'swap':         deal.get('swap'),
+                    'close_time':   deal.get('close_time'),
+                    'symbol':       deal.get('symbol'),
+                    'volume':       deal.get('volume'),
+                    'deal_id':      deal.get('deal_id'),
+                })
+            else:
+                payload['enriched']      = False
+                payload['enrich_reason'] = 'closed_deal_not_found'
+
             emit_execution_event(
                 user_id=user_id, broker=broker, event_type='POSITION_CLOSED',
-                payload={
-                    'order_id':      pid,
-                    'position_id':   pid,
-                    'broker_pos_id': pid,
-                    'source':        'detected',
-                    'reason':        'broker_position_gone',
-                },
+                payload=payload,
             )
-            logger.info(f"broker_reconciler: detected close {broker} pos {pid}")
+            logger.info(
+                f"broker_reconciler: detected close {broker} pos {pid} "
+                f"enriched={bool(deal)}"
+            )
+
+        # Phase 4: backfill any earlier-detected closes that didn't carry
+        # full enrichment data (e.g. trades closed before the Phase 3
+        # enrichment landed, or cycles when get_closed_deals failed).
+        # Re-fetch the broker's closed-deal table and patch any matching
+        # journal row whose exit_price is still NULL.
+        if hasattr(adapter, 'get_closed_deals'):
+            try:
+                backfilled = await self._backfill_unenriched_pair(user_id, broker, adapter)
+                if backfilled:
+                    logger.info(f"broker_reconciler: backfilled {backfilled} unenriched "
+                                f"closes for {broker}/{user_id[:8]}")
+            except Exception as e:
+                logger.warning(f"broker_reconciler: backfill failed {broker}/{user_id[:8]}: {e}")
 
         return (len(new_ids), len(closed_ids))
+
+    # ─── Backfill: re-enrich incomplete closes ─────────────────────────────
+    async def _backfill_unenriched_pair(self, user_id: str, broker: str, adapter) -> int:
+        """Find auto journal rows for this (user, broker) that closed
+        without exit_price (the reconciler detected the close but the
+        bridge hadn't yet exposed closed_deals or the call failed).
+        Re-fetch the broker history and patch the rows. Idempotent —
+        skips rows that already have exit_price.
+        """
+        # Pull the unenriched journal rows for this pair.
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=_OPEN_LOOKBACK_DAYS)).isoformat()
+        try:
+            rows = (self.db().table('journal_entries')
+                    .select('id, auto_position_id, exit_price, created_at')
+                    .eq('user_id', user_id)
+                    .eq('broker',  broker)
+                    .is_('exit_price', 'null')
+                    .not_.is_('auto_position_id', 'null')
+                    .gte('created_at', cutoff)
+                    .limit(500).execute()).data or []
+        except Exception as e:
+            logger.warning(f"backfill_unenriched: row fetch failed: {e}")
+            return 0
+        if not rows:
+            return 0
+
+        # Index unenriched rows by position id for O(1) lookup.
+        unenriched = {str(r['auto_position_id']): r for r in rows if r.get('auto_position_id')}
+        if not unenriched:
+            return 0
+
+        # One bridge call gives us every recent close for this account.
+        since_epoch = int(
+            (datetime.now(timezone.utc) - timedelta(days=_OPEN_LOOKBACK_DAYS)).timestamp()
+        )
+        deals = await adapter.get_closed_deals(since_epoch) or []
+
+        patched = 0
+        for d in deals:
+            posid = str(d.get('position_id') or '')
+            row = unenriched.get(posid)
+            if row is None:
+                continue
+            # Compute duration_ms when we have both endpoints.
+            close_iso = d.get('close_time')
+            dur_ms = None
+            if close_iso:
+                try:
+                    close_dt = datetime.fromisoformat(close_iso.replace('Z', '+00:00'))
+                    open_dt  = datetime.fromisoformat(row['created_at'].replace('Z', '+00:00'))
+                    dur_ms = int((close_dt - open_dt).total_seconds() * 1000)
+                except Exception:
+                    pass
+            update = {
+                'exit_price':  d.get('exit_price'),
+                'pnl':         d.get('realized_pnl'),
+                'commission':  d.get('commission'),
+                'swap':        d.get('swap'),
+                'closed_at':   close_iso,
+            }
+            if dur_ms is not None:
+                update['duration_ms'] = dur_ms
+            try:
+                # Guard against a race where another cycle already
+                # enriched it — only update when exit_price is still
+                # NULL (Postgres-side guard via the WHERE).
+                self.db().table('journal_entries').update(update)\
+                    .eq('id', row['id']).is_('exit_price', 'null').execute()
+                patched += 1
+            except Exception as e:
+                logger.warning(f"backfill_unenriched: update {row['id'][:8]} failed: {e}")
+
+        return patched
 
     # ─── Open-set from execution_events ──────────────────────────────────
 
