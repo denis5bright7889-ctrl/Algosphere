@@ -76,12 +76,16 @@ export default async function BrokersPage() {
       .eq('user_id', user.id)
       .order('created_at', { ascending: false }),
     // Data Pipeline read: how many trades feeding the AI come from brokers
-    // (source='auto') vs were logged by hand (source='manual'). Count-only.
+    // vs were logged by hand. Journal V4 (migration 56) split the legacy
+    // 'auto' source into 'auto_human' (broker-detected positions the user
+    // opened manually) and 'auto_engine' (AlgoSphere algo-executed). The
+    // user-facing "Auto-imported" counter aggregates both — plus the
+    // legacy 'auto' value for any rows that survived from before V4.
     supabase
       .from('journal_entries')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', user.id)
-      .eq('source', 'auto'),
+      .in('source', ['auto', 'auto_human', 'auto_engine']),
     supabase
       .from('journal_entries')
       .select('id', { count: 'exact', head: true })

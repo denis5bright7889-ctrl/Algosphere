@@ -80,7 +80,12 @@ export async function GET() {
   // Verdict + recommendation derived from the data.
   const orderFilled    = eventTypeCounts['ORDER_FILLED']   ?? 0
   const positionClosed = eventTypeCounts['POSITION_CLOSED'] ?? 0
-  const journalAuto    = journalBySource['auto'] ?? 0
+  // V4 source enum: aggregate legacy 'auto' + V4 'auto_human' + 'auto_engine'.
+  // (My first version of this diagnostic counted only 'auto' and mis-
+  // reported 0 auto entries even when 62 auto_human rows existed.)
+  const journalAuto    = (journalBySource['auto']        ?? 0)
+                       + (journalBySource['auto_human']  ?? 0)
+                       + (journalBySource['auto_engine'] ?? 0)
 
   let diagnosis = ''
   if (orderFilled === 0 && positionClosed === 0) {

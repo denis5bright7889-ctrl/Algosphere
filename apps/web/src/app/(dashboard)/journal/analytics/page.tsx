@@ -230,7 +230,11 @@ export default async function JournalAnalyticsPage() {
                         </td>
                         <td className="p-2">
                           <span className={`rounded px-1.5 py-0.5 text-[10px] uppercase ${
-                            e.source === 'auto'
+                            // V4 splits 'auto' into 'auto_human' + 'auto_engine'.
+                            // Both auto variants share the blue treatment so
+                            // the column visually distinguishes broker-imported
+                            // vs hand-logged.
+                            e.source === 'auto' || e.source === 'auto_human' || e.source === 'auto_engine'
                               ? 'bg-blue-500/15 text-blue-500'
                               : 'bg-gray-500/15 text-gray-400'
                           }`}>
