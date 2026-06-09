@@ -3,6 +3,7 @@ import JournalClient, { type CoachEvalSummary } from './JournalClient'
 import { isDemo } from '@/lib/demo'
 import { generateDemoJournal } from '@/lib/demo-data'
 import type { JournalEntry } from '@/lib/types'
+import { backfillCoachEvalsForUser } from '@/lib/intelligence/coach-backfill'
 
 export const metadata = { title: 'Trade Journal' }
 export const dynamic = 'force-dynamic'
@@ -12,6 +13,15 @@ export default async function JournalPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser()
+
+  // Backfill coach evaluations for any journal entries that don't yet
+  // have one. The /api/journal POST path always creates an eval, but
+  // entries auto-detected by the engine's broker-reality reconciler
+  // arrive via DB trigger and bypass it — without this call, those
+  // rows show up in the UI with no AI Coach feedback. Idempotent +
+  // bounded to the user's 200 most recent entries; runs in the same
+  // render so the eval is available by the time we fetch evals below.
+  if (user) await backfillCoachEvalsForUser(user.id).catch(() => { /* never break the page */ })
 
   const [{ data: profile }, { data: entries }, { data: evals }, brokersRes] = await Promise.all([
     supabase.from('profiles').select('account_type').eq('id', user!.id).single(),
