@@ -64,6 +64,12 @@ PUB_ENABLED      = lambda: _flag('GROWTH_PUBLISH_ENABLED')
 QUEUE_TARGET     = lambda: _int('GROWTH_QUEUE_TARGET', 10)
 GEN_BATCH        = lambda: _int('GROWTH_GEN_BATCH', 5)
 PUBLISH_INTERVAL = lambda: _int('GROWTH_PUBLISH_INTERVAL_S', 1200)
+# Instagram/Facebook are CURATED feeds, not broadcast channels. Posting at the
+# TG/Discord rate (~78/day) makes IG flag the account as spam → shadowban →
+# near-zero reach (the "128 posts, 8 followers" symptom). Meta gets its own
+# much slower cadence — default 8h ≈ 3 quality posts/day. Set very high (or 0
+# disables) to pause Meta while keeping TG/Discord flowing.
+META_INTERVAL    = lambda: _int('GROWTH_META_INTERVAL_S', 28800)
 VIDEO_RATIO      = lambda: _float('GROWTH_VIDEO_RATIO', 0.25)
 MAX_RETRIES      = lambda: _int('GROWTH_MAX_RETRIES', 2)
 
@@ -250,6 +256,12 @@ def run_generator() -> None:
 
 # ── Publisher ────────────────────────────────────────────────────────────────
 _last_publish = 0.0
+_last_meta    = 0.0
+
+# Discovery hashtags for Meta only (IG/FB reach non-followers via these; TG/
+# Discord don't use them). Kept short + on-topic so it doesn't look spammy.
+_META_HASHTAGS = ('#trading #forex #daytrading #tradingsignals #forextrading '
+                  '#investing #stockmarket #priceaction #riskmanagement #algotrading')
 
 
 def _http_post_json(url: str, body: dict, timeout: int = 30) -> int:
@@ -413,22 +425,31 @@ def run_publisher() -> None:
                 else {'embeds': [{'description': caption, 'image': {'url': url}}]})
         dc = _http_post_json(wh, body)
 
-    # Meta (Facebook + Instagram) — best-effort, never blocks the publish.
+    # Meta (Facebook + Instagram) — CURATED, on their own slow cadence so we
+    # don't spam-flag the IG account. Skipped entirely until META_INTERVAL has
+    # elapsed (or when it's 0 = paused). best-effort; never blocks the publish.
+    global _last_meta
     fb = ig = 'skip'
-    try:
-        fb = _post_facebook(caption, url, is_video)
-    except Exception as e:
-        fb = 'err:' + str(e)[:40]
-    try:
-        # Instagram is most reliable with a plain image — its API rejects
-        # media_type=REELS on some apps ("Only photo or video can be
-        # accepted"). Post the card image when we have one; only fall back
-        # to a reel for video-only items.
-        ig_url = image_url or video_url
-        ig_is_video = image_url is None and video_url is not None
-        ig = _post_instagram(caption, ig_url, ig_is_video)
-    except Exception as e:
-        ig = 'err:' + str(e)[:40]
+    meta_iv = META_INTERVAL()
+    do_meta = meta_iv > 0 and (time.time() - _last_meta) >= meta_iv
+    if do_meta:
+        meta_caption = caption + '\n\n' + _META_HASHTAGS
+        try:
+            fb = _post_facebook(meta_caption, url, is_video)
+        except Exception as e:
+            fb = 'err:' + str(e)[:40]
+        try:
+            # Instagram is most reliable with a plain image — its API rejects
+            # media_type=REELS on some apps ("Only photo or video can be
+            # accepted"). Post the card image when we have one; only fall back
+            # to a reel for video-only items.
+            ig_url = image_url or video_url
+            ig_is_video = image_url is None and video_url is not None
+            ig = _post_instagram(meta_caption, ig_url, ig_is_video)
+        except Exception as e:
+            ig = 'err:' + str(e)[:40]
+        if fb == 'ok' or ig == 'ok':
+            _last_meta = time.time()
 
     ok = tg == 200
     try:
