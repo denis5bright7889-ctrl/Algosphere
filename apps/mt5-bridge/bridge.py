@@ -1258,7 +1258,14 @@ async def closed_deals(req: ClosedDealsRequest):
     deal is the one with entry in {DEAL_ENTRY_OUT, DEAL_ENTRY_OUT_BY},
     where profit/commission/swap are populated. Opening deals
     (DEAL_ENTRY_IN) are ignored — they have no exit metrics.
+
+    Exception handling: any unhandled error inside the dedup loop used
+    to bubble up as an opaque HTTP 500, leaving the reconciler with no
+    way to diagnose. We now catch it, log the full traceback bridge-side,
+    and return a 500 whose JSON body includes the exception class + the
+    last few stack frames so the reconciler log line is actionable.
     """
+    import traceback as _tb
     from datetime import datetime, timezone, timedelta
     since_ts = req.since if req.since is not None else int(
         (datetime.now(timezone.utc) - timedelta(days=30)).timestamp()
@@ -1269,65 +1276,89 @@ async def closed_deals(req: ClosedDealsRequest):
         from_dt = datetime.fromtimestamp(since_ts, tz=timezone.utc)
         to_dt   = datetime.now(timezone.utc)
 
-        ok = await asyncio.to_thread(mt5.history_select, from_dt, to_dt)
-        if not ok:
-            return {'deals': [], 'count': 0, 'note': 'history_select returned False'}
+        try:
+            ok = await asyncio.to_thread(mt5.history_select, from_dt, to_dt)
+            if not ok:
+                return {'deals': [], 'count': 0, 'note': 'history_select returned False'}
 
-        rows = await asyncio.to_thread(mt5.history_deals_get, from_dt, to_dt) or []
+            rows = await asyncio.to_thread(mt5.history_deals_get, from_dt, to_dt) or []
 
-        # Closing deals only — these carry exit price, profit, commission, swap.
-        # entry values:
-        #   DEAL_ENTRY_IN     (0) → opening (no exit metrics; skip)
-        #   DEAL_ENTRY_OUT    (1) → closing
-        #   DEAL_ENTRY_INOUT  (2) → reversal: closes one position, opens another
-        #   DEAL_ENTRY_OUT_BY (3) → offset close
-        DEAL_ENTRY_OUT     = getattr(mt5, 'DEAL_ENTRY_OUT',     1)
-        DEAL_ENTRY_INOUT   = getattr(mt5, 'DEAL_ENTRY_INOUT',   2)
-        DEAL_ENTRY_OUT_BY  = getattr(mt5, 'DEAL_ENTRY_OUT_BY',  3)
-        CLOSE_ENTRIES = {DEAL_ENTRY_OUT, DEAL_ENTRY_INOUT, DEAL_ENTRY_OUT_BY}
+            # Closing deals only — these carry exit price, profit, commission, swap.
+            # entry values:
+            #   DEAL_ENTRY_IN     (0) → opening (no exit metrics; skip)
+            #   DEAL_ENTRY_OUT    (1) → closing
+            #   DEAL_ENTRY_INOUT  (2) → reversal: closes one position, opens another
+            #   DEAL_ENTRY_OUT_BY (3) → offset close
+            DEAL_ENTRY_OUT     = getattr(mt5, 'DEAL_ENTRY_OUT',     1)
+            DEAL_ENTRY_INOUT   = getattr(mt5, 'DEAL_ENTRY_INOUT',   2)
+            DEAL_ENTRY_OUT_BY  = getattr(mt5, 'DEAL_ENTRY_OUT_BY',  3)
+            CLOSE_ENTRIES = {DEAL_ENTRY_OUT, DEAL_ENTRY_INOUT, DEAL_ENTRY_OUT_BY}
 
-        # Deduplicate by position_id. If multiple closing deals exist
-        # (partial closes), keep the latest one — it has the cumulative
-        # realized state of the position from the broker's perspective.
-        by_pos: dict[str, dict] = {}
-        for d in rows:
-            if d.entry not in CLOSE_ENTRIES:
-                continue
-            posid = str(d.position_id)
-            if posid == '0' or posid == '':
-                continue
-            # type 0=BUY, 1=SELL on the DEAL itself; on a CLOSING deal
-            # this is the OPPOSITE of the position's direction. We surface
-            # it raw so the adapter can normalize.
-            entry_type = 'BUY' if d.type == mt5.DEAL_TYPE_BUY else 'SELL'
-            existing = by_pos.get(posid)
-            this_time = int(d.time)
-            if existing is None or this_time > existing['time_epoch']:
-                by_pos[posid] = {
-                    'position_id':  posid,
-                    'deal_id':      int(d.ticket),
-                    'symbol':       d.symbol,
-                    'volume':       float(d.volume),
-                    'entry_type':   entry_type,
-                    'price':        float(d.price),
-                    'profit':       float(d.profit),
-                    'commission':   float(d.commission),
-                    'swap':         float(d.swap),
-                    'time_epoch':   this_time,
-                    # ISO-8601 UTC for the wire — broker_reconciler
-                    # serialises datetimes the same way elsewhere.
-                    'time':         datetime.fromtimestamp(this_time, tz=timezone.utc)
-                                            .isoformat().replace('+00:00', 'Z'),
-                }
+            # Deduplicate by position_id. If multiple closing deals exist
+            # (partial closes), keep the latest one — it has the cumulative
+            # realized state of the position from the broker's perspective.
+            by_pos: dict[str, dict] = {}
+            for d in rows:
+                # Field-by-field: any individual deal that's malformed
+                # (missing entry, position_id, ticket, etc.) gets skipped
+                # rather than failing the whole batch.
+                try:
+                    entry = getattr(d, 'entry', None)
+                    if entry is None or entry not in CLOSE_ENTRIES:
+                        continue
+                    posid = str(getattr(d, 'position_id', '') or '')
+                    if posid in ('', '0'):
+                        continue
+                    this_time = int(getattr(d, 'time', 0) or 0)
+                    if this_time <= 0:
+                        continue
+                    existing = by_pos.get(posid)
+                    if existing is not None and this_time <= existing['time_epoch']:
+                        continue
+                    entry_type = 'BUY' if getattr(d, 'type', None) == getattr(mt5, 'DEAL_TYPE_BUY', 0) else 'SELL'
+                    by_pos[posid] = {
+                        'position_id':  posid,
+                        'deal_id':      int(getattr(d, 'ticket', 0) or 0),
+                        'symbol':       getattr(d, 'symbol', '') or '',
+                        'volume':       float(getattr(d, 'volume', 0) or 0),
+                        'entry_type':   entry_type,
+                        'price':        float(getattr(d, 'price', 0) or 0),
+                        'profit':       float(getattr(d, 'profit', 0) or 0),
+                        'commission':   float(getattr(d, 'commission', 0) or 0),
+                        'swap':         float(getattr(d, 'swap', 0) or 0),
+                        'time_epoch':   this_time,
+                        # ISO-8601 UTC for the wire — broker_reconciler
+                        # serialises datetimes the same way elsewhere.
+                        'time':         datetime.fromtimestamp(this_time, tz=timezone.utc)
+                                                .isoformat().replace('+00:00', 'Z'),
+                    }
+                except Exception as e_row:
+                    logger.warning(f'closed_deals: skipped malformed deal: {type(e_row).__name__}: {e_row}')
+                    continue
 
-        deals = list(by_pos.values())
-        # Sort newest-first so consumers can take the first match cheaply.
-        deals.sort(key=lambda d: d['time_epoch'], reverse=True)
-        # Strip the helper field from the wire payload.
-        for d in deals:
-            d.pop('time_epoch', None)
+            deals = list(by_pos.values())
+            # Sort newest-first so consumers can take the first match cheaply.
+            deals.sort(key=lambda d: d['time_epoch'], reverse=True)
+            # Strip the helper field from the wire payload.
+            for d in deals:
+                d.pop('time_epoch', None)
 
-        return {'deals': deals, 'count': len(deals)}
+            return {'deals': deals, 'count': len(deals), 'raw_count': len(rows)}
+        except HTTPException:
+            raise
+        except Exception as e:
+            tb = _tb.format_exc()
+            logger.error(f'closed_deals: unhandled error since={since_ts} login={req.login}: {tb}')
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    'error': f'{type(e).__name__}: {e}',
+                    'since': since_ts,
+                    # Last 4 stack frames — enough to localise without
+                    # leaking full bridge internals.
+                    'trace': tb.splitlines()[-12:],
+                },
+            )
 
 
 @app.post('/symbol_spec', dependencies=[Depends(_verify_bridge_key)])
