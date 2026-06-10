@@ -448,8 +448,11 @@ def run_publisher() -> None:
             ig = _post_instagram(meta_caption, ig_url, ig_is_video)
         except Exception as e:
             ig = 'err:' + str(e)[:40]
-        if fb == 'ok' or ig == 'ok':
-            _last_meta = time.time()
+        # Back off for the full Meta interval whether or not it succeeded —
+        # a failing IG/FB endpoint must not be hammered every publish (that
+        # itself looks like abuse to a restricted account). Caps Meta at
+        # ~3 attempts/day regardless of outcome.
+        _last_meta = time.time()
 
     ok = tg == 200
     try:
