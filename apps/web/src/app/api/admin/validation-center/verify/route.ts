@@ -81,6 +81,10 @@ export async function GET() {
     rankingsCount,
     sessionsCount,
     qualHistoryCount,
+    explanationsCount,
+    reviewsCount,
+    outcomesCount,
+    qualityScoresCount,
   ] = await Promise.all([
     countRows(db, 'shadow_executions'),
     db.from('shadow_executions')
@@ -95,6 +99,10 @@ export async function GET() {
     countRows(db, 'strategy_rankings'),
     countRows(db, 'shadow_sessions'),
     countRows(db, 'strategy_qualification_history'),
+    countRows(db, 'trade_explanations'),
+    countRows(db, 'trade_reviews'),
+    countRows(db, 'trade_outcomes'),
+    countRows(db, 'trade_quality_scores'),
   ])
 
   const { data: usersData } = await db
@@ -147,12 +155,23 @@ export async function GET() {
         : ['Writer hasn\'t been triggered or no broker has met BROKER_MIN_SAMPLE.'],
   })
 
-  // Phase 4 — Per-trade AI explanations (NOT BUILT)
+  // Phase 4 — Trade Forensics Engine (Slice 11)
   phases.push({
-    phase: 4, name: 'Per-Trade AI Explanations',
-    status: 'pending',
-    evidence: { rationale: 'Multi-day work; deferred until live data flows.' },
-    notes:  ['Intentionally deferred. Spec calls for per-trade AI summary per shadow execution.'],
+    phase: 4, name: 'Trade Forensics Engine',
+    status: explanationsCount > 0 ? 'ok' : shadowCount === 0 ? 'pending' : 'warn',
+    evidence: {
+      engine:                  'forensics_v1 (deterministic; no LLM)',
+      trade_explanations:      explanationsCount,
+      trade_reviews:           reviewsCount,
+      trade_outcomes:          outcomesCount,
+      trade_quality_scores:    qualityScoresCount,
+      writer_endpoint:         '/api/admin/trade-forensics-write',
+    },
+    notes: explanationsCount > 0
+      ? ['4 forensics tables populated. Idempotent on shadow_execution_id.']
+      : shadowCount === 0
+        ? ['No shadow_executions yet — forensics activates on first row.']
+        : ['Writer not yet triggered. POST /api/admin/trade-forensics-write to run.'],
   })
 
   // Phase 5 — Strategy Performance Center
@@ -282,12 +301,11 @@ export async function GET() {
         'strategy_validation_scores',
         'ai_strategy_reviews',
         'validation_milestones',
+        'strategy_rankings',
+        'shadow_sessions',
+        'strategy_qualification_history',
       ],
-      writers_remaining: [
-        'strategy_rankings (derivable on-the-fly)',
-        'shadow_sessions (ops infrastructure)',
-        'strategy_qualification_history (state-transition log)',
-      ],
+      writers_remaining: [],
     },
     notes: allTablesPresent
       ? ['All 9 tables present + RLS enabled. 5 of 8 writers shipped.']
