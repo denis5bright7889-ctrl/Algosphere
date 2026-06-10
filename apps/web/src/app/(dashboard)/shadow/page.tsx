@@ -8,6 +8,10 @@ import TierLock from '@/components/tier/TierLock'
 import {
   computeInstitutionalAnalytics, MIN_SAMPLE as ANALYTICS_MIN_SAMPLE,
 } from '@/lib/intelligence/validation-analytics'
+import {
+  aggregateBrokerQuality, BROKER_MIN_SAMPLE,
+  type BrokerGrade, type BrokerQuality,
+} from '@/lib/intelligence/broker-quality-aggregate'
 
 export const metadata = { title: 'AI Strategy Validation Center — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'
@@ -128,6 +132,9 @@ export default async function ShadowPage() {
     .filter(r => typeof r.follower_pnl === 'number')
     .map(r => ({ follower_pnl: r.follower_pnl as number, closed_at: r.closed_at }))
   const analytics = computeInstitutionalAnalytics(tradeOutcomes)
+
+  // ── Phase 3: broker quality grading from all shadow rows ───────────
+  const brokerQuality = aggregateBrokerQuality(list)
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
@@ -293,6 +300,38 @@ export default async function ShadowPage() {
           Methodology: Sharpe + Sortino annualised by √252. Kelly capped at 25% (institutional half-Kelly).
           Risk-of-ruin uses gambler's-ruin closed form against a 100×-average-loss bankroll.
           All metrics suppress to N/A below {ANALYTICS_MIN_SAMPLE} closed trades — outcome-based claims need sample.
+        </p>
+      </section>
+
+      {/* ── Phase 3: Broker Quality grading ──────────────────────── */}
+      <section className="mb-6 rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+          <h2 className="text-sm font-bold uppercase tracking-widest">Broker Quality</h2>
+          <p className="text-[11px] text-muted-foreground tabular-nums">
+            {brokerQuality.length > 0
+              ? `${brokerQuality.length} broker${brokerQuality.length === 1 ? '' : 's'} observed`
+              : 'No broker activity yet'}
+            {' · '}
+            <span className="text-muted-foreground">grades activate at {BROKER_MIN_SAMPLE} executions per broker</span>
+          </p>
+        </div>
+
+        {brokerQuality.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-border/60 bg-muted/10 p-6 text-center text-xs text-muted-foreground">
+            Broker grades appear once shadow executions begin landing per broker.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {brokerQuality.map((b) => (
+              <BrokerCard key={b.broker} q={b} />
+            ))}
+          </div>
+        )}
+
+        <p className="mt-3 text-[10px] text-muted-foreground/80">
+          Methodology: Execution Quality Score = 40% fill rate + 35% slippage + 25% drift,
+          each normalised against an institutional anchor. A+ ≥ 95, A ≥ 90, B+ ≥ 85, B ≥ 80, C ≥ 70, else D.
+          Percentile rank compares your brokers to each other — meaningful only with ≥ 2 graded brokers.
         </p>
       </section>
 
@@ -503,6 +542,101 @@ function Metric({ label, value, fmt, invertTone = false }: {
         tone === 'amber' && 'text-amber-300',
         tone === 'red'   && 'text-rose-400',
       )}>{display}</p>
+    </div>
+  )
+}
+
+/** Phase 3 broker quality card. Shows the broker name, grade chip,
+ *  composite score, and the 4 observable sub-metrics. "Collecting Data"
+ *  pill replaces the grade chip below the sample threshold so we
+ *  never display a fabricated grade. */
+function BrokerCard({ q }: { q: BrokerQuality }) {
+  const isGraded = q.execution_quality_score != null && q.grade != null
+  const gradeTone: Record<BrokerGrade, string> = {
+    'A+': 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
+    'A':  'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
+    'B+': 'border-blue-500/40 bg-blue-500/10 text-blue-300',
+    'B':  'border-blue-500/40 bg-blue-500/10 text-blue-300',
+    'C':  'border-amber-500/40 bg-amber-500/10 text-amber-300',
+    'D':  'border-rose-500/40 bg-rose-500/10 text-rose-300',
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-background/30 p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-bold truncate">{q.broker}</p>
+          <p className="mt-0.5 text-[10px] text-muted-foreground tabular-nums">
+            {q.sample_size} execution{q.sample_size === 1 ? '' : 's'}
+            {isGraded && q.better_than_pct != null && q.better_than_pct > 0 && (
+              <span> · better than {q.better_than_pct}% of your brokers</span>
+            )}
+          </p>
+        </div>
+        {isGraded ? (
+          <div className="text-right shrink-0">
+            <span className={cn(
+              'rounded-md border px-2 py-0.5 text-sm font-black tabular-nums',
+              gradeTone[q.grade as BrokerGrade],
+            )}>
+              {q.grade}
+            </span>
+            <p className="mt-0.5 text-[9px] uppercase tracking-wider text-muted-foreground tabular-nums">
+              Score {q.execution_quality_score}
+            </p>
+          </div>
+        ) : (
+          <span className="rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-amber-300 shrink-0">
+            Collecting Data
+          </span>
+        )}
+      </div>
+
+      <div className="mt-3 grid grid-cols-4 gap-2 text-[11px]">
+        <SubMetric label="Fill"
+                   value={`${q.fill_rate_pct}%`}
+                   tone={q.fill_rate_pct >= 95 ? 'green' : q.fill_rate_pct >= 80 ? 'amber' : 'red'} />
+        <SubMetric label="Slip"
+                   value={q.avg_slippage_pct == null ? '—' : `${(q.avg_slippage_pct * 100).toFixed(3)}%`}
+                   tone={q.avg_slippage_pct == null ? 'plain'
+                     : q.avg_slippage_pct < 0.001 ? 'green'
+                     : q.avg_slippage_pct < 0.005 ? 'amber' : 'red'} />
+        <SubMetric label="Drift"
+                   value={q.avg_drift_pct == null ? '—' : `${q.avg_drift_pct.toFixed(2)}%`}
+                   tone={q.avg_drift_pct == null ? 'plain'
+                     : q.avg_drift_pct < 2 ? 'green'
+                     : q.avg_drift_pct < 5 ? 'amber' : 'red'} />
+        <SubMetric label="Failed"
+                   value={String(q.failed_count)}
+                   tone={q.failed_count === 0 ? 'green' : q.failed_count < 3 ? 'amber' : 'red'} />
+      </div>
+
+      {/* Spread / latency / requote rows — null because the schema
+          doesn't carry these yet. Shown as "—" with a footnote so users
+          see the future shape but no fabricated value. */}
+      <div className="mt-2 grid grid-cols-3 gap-2 text-[10px] text-muted-foreground/80">
+        <div className="flex justify-between"><span>Spread</span><span>—</span></div>
+        <div className="flex justify-between"><span>Latency</span><span>—</span></div>
+        <div className="flex justify-between"><span>Requote</span><span>—</span></div>
+      </div>
+    </div>
+  )
+}
+
+function SubMetric({ label, value, tone }: {
+  label: string
+  value: string
+  tone:  'plain' | 'green' | 'amber' | 'red'
+}) {
+  return (
+    <div>
+      <p className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className={cn(
+        'tabular-nums font-semibold',
+        tone === 'green' && 'text-emerald-400',
+        tone === 'amber' && 'text-amber-300',
+        tone === 'red'   && 'text-rose-400',
+      )}>{value}</p>
     </div>
   )
 }
