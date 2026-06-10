@@ -200,11 +200,25 @@ export async function POST(request: NextRequest) {
   })
 
   // ── Deterministic V3 coach evaluation (5 grades + 3+ insights) ──
-  // Always runs; never blocks the 201; insert order is structured so
-  // partial failures still leave a usable journal row.
+  // Computed synchronously (pure + fast) and returned so the new card
+  // shows its grade immediately; the DB insert stays fire-and-forget.
+  const evalRow = evaluateTrade(parsed.data)
+  const coach = {
+    quality_score:    evalRow.quality_score,
+    strategy_grade:   evalRow.strategy_grade,
+    emotional_flag:   evalRow.emotional_flag,
+    emotional_reason: evalRow.emotional_reason,
+    advancement:      evalRow.advancement,
+    top_fix:          evalRow.what_to_fix?.[0] ?? null,
+    execution_grade:  evalRow.execution_grade,
+    psychology_grade: evalRow.psychology_grade,
+    risk_grade:       evalRow.risk_grade,
+    discipline_grade: evalRow.discipline_grade,
+    timing_grade:     evalRow.timing_grade,
+    ai_insights:      evalRow.ai_insights,
+  }
   void (async () => {
     try {
-      const evalRow = evaluateTrade(parsed.data)
       const svc = createServiceClient()
       await svc.from('journal_coach_evaluations').insert({
         journal_entry_id:  data.id,
@@ -255,5 +269,5 @@ export async function POST(request: NextRequest) {
     })()
   }
 
-  return NextResponse.json({ data }, { status: 201 })
+  return NextResponse.json({ data, coach }, { status: 201 })
 }

@@ -123,12 +123,30 @@ export async function PATCH(
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!data)   return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  // Re-run the coach on the merged row. Same pattern as POST — fire-and-
-  // forget; failure never fails the patch. journal_coach_evaluations is
-  // append-only so the latest row wins on display.
+  // Re-run the coach on the merged row. The evaluator is pure +
+  // deterministic, so compute it SYNCHRONOUSLY and return the fresh
+  // grade in the response — the client updates the card immediately
+  // instead of showing the stale pre-edit evaluation (the bug where an
+  // edit "saved" but nothing visibly changed). The DB insert stays
+  // fire-and-forget (append-only; latest row wins on next load).
+  const ev = evaluateTrade(data)
+  const coach = {
+    quality_score:    ev.quality_score,
+    strategy_grade:   ev.strategy_grade,
+    emotional_flag:   ev.emotional_flag,
+    emotional_reason: ev.emotional_reason,
+    advancement:      ev.advancement,
+    top_fix:          ev.what_to_fix?.[0] ?? null,
+    execution_grade:  ev.execution_grade,
+    psychology_grade: ev.psychology_grade,
+    risk_grade:       ev.risk_grade,
+    discipline_grade: ev.discipline_grade,
+    timing_grade:     ev.timing_grade,
+    ai_insights:      ev.ai_insights,
+  }
+
   void (async () => {
     try {
-      const ev = evaluateTrade(data)
       const svc = createServiceClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -156,5 +174,5 @@ export async function PATCH(
     }
   })()
 
-  return NextResponse.json({ ok: true, data })
+  return NextResponse.json({ ok: true, data, coach })
 }

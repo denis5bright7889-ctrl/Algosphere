@@ -57,6 +57,10 @@ export default function JournalClient({
   connectedBrokerCount = 0, autoEntryCount = 0,
 }: Props) {
   const [entries, setEntries] = useState<EntryWire[]>(initialEntries as EntryWire[])
+  // Coach grades are stateful (not just the server prop) so a save/edit
+  // can refresh the card's grade in place — otherwise an edit "saves" but
+  // the headline coach evaluation stays stale and looks like "no changes".
+  const [coachMap, setCoachMap] = useState<Record<string, CoachEvalSummary>>(coachByEntry)
   const [showModal, setShowModal] = useState(false)
   // When set, the modal opens in edit mode pre-filled from this entry.
   const [editingEntry, setEditingEntry] = useState<EntryWire | null>(null)
@@ -66,7 +70,7 @@ export default function JournalClient({
   const losses = entries.filter((e) => (e.pnl ?? 0) < 0).length
   const winRate = entries.length ? Math.round((wins / entries.length) * 100) : 0
 
-  function handleAdded(entry: JournalEntry) {
+  function handleAdded(entry: JournalEntry, coach?: CoachEvalSummary) {
     const wire = entry as EntryWire
     // Edit mode → replace the row in place. Create mode → prepend.
     setEntries((prev) => {
@@ -78,6 +82,9 @@ export default function JournalClient({
       }
       return [wire, ...prev]
     })
+    // Refresh the coach grade in place from the API's fresh evaluation so
+    // edits visibly re-grade the trade.
+    if (coach) setCoachMap((m) => ({ ...m, [wire.id]: coach }))
     setShowModal(false)
     setEditingEntry(null)
   }
@@ -225,7 +232,7 @@ export default function JournalClient({
               </div>
 
               {/* Refocus R4b: AI coach evaluation for this trade, if persisted */}
-              {coachByEntry[e.id] && <CoachStrip eval={coachByEntry[e.id]!} />}
+              {coachMap[e.id] && <CoachStrip eval={coachMap[e.id]!} />}
             </li>
           ))}
         </ul>
@@ -242,7 +249,7 @@ export default function JournalClient({
             </thead>
             <tbody>
               {entries.map((e) => {
-                const coach = coachByEntry[e.id]
+                const coach = coachMap[e.id]
                 return (
                   <Fragment key={e.id}>
                     <tr

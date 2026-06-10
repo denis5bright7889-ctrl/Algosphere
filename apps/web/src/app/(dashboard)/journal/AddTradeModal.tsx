@@ -21,11 +21,12 @@
 import { useMemo, useState } from 'react'
 import { X, CheckCircle2, Circle, AlertCircle } from 'lucide-react'
 import type { JournalEntry } from '@/lib/types'
+import type { CoachEvalSummary } from './JournalClient'
 import { cn } from '@/lib/utils'
 
 interface Props {
   userId: string
-  onAdded: (entry: JournalEntry) => void
+  onAdded: (entry: JournalEntry, coach?: CoachEvalSummary) => void
   onClose: () => void
   /** When present, the modal opens in EDIT mode — pre-fills the form
    *  from this entry and submits a PATCH instead of a POST. */
@@ -269,7 +270,7 @@ export default function AddTradeModal({ onAdded, onClose, editEntry }: Props) {
         setLoading(false)
         return
       }
-      onAdded(json.data as JournalEntry)
+      onAdded(json.data as JournalEntry, json.coach as CoachEvalSummary | undefined)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed')
       setLoading(false)
