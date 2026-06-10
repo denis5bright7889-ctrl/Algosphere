@@ -119,8 +119,8 @@ def run_founder_factory() -> None:
                                                     else 'lift' if emotion == 'win' else 'institutional',
                                            'title': reel['hook']}},
             }
-            ins = db().table('growth_content_items').insert(row).select('id').single().execute()
-            cid = ins.data['id']
+            ins = db().table('growth_content_items').insert(row).execute()
+            cid = (ins.data or [{}])[0].get('id')
             db().table('growth_source_events').update(
                 {'processed': True, 'story': st, 'content_item_id': cid}
             ).eq('id', ev['id']).execute()
