@@ -119,6 +119,38 @@ export async function GET() {
   // ── Build the per-phase checklist ──────────────────────────────────
   const phases: PhaseCheck[] = []
 
+  // ── Auto-Live additions ───────────────────────────────────────
+  const [factoryRunsCount, marketFeedCount, alertCount, recoveryCount, autoSignalsLast24h] = await Promise.all([
+    countRows(db, 'signal_factory_runs'),
+    countRows(db, 'market_feed_status'),
+    countRows(db, 'alert_queue'),
+    countRows(db, 'recovery_logs'),
+    db.from('shadow_executions')
+      .select('*', { count: 'exact', head: true })
+      .eq('signal_source', 'validation_strategy')
+      .gte('created_at', new Date(Date.now() - 86_400_000).toISOString())
+      .then(r => r.count ?? 0),
+  ])
+  phases.push({
+    phase: -1, name: 'Auto-Live Engine (signal factory + alerts + recovery)',
+    status: factoryRunsCount > 0 ? 'ok' : 'pending',
+    evidence: {
+      signal_factory:           '/api/cron/auto-signals',
+      auto_live_cycle:          '/api/cron/auto-live',
+      status_endpoint:          '/api/admin/auto-live-status',
+      signal_factory_runs:      factoryRunsCount,
+      market_feed_providers:    marketFeedCount,
+      alert_queue_size:         alertCount,
+      recovery_actions_logged:  recoveryCount,
+      auto_signals_24h:         autoSignalsLast24h,
+      supported_symbols:        ['BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT','XAUUSD','EURUSD','GBPUSD'],
+      max_signals_per_user_per_hour: 20,
+    },
+    notes: factoryRunsCount > 0
+      ? [`Auto-Live signal factory active; ${autoSignalsLast24h} validation_strategy signals last 24h.`]
+      : ['Auto-Live ready. Schedule GET /api/cron/auto-signals every 15 min (Bearer CRON_SECRET).'],
+  })
+
   // Phase 0 — Shadow Execution Engine (the missing core)
   const since24h = new Date(Date.now() - 86_400_000).toISOString()
   const { count: ingested24h } = await db
