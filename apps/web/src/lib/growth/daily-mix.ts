@@ -98,6 +98,46 @@ const EDUCATIONAL_TOPICS: Array<{
     body:        'Three signs a backtest is curve-fit, not edge-discovered: (1) profit factor > 3 on < 50 trades, (2) the equity curve has zero drawdown days, (3) tiny parameter changes (e.g. EMA 21 → 20) crater the result. Real edges are robust to parameter perturbation — a 5% slide should change PF by < 0.2. AlgoSphere\'s Optimization Center sweeps the parameter space and reports edge-stability scores; high stability = real edge, low stability = pattern matching the past.',
     reading_min: 4,
   },
+  // ── Phase 1: System Architecture content. Each grounded in actual
+  //    platform behavior — no marketing fluff. Sourced from the
+  //    real subsystems (regime engine, ensemble layer, broker reality
+  //    sync, risk firewall, journal triggers, asset worker).
+  {
+    topic:       'System architecture: regime classification',
+    headline:    'How AlgoSphere reads the market — three orthogonal lenses, every minute',
+    body:        'AlgoSphere classifies the market regime every scan using three independent measurements: DER (directional efficiency ratio) catches whether price is going somewhere or oscillating; entropy measures how unpredictable the return distribution is; autocorrelation measures whether yesterday\'s move predicts today\'s. The three combine into one regime label per pair — trending, ranging, volatile, transitional, expansion, exhaustion. Signals are gated against this BEFORE entering the confidence layer, so a "buy" never publishes during a confirmed downtrend. The same regime drives the per-regime adaptive threshold in the ensemble layer — a 0.12 net score is "go" in a trending regime but only "noise" in chop.',
+    reading_min: 4,
+  },
+  {
+    topic:       'System architecture: ensemble consensus',
+    headline:    'Why AlgoSphere weights strategies instead of voting them',
+    body:        'Vote-counting ensembles ("3 of 8 strategies say buy") reject good signals when only 2 strategies vote at all. AlgoSphere\'s ensemble sums SIGNED, weighted contributions: each strategy outputs a direction + strength + confidence, weighted by its historical regime-fit; the net signed score is compared to a regime-adaptive threshold T. A weak unanimous signal can clear T; a strong contradicted signal nets out. This is why the engine doesn\'t need 5 strategies firing to publish — one high-conviction strategy in the right regime is enough.',
+    reading_min: 4,
+  },
+  {
+    topic:       'System architecture: broker reality sync',
+    headline:    'Why AlgoSphere polls your broker every 30 seconds — the truth layer',
+    body:        'Databases drift; brokers don\'t. AlgoSphere\'s Broker Reality Sync (truth layer) polls each connected broker every 30s, read-only, and reconciles real open positions against our own execution_events. A position open at the broker but missing from our log gets a detected ORDER_FILLED event injected — the journal trigger then auto-creates the journal row. A position that vanished from the broker gets a POSITION_CLOSED event with the broker\'s own exit price, realized P&L, commission, and swap (fetched from MT5\'s history table). The result: your journal matches your broker, always.',
+    reading_min: 4,
+  },
+  {
+    topic:       'System architecture: risk firewall',
+    headline:    '15 gates between a signal and your account — the risk firewall',
+    body:        'Before any signal becomes a tradeable order, AlgoSphere runs 15 institutional risk gates: account-equity floor, daily-loss cap, max-consecutive-losses, max-active-per-symbol, exposure cap, correlation cap, regime-veto, drawdown cap, volatility filter, session-window, news-window, slippage tolerance, lot-rounding rule, broker-status check, and kill-switch state. ANY gate failing rejects the order and writes an audit event to system_event_log — visible from your /admin/signals page. Every rejection is honest about which gate fired and why.',
+    reading_min: 4,
+  },
+  {
+    topic:       'System architecture: AI coach pipeline',
+    headline:    'How AlgoSphere grades a trade in five dimensions — never on PnL',
+    body:        'When a journal entry is saved, the deterministic V3 coach evaluator runs immediately. It produces 5 process grades (execution, psychology, risk, discipline, timing) from PROCESS data only — never from PnL outcome. A losing trade can be A-grade execution; a winning trade can be poor execution. The coach also generates 3+ specific behavioral insights ("you tend to overtrade after losses", "London remains your highest-expectancy session") that downstream analytics read directly. No Gemini in this path — pure deterministic math, so the same trade always grades the same way.',
+    reading_min: 4,
+  },
+  {
+    topic:       'System architecture: signal lifecycle',
+    headline:    'From OHLCV to a signal in your feed — the lifecycle in 8 steps',
+    body:        'A signal\'s journey: (1) market-data provider returns OHLCV bars; (2) feature engineer computes technicals; (3) regime engine labels the bar; (4) ensemble strategies vote signed contributions; (5) confidence engine sums weighted votes vs regime-adaptive threshold; (6) 15 risk gates validate; (7) signal-emission writes to the signals table + WebSocket-pushes to subscribers; (8) Telegram + Discord adapters fan out. Each step writes its outcome to system_event_log — so every signal is auditable end-to-end. If the signal never reaches you, the log tells you which step rejected it.',
+    reading_min: 5,
+  },
 ]
 
 function pickDailyEducationalTrio(now: Date): typeof EDUCATIONAL_TOPICS {
@@ -108,6 +148,98 @@ function pickDailyEducationalTrio(now: Date): typeof EDUCATIONAL_TOPICS {
     EDUCATIONAL_TOPICS[(doy * 3 + 1) % n]!,
     EDUCATIONAL_TOPICS[(doy * 3 + 2) % n]!,
   ]
+}
+
+// ─── Best recent closed trade (Phase 2 trade breakdown) ────────────
+// Returns the payload generateTradeBreakdown needs for the highest-
+// quality_score trade closed in the past 24h that ALSO has a coach
+// evaluation. Returns null when nothing qualifies (honest empty
+// rather than a fabricated breakdown).
+async function pickBestRecentClosedTrade(
+  db: SupabaseClient,
+): Promise<Record<string, unknown> | null> {
+  const since24h = new Date(Date.now() - 86_400_000).toISOString()
+
+  // Pull recently-closed entries first. Closed = exit_price IS NOT
+  // NULL — the migration-75/76 trigger sets this on POSITION_CLOSED.
+  const { data: closed } = await db
+    .from('journal_entries')
+    .select('id, user_id, pair, direction, entry_price, exit_price, lot_size, pnl, pips, duration_ms, trade_date, setup_tag, session, source, broker, created_at')
+    .not('exit_price', 'is', null)
+    .gte('created_at', since24h)
+    .limit(60)
+
+  const rows = (closed ?? []) as Array<{
+    id: string; user_id: string; pair: string | null; direction: string | null
+    entry_price: number | null; exit_price: number | null
+    lot_size: number | null; pnl: number | null; pips: number | null
+    duration_ms: number | null; trade_date: string
+    setup_tag: string | null; session: string | null
+    source: string; broker: string | null
+  }>
+  if (rows.length === 0) return null
+
+  // Look up coach evaluations for those entries.
+  const ids = rows.map((r) => r.id)
+  const { data: evals } = await db
+    .from('journal_coach_evaluations')
+    .select('journal_entry_id, quality_score, strategy_grade, execution_grade, risk_grade, timing_grade, ai_insights')
+    .in('journal_entry_id', ids)
+    .order('created_at', { ascending: false })
+
+  const evalByEntry = new Map<string, {
+    quality_score: number; strategy_grade?: string
+    execution_grade: number | null; risk_grade: number | null; timing_grade: number | null
+    ai_insights: string[] | null
+  }>()
+  for (const e of (evals ?? []) as Array<{
+    journal_entry_id: string; quality_score: number; strategy_grade?: string
+    execution_grade: number | null; risk_grade: number | null; timing_grade: number | null
+    ai_insights: string[] | null
+  }>) {
+    // First (newest) per entry wins — append-only evals.
+    if (!evalByEntry.has(e.journal_entry_id)) {
+      evalByEntry.set(e.journal_entry_id, e)
+    }
+  }
+
+  // Score each entry: prefer the row with highest coach quality_score;
+  // entries without a coach eval are skipped (no fabrication).
+  const candidates = rows
+    .filter((r) =>
+      r.pair && r.direction && r.entry_price != null && r.exit_price != null
+      && (r.direction === 'buy' || r.direction === 'sell')
+      && evalByEntry.has(r.id),
+    )
+    .map((r) => ({ r, e: evalByEntry.get(r.id)! }))
+    .sort((a, b) => b.e.quality_score - a.e.quality_score)
+
+  const best = candidates[0]
+  if (!best) return null
+
+  return {
+    pair:        best.r.pair,
+    direction:   best.r.direction,
+    entry_price: best.r.entry_price,
+    exit_price:  best.r.exit_price,
+    lot_size:    best.r.lot_size,
+    pnl:         best.r.pnl,
+    pips:        best.r.pips,
+    duration_ms: best.r.duration_ms,
+    trade_date:  best.r.trade_date,
+    setup_tag:   best.r.setup_tag,
+    session:     best.r.session,
+    source:      best.r.source,
+    broker:      best.r.broker,
+    coach: {
+      quality_score:   best.e.quality_score,
+      strategy_grade:  best.e.strategy_grade,
+      execution_grade: best.e.execution_grade,
+      risk_grade:      best.e.risk_grade,
+      timing_grade:    best.e.timing_grade,
+      ai_insights:     best.e.ai_insights,
+    },
+  }
 }
 
 // ─── Daily screenshot showcase rotation ────────────────────────────
@@ -264,6 +396,25 @@ export async function runDailyMix(): Promise<DailyMixSummary> {
   // 7) Psychology post — aggregated journal patterns (sample-gated).
   // Skipped when journal sample is thin; honest emptiness > fabrication.
   // The dedicated psychology generator lands in a follow-up slice.
+
+  // 7.5) Trade breakdown — picks the highest-quality closed trade from
+  // the past 24h and fires trade.closed. The rule (migration 77)
+  // produces a draft + recap card + video; admin approves per-trade
+  // (privacy gate). Requires a coach evaluation row to surface; if
+  // no coach eval exists for a trade, it's skipped (no fabrication).
+  try {
+    const r = await pickBestRecentClosedTrade(db)
+    if (r) {
+      const out = await ingestEvent({
+        event_type: 'trade.closed',
+        source:     'daily_mix',
+        payload:    r,
+      })
+      tally('trade_breakdown', 'trade_breakdown', out.outcome === 'ok')
+    }
+  } catch (err) {
+    tally('trade_breakdown', 'trade_breakdown', false, err instanceof Error ? err.message : 'unknown')
+  }
 
   // 8) Daily video — the video.daily rule above already fires the
   // Remotion + edge-tts producer (educational_video). No separate

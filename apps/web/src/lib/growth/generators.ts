@@ -24,6 +24,7 @@ export type ContentKind =
   | 'psychology_insight'
   | 'educational'
   | 'announcement'
+  | 'trade_breakdown'
 
 export interface GeneratedDraft {
   kind:         ContentKind
@@ -375,6 +376,131 @@ export function generateMarketReport(i: MarketReportInput): GeneratedDraft {
       cadence:     i.cadence,
       window:      i.window_label,
       symbol_count: i.rows.length,
+      generated_at: new Date().toISOString(),
+    },
+  }
+}
+
+
+// ─── Trade Breakdown (Phase 2) ──────────────────────────────────────
+// Recap of a single closed trade. Pulls from real journal data — no
+// fabrication. Honesty contract: requires complete trade data (entry
+// AND exit) and lands as a DRAFT so the operator can decide per-trade
+// whether to publish (privacy gate — auto_human trades are personal).
+
+export interface TradeBreakdownInput {
+  pair:           string
+  direction:      'buy' | 'sell'
+  entry_price:    number
+  exit_price:     number
+  lot_size:       number | null
+  pnl:            number | null
+  pips:           number | null
+  duration_ms:    number | null
+  trade_date:     string
+  setup_tag?:     string | null
+  session?:       string | null
+  source:         string         // 'manual' | 'auto_human' | 'auto_engine'
+  broker?:        string | null
+
+  // From the matched journal_coach_evaluations row, if any.
+  coach?: {
+    quality_score:    number
+    strategy_grade?:  string
+    execution_grade?: number | null
+    risk_grade?:      number | null
+    timing_grade?:    number | null
+    ai_insights?:     string[] | null
+  }
+}
+
+function fmtDuration(ms: number | null): string {
+  if (!ms || ms <= 0) return '—'
+  const minutes = Math.floor(ms / 60_000)
+  if (minutes < 60)   return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24)     return `${hours}h ${minutes % 60}m`
+  const days = Math.floor(hours / 24)
+  return `${days}d ${hours % 24}h`
+}
+
+export function generateTradeBreakdown(i: TradeBreakdownInput): GeneratedDraft {
+  // Require complete trade data — never publish a half-formed breakdown.
+  if (i.entry_price == null || i.exit_price == null) {
+    throw new Error('generateTradeBreakdown: entry_price and exit_price are both required')
+  }
+
+  const isWin    = (i.pnl ?? 0) >= 0
+  const pnlStr   = i.pnl != null  ? `${i.pnl  >= 0 ? '+' : ''}${i.pnl.toFixed(2)}`  : '—'
+  const pipsStr  = i.pips != null ? `${i.pips >= 0 ? '+' : ''}${i.pips.toFixed(1)}` : '—'
+  const lotStr   = i.lot_size != null ? `${i.lot_size}` : '—'
+  const durStr   = fmtDuration(i.duration_ms)
+  const isAutoEngine = i.source === 'auto_engine'
+
+  const title = isAutoEngine
+    ? `Engine trade closed — ${i.pair} ${i.direction.toUpperCase()} ${pnlStr}`
+    : `Trade breakdown — ${i.pair} ${i.direction.toUpperCase()}`
+
+  const summary =
+    `${i.pair} ${i.direction.toUpperCase()} closed ${isWin ? 'in profit' : 'at a loss'} ` +
+    `(${pnlStr} · ${pipsStr} pips · held ${durStr}).`
+
+  const lines: string[] = [
+    `## ${i.pair} ${i.direction.toUpperCase()}`,
+    '',
+    '### Execution',
+    `- Entry: ${i.entry_price}`,
+    `- Exit:  ${i.exit_price}`,
+    `- Size:  ${lotStr} lots`,
+    `- Held:  ${durStr}`,
+    `- Session: ${i.session ?? '—'}`,
+    '',
+    '### Result',
+    `- P&L:  ${pnlStr}`,
+    `- Pips: ${pipsStr}`,
+  ]
+
+  if (i.coach) {
+    lines.push('', '### AlgoSphere Coach grade')
+    lines.push(`- Overall: ${i.coach.quality_score}/100${i.coach.strategy_grade ? ` (${i.coach.strategy_grade})` : ''}`)
+    if (i.coach.execution_grade != null) lines.push(`- Execution: ${i.coach.execution_grade}`)
+    if (i.coach.risk_grade      != null) lines.push(`- Risk:      ${i.coach.risk_grade}`)
+    if (i.coach.timing_grade    != null) lines.push(`- Timing:    ${i.coach.timing_grade}`)
+    if (Array.isArray(i.coach.ai_insights) && i.coach.ai_insights.length > 0) {
+      lines.push('', '### Process notes')
+      for (const note of i.coach.ai_insights.slice(0, 3)) {
+        lines.push(`- ${note}`)
+      }
+    }
+  }
+
+  // Honest source attribution. Engine-executed trades are platform
+  // performance; broker-detected (auto_human) trades are a user's own —
+  // the admin gate (output_status='draft') decides whether to publish.
+  lines.push('')
+  lines.push(
+    isAutoEngine
+      ? '_Engine-executed by AlgoSphere. Past performance is not predictive of future results._'
+      : '_Trade detected from broker reality sync. Past performance is not predictive of future results._',
+  )
+
+  return {
+    kind:         'trade_breakdown',
+    title,
+    summary,
+    body_md:      lines.join('\n'),
+    tags:         ['trade', i.pair, i.direction, isWin ? 'win' : 'loss', i.source].filter(Boolean) as string[],
+    is_synthetic: false,
+    disclaimer:   'Single-trade outcome. One trade is not a statistical claim. Not financial advice.',
+    cta_text:     'See live signals on AlgoSphere',
+    cta_url:      'https://algospherequant.com/signals',
+    provenance: {
+      type:         'trade_breakdown',
+      pair:         i.pair,
+      direction:    i.direction,
+      source:       i.source,
+      broker:       i.broker ?? null,
+      trade_date:   i.trade_date,
       generated_at: new Date().toISOString(),
     },
   }

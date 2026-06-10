@@ -18,6 +18,7 @@ import { createClient as serviceClient, type SupabaseClient } from '@supabase/su
 import {
   generateStrategyOfTheWeek, generateBacktestBreakdown,
   generateEducational, generateProductUpdate, generateMarketReport,
+  generateTradeBreakdown,
   type GeneratedDraft, type ContentKind,
 } from './generators'
 import { polishDraft } from './llm-polish'
@@ -158,6 +159,14 @@ function tryGenerate(kind: ContentKind, payload: Record<string, unknown>): Gener
         if (!payload.draft) return null
         return payload.draft as unknown as GeneratedDraft
 
+      case 'trade_breakdown':
+        // Requires complete trade data (entry + exit). generateTrade-
+        // Breakdown throws on missing values; the surrounding try/catch
+        // converts the throw into a `generator_unsupported_payload`
+        // result so the auto-publish chain skips half-formed trades.
+        if (!payload.pair || !payload.direction || payload.entry_price == null || payload.exit_price == null) return null
+        return generateTradeBreakdown(payload as unknown as Parameters<typeof generateTradeBreakdown>[0])
+
       default:
         return null
     }
@@ -239,11 +248,19 @@ export async function ingestEvent(event: IngestedEvent): Promise<IngestOutcome> 
       ? await polishDraft(baseDraft, brand ?? {})
       : baseDraft
 
-    // Auto-publish whitelist enforcement — even a misconfigured rule
-    // can't push a strategy/backtest claim straight to live.
-    const effectiveStatus = (rule.output_status === 'published' && !AUTO_PUBLISH_KINDS.has(draft.kind))
-      ? 'approved'
-      : rule.output_status
+    // Approval-gate-first (default). Unless auto-publish is explicitly
+    // enabled via GROWTH_AUTO_PUBLISH=true, EVERY generated item lands as
+    // 'draft' and waits for admin approval in the growth panel before it
+    // can queue to any channel — nothing reaches a live account unattended.
+    // When enabled, the AUTO_PUBLISH_KINDS whitelist governs which kinds
+    // may skip review (a 'published' rule for a non-whitelisted kind is
+    // still downgraded to 'approved').
+    const effectiveStatus: 'draft' | 'approved' | 'published' =
+      process.env.GROWTH_AUTO_PUBLISH !== 'true'
+        ? 'draft'
+        : (rule.output_status === 'published' && !AUTO_PUBLISH_KINDS.has(draft.kind))
+          ? 'approved'
+          : rule.output_status
 
     // Asset pipeline wire — when the rule declares asset_kinds, the
     // content_item is born with asset_state='pending' so the Railway
