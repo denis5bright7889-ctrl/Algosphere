@@ -12,6 +12,8 @@ import {
   aggregateBrokerQuality, BROKER_MIN_SAMPLE,
   type BrokerGrade, type BrokerQuality,
 } from '@/lib/intelligence/broker-quality-aggregate'
+import { buildEquityCurve } from '@/lib/intelligence/equity-curve'
+import EquityCurveChart from '@/components/shadow/EquityCurveChart'
 
 export const metadata = { title: 'AI Strategy Validation Center — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'
@@ -135,6 +137,13 @@ export default async function ShadowPage() {
 
   // ── Phase 3: broker quality grading from all shadow rows ───────────
   const brokerQuality = aggregateBrokerQuality(list)
+
+  // ── Phase 6: equity curve from closed shadow trades ────────────────
+  const curve = buildEquityCurve(
+    closed
+      .filter(r => typeof r.follower_pnl === 'number')
+      .map(r => ({ follower_pnl: r.follower_pnl as number, closed_at: r.closed_at })),
+  )
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
@@ -333,6 +342,24 @@ export default async function ShadowPage() {
           each normalised against an institutional anchor. A+ ≥ 95, A ≥ 90, B+ ≥ 85, B ≥ 80, C ≥ 70, else D.
           Percentile rank compares your brokers to each other — meaningful only with ≥ 2 graded brokers.
         </p>
+      </section>
+
+      {/* ── Phase 6: Validation Equity Curve ─────────────────────── */}
+      <section className="mb-6 rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+          <h2 className="text-sm font-bold uppercase tracking-widest">Validation Equity Curve</h2>
+          <p className="text-[11px] text-muted-foreground tabular-nums">
+            {curve.summary.point_count > 0
+              ? <>
+                  {curve.summary.point_count} day{curve.summary.point_count === 1 ? '' : 's'} ·{' '}
+                  <span className="text-foreground">{curve.summary.curve_start_date}</span>
+                  {' → '}
+                  <span className="text-foreground">{curve.summary.curve_end_date}</span>
+                </>
+              : 'Awaiting closed trades'}
+          </p>
+        </div>
+        <EquityCurveChart points={curve.points} summary={curve.summary} />
       </section>
 
       {/* ── Recent executions table (existing surface) ────────────── */}
