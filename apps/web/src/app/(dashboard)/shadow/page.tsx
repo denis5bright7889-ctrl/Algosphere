@@ -1,12 +1,15 @@
 import { redirect } from 'next/navigation'
-import { FlaskConical } from 'lucide-react'
+import { FlaskConical, CheckCircle2, Circle, ShieldCheck, Activity, Cpu, GitBranch, Rocket } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 import { tierIncludes } from '@/lib/entitlements'
 import { getEffectiveTier } from '@/lib/tier-resolver'
 import TierLock from '@/components/tier/TierLock'
+import {
+  computeInstitutionalAnalytics, MIN_SAMPLE as ANALYTICS_MIN_SAMPLE,
+} from '@/lib/intelligence/validation-analytics'
 
-export const metadata = { title: 'Shadow Execution Mode — AlgoSphere Quant' }
+export const metadata = { title: 'AI Strategy Validation Center — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'
 
 interface ShadowRow {
@@ -27,14 +30,21 @@ interface ShadowRow {
   closed_at: string | null
 }
 
+// Validation gate thresholds — same numbers as before; named here so
+// the Phase-2 requirements checklist can introspect them.
+const GATE = {
+  SESSIONS:        50,
+  FILL_RATE_PCT:   95,
+  SLIPPAGE_MAX:    0.001,   // 0.1%
+  DRIFT_MAX_PCT:   2,
+  CONFIDENCE_MIN:  0.6,     // future use — strategy confidence floor
+} as const
+
 export default async function ShadowPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Tier gate FIRST — shadow telemetry is a Premium surface. Skip the
-  // shadow_executions query entirely for locked viewers so we don't
-  // hit Supabase just to draw the blurred upgrade card.
   const { tier } = await getEffectiveTier()
   if (!tierIncludes(tier, 'premium')) {
     return (
@@ -53,9 +63,9 @@ export default async function ShadowPage() {
     `)
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
-    .limit(100)
+    .limit(500)
 
-  const list = (rows ?? []) as ShadowRow[]
+  const list   = (rows ?? []) as ShadowRow[]
   const closed = list.filter(r => r.closed_at)
   const mirrored = list.filter(r => r.actual_status === 'mirrored' || r.actual_status === 'testnet').length
   const fillRate = list.length > 0 ? Math.round((mirrored / list.length) * 100) : 0
@@ -63,111 +73,242 @@ export default async function ShadowPage() {
   const avgSlippage = closed.length > 0
     ? closed.reduce((s, r) => s + Math.abs(Number(r.slippage_pct ?? 0)), 0) / closed.length
     : 0
-  const avgDrift = closed.filter(r => r.pnl_drift_pct != null).length > 0
-    ? closed.reduce((s, r) => s + Math.abs(Number(r.pnl_drift_pct ?? 0)), 0)
-      / closed.filter(r => r.pnl_drift_pct != null).length
+  const driftSamples = closed.filter(r => r.pnl_drift_pct != null)
+  const avgDrift = driftSamples.length > 0
+    ? driftSamples.reduce((s, r) => s + Math.abs(Number(r.pnl_drift_pct ?? 0)), 0) / driftSamples.length
     : 0
 
-  // Heuristic readiness — flip from testnet→live when:
-  //  • ≥50 executions
-  //  • ≥95% fill rate
-  //  • avg slippage <0.1%
-  //  • avg drift <2%
-  const ready = list.length >= 50 && fillRate >= 95 && avgSlippage < 0.001 && avgDrift < 2
+  // ── Phase 2: requirements checklist ────────────────────────────────
+  const requirements = [
+    { id: 'sessions',   label: `${GATE.SESSIONS}+ validation sessions`,
+      met: list.length >= GATE.SESSIONS,
+      progress: Math.min(list.length / GATE.SESSIONS, 1) },
+    { id: 'drawdown',   label: `Average drift below ${GATE.DRIFT_MAX_PCT}%`,
+      met: driftSamples.length > 0 && avgDrift < GATE.DRIFT_MAX_PCT,
+      progress: driftSamples.length > 0 ? Math.max(0, 1 - avgDrift / GATE.DRIFT_MAX_PCT) : 0 },
+    { id: 'execution',  label: `Fill rate ≥ ${GATE.FILL_RATE_PCT}%`,
+      met: list.length > 0 && fillRate >= GATE.FILL_RATE_PCT,
+      progress: fillRate / 100 },
+    { id: 'slippage',   label: `Average slippage under ${(GATE.SLIPPAGE_MAX * 100).toFixed(2)}%`,
+      met: closed.length > 0 && avgSlippage < GATE.SLIPPAGE_MAX,
+      progress: closed.length > 0 ? Math.max(0, 1 - avgSlippage / GATE.SLIPPAGE_MAX) : 0 },
+    { id: 'confidence', label: `Strategy confidence threshold (≥ ${Math.round(GATE.CONFIDENCE_MIN * 100)}%)`,
+      met: false, progress: 0  /* wired in when strategy-validation table lands */ },
+  ]
+  const reqsMet  = requirements.filter(r => r.met).length
+  const ready    = reqsMet === requirements.length
+
+  // ── Phase 2: 5-stage progression. Stage advances as gates clear in
+  //    a fixed order (sessions → execution → risk → live-qual → ready).
+  const stages = [
+    { key: 'signal',    label: 'Signal Validation',    icon: Activity,    done: requirements[0]!.met },
+    { key: 'execution', label: 'Execution Validation', icon: Cpu,         done: requirements[0]!.met && requirements[2]!.met },
+    { key: 'risk',      label: 'Risk Validation',      icon: ShieldCheck, done: requirements[0]!.met && requirements[2]!.met && requirements[3]!.met },
+    { key: 'qualify',   label: 'Live Qualification',   icon: GitBranch,   done: requirements[0]!.met && requirements[2]!.met && requirements[3]!.met && requirements[1]!.met },
+    { key: 'ready',     label: 'Deployment Ready',     icon: Rocket,      done: ready },
+  ]
+  const currentStageIdx = stages.findIndex(s => !s.done)
+  const currentStage    = currentStageIdx === -1 ? stages.length - 1 : currentStageIdx
+
+  // ── Phase 2: estimated unlock date — deterministic projection from
+  //    the realised session-growth rate over the past 14 days. Honest
+  //    null when no recent sessions logged.
+  const since14d = Date.now() - 14 * 86_400_000
+  const recent14d = list.filter(r => new Date(r.created_at).getTime() >= since14d).length
+  const sessionsPerDay = recent14d / 14
+  const sessionsRemaining = Math.max(0, GATE.SESSIONS - list.length)
+  const daysToUnlock = sessionsPerDay > 0 ? Math.ceil(sessionsRemaining / sessionsPerDay) : null
+  const estimatedUnlock = daysToUnlock != null
+    ? new Date(Date.now() + daysToUnlock * 86_400_000).toLocaleDateString(undefined,
+        { year: 'numeric', month: 'short', day: 'numeric' })
+    : null
+
+  // ── Phase 8: institutional analytics from closed shadow trades ─────
+  const tradeOutcomes = closed
+    .filter(r => typeof r.follower_pnl === 'number')
+    .map(r => ({ follower_pnl: r.follower_pnl as number, closed_at: r.closed_at }))
+  const analytics = computeInstitutionalAnalytics(tradeOutcomes)
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
+      {/* ── Phase 1: rebrand ──────────────────────────────────────── */}
       <header className="mb-4">
         <h1 className="text-2xl font-bold tracking-tight">
-          Shadow <span className="text-gradient">Execution Mode</span>
+          AI Strategy <span className="text-gradient">Validation Center</span>
         </h1>
-        <p className="text-xs text-muted-foreground mt-1">
-          Every full-auto copy trade is recorded with intent + outcome. Use these
-          metrics to validate broker quality before going from testnet → live.
+        <p className="mt-1 text-xs text-muted-foreground">
+          Every strategy must earn the right to trade live. AlgoSphere validates
+          execution quality, risk behavior, consistency, and broker performance
+          using forward-tested market data before capital is exposed.
         </p>
       </header>
 
-      {/* Brief-mandated: simulated/validation execution must be clearly
-          labelled so the telemetry below is never mistaken for live orders. */}
       <div className="mb-6 flex items-start gap-2 rounded-xl border border-blue-500/30 bg-blue-500/[0.06] px-3 py-2.5 text-xs text-blue-200">
         <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
         <span>
-          <span className="font-bold uppercase tracking-wider">Simulation Mode</span>{' '}
-          — Shadow execution records the <em>intended</em> order against a{' '}
-          <em>simulated / testnet</em> fill to measure broker quality. <span className="font-semibold">No live
-          orders are placed on this screen.</span> Live execution unlocks only after the
-          validation gate below passes and you explicitly promote a broker.
+          <span className="font-bold uppercase tracking-wider">Validation In Progress</span>{' '}
+          — Every full-auto signal is recorded with intent + outcome against a{' '}
+          <em>simulated / testnet</em> fill. <span className="font-semibold">No live
+          orders are placed on this screen.</span> Live execution unlocks only after
+          all validation gates pass and you explicitly promote a broker.
         </span>
       </div>
 
-      {/* Readable readiness intelligence (default). The validation gate +
-          engines are unchanged; raw telemetry lives in the collapsible. */}
+      {/* ── Phase 2: 5-stage progression ──────────────────────────── */}
+      <section className="mb-6 rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+          <h2 className="text-sm font-bold uppercase tracking-widest">Validation Progress</h2>
+          <p className="text-[11px] text-muted-foreground tabular-nums">
+            {list.length} / {GATE.SESSIONS} sessions
+            {estimatedUnlock && (
+              <span> · est. unlock <span className="text-foreground">{estimatedUnlock}</span></span>
+            )}
+          </p>
+        </div>
+
+        {/* 5 stage pills */}
+        <ol className="relative grid grid-cols-5 gap-1 sm:gap-2 mb-5">
+          {stages.map((s, i) => {
+            const Icon = s.icon
+            const isCurrent = i === currentStage
+            return (
+              <li key={s.key} className="relative">
+                <div className={cn(
+                  'flex flex-col items-center gap-1.5 rounded-lg border px-1.5 py-2.5 text-center transition',
+                  s.done && 'border-emerald-500/40 bg-emerald-500/[0.08]',
+                  !s.done && isCurrent && 'border-amber-500/40 bg-amber-500/[0.06]',
+                  !s.done && !isCurrent && 'border-border bg-muted/10',
+                )}>
+                  <Icon className={cn(
+                    'h-4 w-4 sm:h-5 sm:w-5',
+                    s.done && 'text-emerald-400',
+                    !s.done && isCurrent && 'text-amber-300',
+                    !s.done && !isCurrent && 'text-muted-foreground',
+                  )} strokeWidth={1.75} aria-hidden />
+                  <div className={cn(
+                    'text-[9px] sm:text-[10px] font-bold uppercase tracking-wider leading-tight',
+                    s.done && 'text-emerald-300',
+                    !s.done && isCurrent && 'text-amber-200',
+                    !s.done && !isCurrent && 'text-muted-foreground',
+                  )}>
+                    Stage {i + 1}
+                  </div>
+                  <div className={cn(
+                    'text-[10px] sm:text-[11px] leading-tight font-medium',
+                    s.done ? 'text-foreground' : isCurrent ? 'text-foreground' : 'text-muted-foreground',
+                  )}>
+                    {s.label}
+                  </div>
+                </div>
+              </li>
+            )
+          })}
+        </ol>
+
+        {/* Requirements checklist */}
+        <div className="space-y-1.5">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-1">
+            Requirements ({reqsMet}/{requirements.length} met)
+          </p>
+          {requirements.map(r => (
+            <div key={r.id} className="flex items-center gap-2.5 text-[12px]">
+              {r.met
+                ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" strokeWidth={2} aria-hidden />
+                : <Circle className="h-4 w-4 shrink-0 text-muted-foreground/50" strokeWidth={1.5} aria-hidden />}
+              <span className={cn('flex-1', r.met ? 'text-foreground' : 'text-muted-foreground')}>
+                {r.label}
+              </span>
+              <span className="tabular-nums text-[10px] text-muted-foreground">
+                {Math.round(r.progress * 100)}%
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div className={cn(
+          'mt-4 rounded-lg border px-3 py-2 text-[11px]',
+          ready
+            ? 'border-emerald-500/40 bg-emerald-500/[0.06] text-emerald-200'
+            : 'border-amber-500/30 bg-amber-500/[0.04] text-amber-200',
+        )}>
+          {ready
+            ? '✓ Capital Protection cleared — this strategy + broker pair is ready for live promotion.'
+            : `Capital Protection Layer Enabled — ${requirements.length - reqsMet} requirement${requirements.length - reqsMet === 1 ? '' : 's'} outstanding before live execution unlocks.`}
+        </div>
+      </section>
+
+      {/* ── Phase 1: surface-level qualification pills ────────────── */}
       {(() => {
         const hasData    = list.length > 0
-        const hasClosed  = closed.filter(r => r.pnl_drift_pct != null).length > 0
-        const execQuality = !hasData ? 'Collecting Live Data'
+        const hasClosed  = driftSamples.length > 0
+        const execQuality = !hasData ? 'Collecting Data'
           : fillRate >= 95 ? 'Excellent' : fillRate >= 80 ? 'Good' : 'Developing'
-        const stability  = !hasClosed ? 'Awaiting More Closed Trades'
-          : (avgSlippage < 0.001 && avgDrift < 2) ? 'Stable' : 'Variable'
-        const trackRecord = list.length >= 50 ? 'Established' : 'Building Performance History'
+        const stability  = !hasClosed ? 'Awaiting Closed Trades'
+          : (avgSlippage < GATE.SLIPPAGE_MAX && avgDrift < GATE.DRIFT_MAX_PCT) ? 'Stable' : 'Variable'
+        const trackRecord = list.length >= GATE.SESSIONS ? 'Established' : 'Building'
         return (
-          <>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-              <Stat label="Trading Track Record" value={trackRecord} tone="plain" />
-              <Stat label="Execution Quality" value={execQuality}
-                    tone={!hasData ? 'plain' : fillRate >= 95 ? 'green' : fillRate >= 80 ? 'amber' : 'red'} />
-              <Stat label="Strategy Stability" value={stability}
-                    tone={!hasClosed ? 'plain' : stability === 'Stable' ? 'green' : 'amber'} />
-              <Stat label="Status" value={ready ? 'Validated' : 'Learning Phase'}
-                    tone={ready ? 'green' : 'amber'} />
-            </div>
-
-            <div className={cn(
-              'rounded-2xl border p-5 mb-6',
-              ready ? 'border-emerald-500/40 bg-emerald-500/[0.04]' : 'border-amber-500/30 bg-amber-500/[0.04]',
-            )}>
-              <p className="text-xs uppercase tracking-widest font-bold mb-2">
-                {ready ? '✓ Ready for Live' : '⏳ Learning Phase'}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {ready
-                  ? 'This broker has a validated live track record — you can promote it to live execution.'
-                  : `Building a performance history on simulated fills before live execution unlocks. ${Math.min(list.length, 50)} of 50 validation sessions complete${list.length < 50 ? ` — ${50 - list.length} to go` : ''}.`}
-              </p>
-
-              <details className="group mt-3 rounded-md border border-border/60 bg-muted/10">
-                <summary className="cursor-pointer list-none px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/70 hover:text-muted-foreground">
-                  Advanced Execution Metrics
-                </summary>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-3 pb-2 pt-1">
-                  <Stat label="Executions" value={String(list.length)} tone="plain" />
-                  <Stat label="Fill Rate" value={hasData ? `${fillRate}%` : '—'}
-                        tone={!hasData ? 'plain' : fillRate >= 95 ? 'green' : fillRate >= 80 ? 'amber' : 'red'} />
-                  <Stat label="Avg Slippage" value={closed.length > 0 ? `${(avgSlippage * 100).toFixed(3)}%` : '—'}
-                        tone={closed.length === 0 ? 'plain' : avgSlippage < 0.001 ? 'green' : avgSlippage < 0.005 ? 'amber' : 'red'} />
-                  <Stat label="Avg PnL Drift" value={hasClosed ? `${avgDrift.toFixed(2)}%` : '—'}
-                        tone={!hasClosed ? 'plain' : avgDrift < 2 ? 'green' : avgDrift < 5 ? 'amber' : 'red'} />
-                </div>
-                <p className="px-3 pb-3 text-[10px] text-muted-foreground/70">
-                  Live unlock gate: 50+ executions, ≥95% fill, &lt;0.1% slippage, &lt;2% drift.
-                </p>
-              </details>
-            </div>
-          </>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            <Stat label="Track Record" value={trackRecord} tone="plain" />
+            <Stat label="Execution Quality" value={execQuality}
+                  tone={!hasData ? 'plain' : fillRate >= 95 ? 'green' : fillRate >= 80 ? 'amber' : 'red'} />
+            <Stat label="Strategy Stability" value={stability}
+                  tone={!hasClosed ? 'plain' : stability === 'Stable' ? 'green' : 'amber'} />
+            <Stat label="Qualification" value={ready ? 'Qualified' : 'Verification Running'}
+                  tone={ready ? 'green' : 'amber'} />
+          </div>
         )
       })()}
 
-      <h2 className="text-xs uppercase tracking-widest text-muted-foreground font-bold mb-3">
-        Recent Executions
+      {/* ── Phase 8: institutional analytics ─────────────────────── */}
+      <section className="mb-6 rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+          <h2 className="text-sm font-bold uppercase tracking-widest">Institutional Analytics</h2>
+          <p className="text-[11px] text-muted-foreground tabular-nums">
+            {analytics.sample_size > 0
+              ? `${analytics.sample_size} closed trade${analytics.sample_size === 1 ? '' : 's'}`
+              : 'No closed trades'}
+            {' · '}
+            {analytics.sample_size < ANALYTICS_MIN_SAMPLE
+              ? <span className="text-amber-300">activates at {ANALYTICS_MIN_SAMPLE} closed</span>
+              : <span className="text-emerald-400">live</span>}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <Metric label="Sharpe"          value={analytics.sharpe}          fmt="ratio"   />
+          <Metric label="Sortino"         value={analytics.sortino}         fmt="ratio"   />
+          <Metric label="Calmar"          value={analytics.calmar}          fmt="ratio"   />
+          <Metric label="Profit Factor"   value={analytics.profit_factor}   fmt="ratio"   />
+          <Metric label="Recovery Factor" value={analytics.recovery_factor} fmt="ratio"   />
+          <Metric label="Avg R Multiple"  value={analytics.avg_r_multiple}  fmt="ratio"   />
+          <Metric label="Expected Value"  value={analytics.expected_value}  fmt="usd"     />
+          <Metric label="Kelly %"         value={analytics.kelly_pct}       fmt="pct"     />
+          <Metric label="Risk of Ruin"    value={analytics.risk_of_ruin}    fmt="pct"     invertTone />
+          <Metric label="Max Drawdown"    value={analytics.max_drawdown}    fmt="usd"     invertTone />
+          <Metric label="Net P&L"         value={analytics.net_profit}      fmt="usd"     />
+          <Metric label="Win Rate"        value={analytics.win_rate_pct}    fmt="pct"     />
+        </div>
+
+        <p className="mt-3 text-[10px] text-muted-foreground/80">
+          Methodology: Sharpe + Sortino annualised by √252. Kelly capped at 25% (institutional half-Kelly).
+          Risk-of-ruin uses gambler's-ruin closed form against a 100×-average-loss bankroll.
+          All metrics suppress to N/A below {ANALYTICS_MIN_SAMPLE} closed trades — outcome-based claims need sample.
+        </p>
+      </section>
+
+      {/* ── Recent executions table (existing surface) ────────────── */}
+      <h2 className="mb-3 text-xs font-bold uppercase tracking-widest text-muted-foreground">
+        Recent Validation Sessions
       </h2>
 
       {list.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
-          No shadow executions yet. Subscribe to a strategy in full-auto mode to start logging.
+          <p className="font-medium text-foreground mb-1">Broker Qualification Active</p>
+          <p>Subscribe to a strategy in full-auto mode to begin Strategy Verification.</p>
         </div>
       ) : (
         <>
-          {/* Mobile: card list (no horizontal scroll) */}
+          {/* Mobile: card list */}
           <ul className="space-y-2.5 md:hidden">
             {list.map(r => {
               const slipPct = r.slippage_pct != null ? Math.abs(r.slippage_pct) : null
@@ -232,7 +373,7 @@ export default async function ShadowPage() {
             })}
           </ul>
 
-          {/* Desktop: original table */}
+          {/* Desktop: table */}
           <div className="hidden md:block rounded-2xl border border-border bg-card overflow-x-auto">
           <table className="w-full min-w-[720px] text-xs">
             <thead>
@@ -320,31 +461,76 @@ function Stat({ label, value, tone = 'plain' }: {
   )
 }
 
+/** Phase 8 metric tile. Renders the value with appropriate unit/sign
+ *  and a green/amber/red tone derived from the metric's good direction.
+ *  invertTone=true means LOW is good (drawdown, risk of ruin). */
+function Metric({ label, value, fmt, invertTone = false }: {
+  label: string
+  value: number | null
+  fmt:   'ratio' | 'pct' | 'usd'
+  invertTone?: boolean
+}) {
+  const display = value == null ? 'N/A' :
+    fmt === 'ratio' ? value.toFixed(2) :
+    fmt === 'pct'   ? `${value.toFixed(2)}%` :
+    /* usd */         `${value >= 0 ? '+' : ''}${value.toFixed(2)}`
+
+  // Tone heuristics. Ratio metrics: Sharpe>1 / PF>1.5 → green. Pct: low
+  // is good when invertTone. USD: positive = green.
+  let tone: 'plain' | 'green' | 'amber' | 'red' = 'plain'
+  if (value != null) {
+    if (fmt === 'ratio') {
+      tone = value >= 1.5 ? 'green' : value >= 1.0 ? 'amber' : 'red'
+    } else if (fmt === 'pct') {
+      const good = invertTone ? value < 1 : value > 0
+      const bad  = invertTone ? value > 5 : value < 0
+      tone = good ? 'green' : bad ? 'red' : 'amber'
+    } else if (fmt === 'usd') {
+      const positive = value >= 0
+      tone = invertTone
+        ? (Math.abs(value) === 0 ? 'green' : 'amber')
+        : (positive ? 'green' : 'red')
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-background/40 px-3 py-2">
+      <p className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className={cn(
+        'mt-0.5 text-sm font-bold tabular-nums',
+        value == null && 'text-muted-foreground',
+        tone === 'green' && 'text-emerald-400',
+        tone === 'amber' && 'text-amber-300',
+        tone === 'red'   && 'text-rose-400',
+      )}>{display}</p>
+    </div>
+  )
+}
+
 /**
- * Lightweight preview rendered behind the lock for free/starter viewers
- * — same shape as the real surface so the upgrade prompt feels honest,
- * but no Supabase data and no real numbers. The blur+lock overlay sits
- * on top, so this is purely chrome for context.
+ * Lightweight preview rendered behind the lock for free/starter
+ * viewers — same shape as the real surface so the upgrade prompt feels
+ * honest, but no Supabase data and no real numbers.
  */
 function ShadowSkeleton() {
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
       <header className="mb-4">
         <h1 className="text-2xl font-bold tracking-tight">
-          Shadow <span className="text-gradient">Execution Mode</span>
+          AI Strategy <span className="text-gradient">Validation Center</span>
         </h1>
         <p className="text-xs text-muted-foreground mt-1">
-          Validate broker quality on simulated fills before going live.
+          Every strategy must earn the right to trade live.
         </p>
       </header>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-        <Stat label="Trading Track Record" value="Established" tone="plain" />
-        <Stat label="Execution Quality"    value="Excellent"   tone="green" />
-        <Stat label="Strategy Stability"   value="Stable"      tone="green" />
-        <Stat label="Status"               value="Validated"   tone="green" />
+        <Stat label="Track Record"        value="Established" tone="plain" />
+        <Stat label="Execution Quality"   value="Excellent"   tone="green" />
+        <Stat label="Strategy Stability"  value="Stable"      tone="green" />
+        <Stat label="Qualification"       value="Qualified"   tone="green" />
       </div>
       <div className="rounded-2xl border border-border/60 bg-muted/10 p-12 text-center text-sm text-muted-foreground">
-        Recent executions appear here once you subscribe to a strategy in full-auto mode.
+        Subscribe at Premium to unlock the AI Strategy Validation Center.
       </div>
     </div>
   )
