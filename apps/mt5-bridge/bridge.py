@@ -1277,10 +1277,14 @@ async def closed_deals(req: ClosedDealsRequest):
         to_dt   = datetime.now(timezone.utc)
 
         try:
-            ok = await asyncio.to_thread(mt5.history_select, from_dt, to_dt)
-            if not ok:
-                return {'deals': [], 'count': 0, 'note': 'history_select returned False'}
-
+            # history_select is an MQL5/MetaEditor function — it does NOT
+            # exist in the MetaTrader5 Python package (v5.0.45). Calling
+            # it raised AttributeError every reconciler tick and forced
+            # the endpoint to HTTP 500, leaving closed_deals_found=0 in
+            # production. history_deals_get(from_dt, to_dt) performs the
+            # range selection AND retrieval in one call, so the prior
+            # history_select line was redundant anyway. Removal preserves
+            # the chain end-to-end. (Cherry-picked from 660341e.)
             rows = await asyncio.to_thread(mt5.history_deals_get, from_dt, to_dt) or []
 
             # Closing deals only — these carry exit price, profit, commission, swap.
