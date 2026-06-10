@@ -27,6 +27,7 @@ import { ingestEvent, type IngestedEvent } from './automation'
 import { aggregateCoachInsights }            from '../intelligence/coach-insights-aggregate'
 import { aggregateBrokerTruth }              from '../intelligence/broker-truth-aggregate'
 import { aggregatePerformanceTransparency }  from '../intelligence/performance-transparency-aggregate'
+import { wasRecentlyPublished, isSourceFresh, aggregateFingerprint } from './quality-guards'
 
 function svc(): SupabaseClient {
   return serviceClient(
@@ -47,59 +48,74 @@ export interface DailyMixSummary {
 // Day-of-year mod len picks the topic — deterministic, no repetition
 // within a year. Three topics fire per day so we rotate through ~120
 // topics annually before any repeat.
+/** Category drives Phase 8 mix-rebalancing — the daily-mix picker
+ *  selects ONE topic from each non-core category so the trio is
+ *  always thematically diverse (1 architecture + 1 psychology + 1
+ *  risk), instead of three consecutive entries from the same theme. */
+type TopicCategory = 'core' | 'architecture' | 'psychology' | 'risk'
+
 const EDUCATIONAL_TOPICS: Array<{
   topic:       string
   headline:    string
   body:        string
   reading_min: number
+  category:    TopicCategory
 }> = [
   {
     topic:       'Risk per trade',
     headline:    'Why 1% risk per trade compounds — and 5% blows up',
     body:        'Risk per trade is the single most important number in trading. At 1% risk per trade, a 10-loss streak (which happens roughly twice a year on most strategies) costs ~10% of the account — survivable. At 5% risk, the same streak compounds to a ~40% drawdown that takes a 67% return to recover. Position-size capacity is asymmetric: it scales linearly with risk-of-ruin. The AlgoSphere position-sizing calculator translates your stop distance + account equity into the exact lot size that risks your chosen % — paste a signal in and the math is done for you.',
     reading_min: 3,
+    category:    'core' as TopicCategory,
   },
   {
     topic:       'Backtest expectations',
     headline:    'Reading a backtest honestly — what 30 trades means vs 300',
     body:        'A backtest with 30 trades and a 70% win rate is statistically indistinguishable from one with 50% — the confidence interval is just too wide. At 300 trades the same number tightens to ±5%. AlgoSphere\'s Strategy Grader marks any sample under 30 trades as "N/A" with a low-confidence pill, regardless of how good the headline number looks. The numbers you should trust: profit factor + drawdown over ≥100 trades, across at least two regime types. Anything less is a hypothesis, not a result.',
     reading_min: 4,
+    category:    'core' as TopicCategory,
   },
   {
     topic:       'Journaling discipline',
     headline:    'The journal entry that costs you nothing and earns you everything',
     body:        'Two minutes of journaling after a trade — what you saw, what you expected, what you felt — is the highest-leverage habit in retail trading. Not because it makes the trade better (it doesn\'t), but because it gives the AI Coach raw material to grade your process across 5 axes: execution, psychology, risk, discipline, timing. After 50 entries the Coach can tell you exactly which axis is dragging your equity curve. Most retail traders never journal; you have a quant edge if you do.',
     reading_min: 3,
+    category:    'core' as TopicCategory,
   },
   {
     topic:       'Regime classification',
     headline:    'Trending vs ranging — why the same strategy lives or dies on this',
     body:        'A trend-following strategy in a ranging market is a slow-motion equity destroyer. A mean-reversion strategy in a trending market is the same. AlgoSphere classifies the regime every scan using DER (directional efficiency ratio) + entropy + autocorrelation — three orthogonal lenses on the same price series. Signals are filtered against the regime BEFORE confidence scoring, so a "buy" never publishes during a confirmed downtrend. You can see the current regime per pair on /intelligence/markets.',
     reading_min: 4,
+    category:    'core' as TopicCategory,
   },
   {
     topic:       'Stop-loss placement',
     headline:    'Where the stop goes — ATR vs structure vs gut',
     body:        'Stops placed at round numbers, fixed pip counts, or "wherever it feels safe" are the leading retail account-killers. The two defensible options: ATR-based (×1.0 to ×1.5 of the 14-period ATR) which adapts to volatility, or structure-based (just past the prior swing high/low) which lets the chart tell you. The AlgoSphere Quant Builder defaults SL to 1.2× ATR; you can change it per strategy. Either way, the stop is set BEFORE the entry — never adjusted to "give the trade room" after.',
     reading_min: 3,
+    category:    'core' as TopicCategory,
   },
   {
     topic:       'Profit factor',
     headline:    'Profit factor 1.5 is the floor — here\'s why',
     body:        'Profit factor = gross wins / gross losses. PF 1.0 means you break even before costs; PF 1.5 means you make $1.50 per $1.00 lost. After spread, slippage, and broker commissions (typical retail forex: ~0.3 PF drag), a backtested 1.5 PF often comes out to 1.2 live. Below 1.2 live, the variance dominates the edge — you\'ll spend more time recovering drawdown than making new equity highs. AlgoSphere\'s Backtester displays PF prominently and bakes default cost assumptions into every run.',
     reading_min: 4,
+    category:    'core' as TopicCategory,
   },
   {
     topic:       'Sessions matter',
     headline:    'London open vs Asia chop — same pair, different game',
     body:        'EUR/USD during the London session prints 60% of its daily range in three hours. The same pair during Asia averages ~12 pips of movement. A breakout strategy that thrives in London bleeds during Asia waiting for a move that won\'t come. AlgoSphere\'s Session Window block in the Quant Builder lets you restrict entries to the productive hours — typically London + NY overlap for major forex, all day for crypto. Your strategy doesn\'t need to "work always"; it needs to work when it should.',
     reading_min: 3,
+    category:    'core' as TopicCategory,
   },
   {
     topic:       'Overfit detection',
     headline:    'Your perfect backtest is probably overfit — three tells',
     body:        'Three signs a backtest is curve-fit, not edge-discovered: (1) profit factor > 3 on < 50 trades, (2) the equity curve has zero drawdown days, (3) tiny parameter changes (e.g. EMA 21 → 20) crater the result. Real edges are robust to parameter perturbation — a 5% slide should change PF by < 0.2. AlgoSphere\'s Optimization Center sweeps the parameter space and reports edge-stability scores; high stability = real edge, low stability = pattern matching the past.',
     reading_min: 4,
+    category:    'core' as TopicCategory,
   },
   // ── Phase 1: System Architecture content. Each grounded in actual
   //    platform behavior — no marketing fluff. Sourced from the
@@ -110,36 +126,42 @@ const EDUCATIONAL_TOPICS: Array<{
     headline:    'How AlgoSphere reads the market — three orthogonal lenses, every minute',
     body:        'AlgoSphere classifies the market regime every scan using three independent measurements: DER (directional efficiency ratio) catches whether price is going somewhere or oscillating; entropy measures how unpredictable the return distribution is; autocorrelation measures whether yesterday\'s move predicts today\'s. The three combine into one regime label per pair — trending, ranging, volatile, transitional, expansion, exhaustion. Signals are gated against this BEFORE entering the confidence layer, so a "buy" never publishes during a confirmed downtrend. The same regime drives the per-regime adaptive threshold in the ensemble layer — a 0.12 net score is "go" in a trending regime but only "noise" in chop.',
     reading_min: 4,
+    category:    'architecture' as TopicCategory,
   },
   {
     topic:       'System architecture: ensemble consensus',
     headline:    'Why AlgoSphere weights strategies instead of voting them',
     body:        'Vote-counting ensembles ("3 of 8 strategies say buy") reject good signals when only 2 strategies vote at all. AlgoSphere\'s ensemble sums SIGNED, weighted contributions: each strategy outputs a direction + strength + confidence, weighted by its historical regime-fit; the net signed score is compared to a regime-adaptive threshold T. A weak unanimous signal can clear T; a strong contradicted signal nets out. This is why the engine doesn\'t need 5 strategies firing to publish — one high-conviction strategy in the right regime is enough.',
     reading_min: 4,
+    category:    'architecture' as TopicCategory,
   },
   {
     topic:       'System architecture: broker reality sync',
     headline:    'Why AlgoSphere polls your broker every 30 seconds — the truth layer',
     body:        'Databases drift; brokers don\'t. AlgoSphere\'s Broker Reality Sync (truth layer) polls each connected broker every 30s, read-only, and reconciles real open positions against our own execution_events. A position open at the broker but missing from our log gets a detected ORDER_FILLED event injected — the journal trigger then auto-creates the journal row. A position that vanished from the broker gets a POSITION_CLOSED event with the broker\'s own exit price, realized P&L, commission, and swap (fetched from MT5\'s history table). The result: your journal matches your broker, always.',
     reading_min: 4,
+    category:    'architecture' as TopicCategory,
   },
   {
     topic:       'System architecture: risk firewall',
     headline:    '15 gates between a signal and your account — the risk firewall',
     body:        'Before any signal becomes a tradeable order, AlgoSphere runs 15 institutional risk gates: account-equity floor, daily-loss cap, max-consecutive-losses, max-active-per-symbol, exposure cap, correlation cap, regime-veto, drawdown cap, volatility filter, session-window, news-window, slippage tolerance, lot-rounding rule, broker-status check, and kill-switch state. ANY gate failing rejects the order and writes an audit event to system_event_log — visible from your /admin/signals page. Every rejection is honest about which gate fired and why.',
     reading_min: 4,
+    category:    'architecture' as TopicCategory,
   },
   {
     topic:       'System architecture: AI coach pipeline',
     headline:    'How AlgoSphere grades a trade in five dimensions — never on PnL',
     body:        'When a journal entry is saved, the deterministic V3 coach evaluator runs immediately. It produces 5 process grades (execution, psychology, risk, discipline, timing) from PROCESS data only — never from PnL outcome. A losing trade can be A-grade execution; a winning trade can be poor execution. The coach also generates 3+ specific behavioral insights ("you tend to overtrade after losses", "London remains your highest-expectancy session") that downstream analytics read directly. No Gemini in this path — pure deterministic math, so the same trade always grades the same way.',
     reading_min: 4,
+    category:    'architecture' as TopicCategory,
   },
   {
     topic:       'System architecture: signal lifecycle',
     headline:    'From OHLCV to a signal in your feed — the lifecycle in 8 steps',
     body:        'A signal\'s journey: (1) market-data provider returns OHLCV bars; (2) feature engineer computes technicals; (3) regime engine labels the bar; (4) ensemble strategies vote signed contributions; (5) confidence engine sums weighted votes vs regime-adaptive threshold; (6) 15 risk gates validate; (7) signal-emission writes to the signals table + WebSocket-pushes to subscribers; (8) Telegram + Discord adapters fan out. Each step writes its outcome to system_event_log — so every signal is auditable end-to-end. If the signal never reaches you, the log tells you which step rejected it.',
     reading_min: 5,
+    category:    'architecture' as TopicCategory,
   },
   // ── Phase 6: Trading Psychology expansion (10 topics) ───────────────
   // Behavioural-economics framing, evidence-based. AlgoSphere\'s
@@ -150,60 +172,70 @@ const EDUCATIONAL_TOPICS: Array<{
     headline:    'Tilt — the 90-minute window where 60% of bad trades happen',
     body:        'Tilt is the post-loss emotional state where you abandon your rules to "make it back". Most retail studies put 50-60% of catastrophic drawdowns inside a 90-minute window after a 2R+ losing trade. The tell: position size creeps up, stops widen, entries skip the checklist. AlgoSphere\'s Psychology Engine flags a tilt-risk score on your journal after any loss and shows when your historical tilt-window trades cluster. The fix is mechanical: cooldown timer + reduced size for the next 3 trades. Discipline scales; willpower doesn\'t.',
     reading_min: 4,
+    category:    'psychology' as TopicCategory,
   },
   {
     topic:       'Psychology: revenge trading',
     headline:    'Revenge trading — the trade you take to argue with the market',
     body:        'A revenge trade isn\'t about price; it\'s about reclaiming the feeling of being right. Signature pattern: you re-enter the same pair within 30 minutes of a loss, often in the same direction, often with size larger than your plan. The market doesn\'t know you lost — only you do. AlgoSphere flags rapid same-pair re-entries in the journal so the pattern is impossible to hide from yourself. The hardest skill in trading isn\'t finding the next setup. It\'s sitting on your hands after the last one.',
     reading_min: 3,
+    category:    'psychology' as TopicCategory,
   },
   {
     topic:       'Psychology: recency bias',
     headline:    'Recency bias — why your last 3 trades dictate your next 30',
     body:        'Humans weight the most recent outcomes far more than statistical reality justifies. A 3-trade losing streak feels like the strategy is "broken" even when the backtest shows streaks of 6 are normal at the strategy\'s win rate. The reverse traps too — 3 wins in a row feel like a green light to oversize. AlgoSphere\'s Psychology Engine compares your trade-size variance to your historical baseline; when it spikes, the recency-bias score climbs. Trust the sample, not the streak.',
     reading_min: 3,
+    category:    'psychology' as TopicCategory,
   },
   {
     topic:       'Psychology: confirmation bias',
     headline:    'Confirmation bias — why every chart you see "confirms" your trade',
     body:        'Once you\'re in a position, your brain hunts for evidence supporting it and discounts evidence against it. The Reuters terminal looks bullish if you\'re long. AlgoSphere\'s solution: write your invalidation thesis IN the trade entry. The Psychology Engine flags entries with no invalidation note as elevated-bias trades, and your historical "no-invalidation" trades show measurably worse outcomes. The discipline is in the recorded thought, not the price action.',
     reading_min: 3,
+    category:    'psychology' as TopicCategory,
   },
   {
     topic:       'Psychology: overconfidence',
     headline:    'Overconfidence — the 7-trade winning streak that ends in a 20% drawdown',
     body:        'A win streak doesn\'t mean the market changed in your favour — it usually means random variance lined up. The danger isn\'t the streak; it\'s the size creep that follows it. The Kelly Criterion says optimal size is proportional to edge, not recent results. AlgoSphere\'s journal tracks confidence_level vs realised outcome — overconfidence is the gap between the two. Trim the gap and the drawdown shrinks.',
     reading_min: 3,
+    category:    'psychology' as TopicCategory,
   },
   {
     topic:       'Psychology: underconfidence',
     headline:    'Underconfidence — when your best setups are the ones you skip',
     body:        'After a losing run, traders downsize good setups or skip them entirely — the inverse of overconfidence but equally costly. The pattern: A-grade setups taken with quarter-size, B-grade setups taken at full size out of impatience. AlgoSphere\'s Psychology Engine compares your confidence_level rating to the coach\'s grade for the same trade; chronic underconfidence shows as a downward bias. Trade the setup, not the mood.',
     reading_min: 3,
+    category:    'psychology' as TopicCategory,
   },
   {
     topic:       'Psychology: emotional discipline',
     headline:    'Emotional discipline — the only edge that compounds',
     body:        'Strategies decay; markets shift; brokers change spreads. The one thing that compounds across all of it is the discipline to execute your rules when you don\'t feel like it. Studies of prop-firm traders show top quartile vs bottom quartile differs more on rule-adherence than on strategy choice. AlgoSphere\'s coach grades discipline 0-100 on every journal entry — the trend matters more than any single score.',
     reading_min: 3,
+    category:    'psychology' as TopicCategory,
   },
   {
     topic:       'Psychology: patience',
     headline:    'Patience — the trader\'s muscle most never train',
     body:        'A-grade setups don\'t appear hourly. They appear when a confluence of regime + structure + session aligns — typically 2-5x per week per pair. Traders trained on hourly charts develop a "boredom premium" — they take B and C setups just to be in the market. AlgoSphere\'s coach tracks your setup_validity rating across the journal; A-validity trades have measurably higher expectancy. Patience is just the willingness to grade your own setup honestly before you click.',
     reading_min: 3,
+    category:    'psychology' as TopicCategory,
   },
   {
     topic:       'Psychology: fear management',
     headline:    'Fear management — the trade you don\'t take is sometimes the worst trade',
     body:        'Fear shows up two ways: skipping good setups (cost: missed expectancy), and exiting winners too early (cost: cut R multiple). Both look like discipline from the inside. The diagnostic: track what your exit_quality would have been if you held to your original target. AlgoSphere\'s coach grades exit_quality separately from entry_quality — the gap between the two is your fear tax. Most traders pay it monthly without noticing.',
     reading_min: 3,
+    category:    'psychology' as TopicCategory,
   },
   {
     topic:       'Psychology: greed management',
     headline:    'Greed management — why the trader who can take profit beats the trader who can\'t',
     body:        'Greed isn\'t holding for a bigger win; that\'s patience. Greed is moving your target AFTER price hits your original level. The shift looks like "letting profits run" but it\'s actually changing the rules mid-trade. AlgoSphere\'s coach flags trades where the take-profit was moved post-entry, and the data shows those trades give back ~40% of their peak unrealised P&L on average. The exit you planned at the entry is usually the right one.',
     reading_min: 3,
+    category:    'psychology' as TopicCategory,
   },
   // ── Phase 7: Risk Management expansion (8 topics) ───────────────────
   // Capital-preservation framing. Maps directly to AlgoSphere\'s 15-gate
@@ -213,58 +245,86 @@ const EDUCATIONAL_TOPICS: Array<{
     headline:    'Position sizing — the one calculation that makes or breaks an account',
     body:        'Position size = (account equity × risk %) ÷ |entry − stop|. Every variable matters, but the most-skipped one is |entry − stop| — traders fix lot size first and stop second, which means risk varies per trade. AlgoSphere\'s position-sizing calculator inverts that: fix risk %, fix stop, derive size. Paste a signal in and the math is done. The cost of getting this wrong scales with leverage — at 50:1, a 0.1% size error becomes a 5% account swing.',
     reading_min: 4,
+    category:    'risk' as TopicCategory,
   },
   {
     topic:       'Risk: portfolio exposure',
     headline:    'Portfolio exposure — the hidden risk you didn\'t open one trade at a time',
     body:        'Three forex trades at 1% risk each isn\'t 3% portfolio risk — it\'s closer to 5-8% because the pairs share USD legs and move together when the dollar regime shifts. AlgoSphere\'s 15-gate risk firewall includes an exposure gate that sums total active risk across all open positions and blocks new entries above your configured ceiling. The institutional rule: cap total simultaneous exposure at 5x your per-trade risk.',
     reading_min: 4,
+    category:    'risk' as TopicCategory,
   },
   {
     topic:       'Risk: correlation risk',
     headline:    'Correlation risk — why 4 "diversified" longs can all blow up together',
     body:        'EURUSD + GBPUSD + AUDUSD + NZDUSD aren\'t four trades — they\'re four expressions of the same "long non-USD" bet. When the dollar rips, all four lose simultaneously. AlgoSphere\'s correlation gate computes rolling-30d Pearson correlation across the watchlist and refuses new entries that would push your portfolio correlation past a threshold. Real diversification means uncorrelated edges, not multiple symbols.',
     reading_min: 4,
+    category:    'risk' as TopicCategory,
   },
   {
     topic:       'Risk: risk of ruin',
     headline:    'Risk of ruin — the math behind "why even a 60% win-rate strategy can blow up"',
     body:        'Risk of ruin is the probability your account hits zero before reaching your goal. At 60% win rate and 1R:1R reward, risking 1% per trade gives you ~0.001% ruin risk over 100 trades. At 5% per trade, the same strategy gives ~40% ruin risk. The math is brutal because losses compound percentages, not dollars. AlgoSphere\'s risk-of-ruin tool plugs your strategy\'s real win rate + R-multiple + chosen risk % into the formula. Most retail accounts blow up because the math wasn\'t checked.',
     reading_min: 4,
+    category:    'risk' as TopicCategory,
   },
   {
     topic:       'Risk: drawdown recovery',
     headline:    'Drawdown recovery math — why a 50% loss requires a 100% gain',
     body:        'Drawdown recovery is asymmetric. A 10% drawdown needs 11% to recover; a 25% drawdown needs 33%; a 50% drawdown needs 100%; a 75% drawdown needs 300%. This is why institutional traders enforce max-drawdown circuit breakers — not because the loss itself is fatal, but because the recovery becomes statistically improbable. AlgoSphere\'s drawdown gate auto-disables new entries when the daily drawdown crosses a configurable threshold. Live to trade tomorrow.',
     reading_min: 4,
+    category:    'risk' as TopicCategory,
   },
   {
     topic:       'Risk: leverage management',
     headline:    'Leverage — the amplifier that doesn\'t care which direction you\'re wrong in',
     body:        'Leverage doesn\'t change your edge; it changes the variance of your equity curve. 100:1 leverage on a 60% win-rate strategy still has a 60% win rate — but the per-trade equity swings are 100x larger. Most retail accounts that blow up had a strategy with positive expectancy that died of variance under leverage. AlgoSphere\'s position-sizing calculator works in RISK %, not LEVERAGE — because risk % is what blows up an account, not leverage. Pick risk first; leverage is just a multiplier on the math.',
     reading_min: 4,
+    category:    'risk' as TopicCategory,
   },
   {
     topic:       'Risk: volatility-adjusted sizing',
     headline:    'Volatility-adjusted sizing — why XAUUSD and EURUSD shouldn\'t use the same lot size',
     body:        'XAUUSD\'s ATR is roughly 30x EURUSD\'s in absolute dollar terms per lot. A 1% risk position on EURUSD might be 0.1 lots; on XAUUSD, 0.01. Fixed-lot sizing across pairs hides risk asymmetry — your "small XAU position" is the same dollar risk as a "huge EUR position". AlgoSphere\'s sizing engine normalises against the symbol\'s ATR + pip value so 1% risk truly means 1% across the universe. Same risk, different math.',
     reading_min: 4,
+    category:    'risk' as TopicCategory,
   },
   {
     topic:       'Risk: capital preservation',
     headline:    'Capital preservation — the only goal that compounds across regimes',
     body:        'In trending markets, aggressive sizing wins. In choppy markets, aggressive sizing kills accounts. The trader who preserves capital across BOTH regimes ends the year ahead of the trader who outperformed in one. AlgoSphere\'s engine throttles your active risk during regime-transition windows (volatility spikes, structure breaks) — not because the next trade is bad, but because the variance is uncertain. The first job of risk management is to still be trading next month. Returns are downstream of that.',
     reading_min: 4,
+    category:    'risk' as TopicCategory,
   },
 ]
 
+/**
+ * Phase 8 — category-balanced daily trio. Picks ONE topic from each
+ * of the three non-core categories (architecture, psychology, risk)
+ * so the daily 3-educational-post output always spans all three
+ * value pillars. Deterministic via day-of-year mod category-length —
+ * no repeats within ~6-10 days per category, no theme-clustering.
+ *
+ * Core topics (the original 8) are still in the pool but only
+ * surface as fallbacks when a sub-category is somehow empty (never
+ * happens given current data; defensive).
+ */
 function pickDailyEducationalTrio(now: Date): typeof EDUCATIONAL_TOPICS {
   const doy = Math.floor((now.getTime() - new Date(Date.UTC(now.getUTCFullYear(), 0, 1)).getTime()) / 86_400_000)
-  const n = EDUCATIONAL_TOPICS.length
+
+  const byCat = (cat: TopicCategory) => EDUCATIONAL_TOPICS.filter((t) => t.category === cat)
+  const arch  = byCat('architecture')
+  const psych = byCat('psychology')
+  const risk  = byCat('risk')
+  const core  = byCat('core')
+
+  // Each category rotates on its own modulus so they don't lockstep.
+  const pickFrom = (arr: typeof EDUCATIONAL_TOPICS, offset: number) => arr[(doy + offset) % arr.length]!
+
   return [
-    EDUCATIONAL_TOPICS[(doy * 3 + 0) % n]!,
-    EDUCATIONAL_TOPICS[(doy * 3 + 1) % n]!,
-    EDUCATIONAL_TOPICS[(doy * 3 + 2) % n]!,
+    arch.length  > 0 ? pickFrom(arch,  0) : pickFrom(core, 0),
+    psych.length > 0 ? pickFrom(psych, 1) : pickFrom(core, 1),
+    risk.length  > 0 ? pickFrom(risk,  2) : pickFrom(core, 2),
   ]
 }
 
@@ -543,46 +603,84 @@ export async function runDailyMix(): Promise<DailyMixSummary> {
   //   - Performance:     ≥30 published signals + outcomes
   const dow = new Date().getUTCDay()   // 0=Sun, 1=Mon...
   if (dow === 1) {
-    // Phase 3 — Coach insights
+    // Phase 3 — Coach insights. Guarded: skip if source stale OR if
+    // a fingerprinted duplicate was already published in the past 20h.
     try {
-      const agg = await aggregateCoachInsights(7)
-      if (agg) {
-        const out = await ingestEvent({
-          event_type: 'coach.insights.weekly',
-          source:     'daily_mix',
-          payload:    agg as unknown as Record<string, unknown>,
-        })
-        tally('coach_insights', 'coach_insights', out.outcome === 'ok')
+      const fresh = await isSourceFresh('journal_coach_evaluations', 'created_at', 168)
+      if (!fresh) {
+        tally('coach_insights', 'coach_insights', false, 'source_stale')
+      } else {
+        const agg = await aggregateCoachInsights(7)
+        if (agg) {
+          const fp = aggregateFingerprint('coach_insights', agg.window_days, agg.sample_size, {
+            avg_quality: agg.avg_quality, top: agg.top_themes[0]?.theme ?? '',
+          })
+          if (await wasRecentlyPublished('coach_insights', fp, 20)) {
+            tally('coach_insights', 'coach_insights', false, 'duplicate_recent')
+          } else {
+            const out = await ingestEvent({
+              event_type: 'coach.insights.weekly',
+              source:     'daily_mix',
+              payload:    { ...(agg as unknown as Record<string, unknown>), fingerprint: fp },
+            })
+            tally('coach_insights', 'coach_insights', out.outcome === 'ok')
+          }
+        }
       }
     } catch (err) {
       tally('coach_insights', 'coach_insights', false, err instanceof Error ? err.message : 'unknown')
     }
 
-    // Phase 4 — Broker truth
+    // Phase 4 — Broker truth. Same guard pattern.
     try {
-      const agg = await aggregateBrokerTruth(7)
-      if (agg) {
-        const out = await ingestEvent({
-          event_type: 'broker.truth.weekly',
-          source:     'daily_mix',
-          payload:    agg as unknown as Record<string, unknown>,
-        })
-        tally('broker_truth', 'broker_truth', out.outcome === 'ok')
+      const fresh = await isSourceFresh('journal_entries', 'created_at', 168)
+      if (!fresh) {
+        tally('broker_truth', 'broker_truth', false, 'source_stale')
+      } else {
+        const agg = await aggregateBrokerTruth(7)
+        if (agg) {
+          const fp = aggregateFingerprint('broker_truth', agg.window_days, agg.sample_size, {
+            win_rate: agg.win_rate_pct, total_pnl: agg.total_pnl_usd,
+          })
+          if (await wasRecentlyPublished('broker_truth', fp, 20)) {
+            tally('broker_truth', 'broker_truth', false, 'duplicate_recent')
+          } else {
+            const out = await ingestEvent({
+              event_type: 'broker.truth.weekly',
+              source:     'daily_mix',
+              payload:    { ...(agg as unknown as Record<string, unknown>), fingerprint: fp },
+            })
+            tally('broker_truth', 'broker_truth', out.outcome === 'ok')
+          }
+        }
       }
     } catch (err) {
       tally('broker_truth', 'broker_truth', false, err instanceof Error ? err.message : 'unknown')
     }
 
-    // Phase 5 — Performance transparency
+    // Phase 5 — Performance transparency. Same guard pattern. Source
+    // freshness check uses the signals table directly.
     try {
-      const agg = await aggregatePerformanceTransparency(7)
-      if (agg) {
-        const out = await ingestEvent({
-          event_type: 'performance.transparency.weekly',
-          source:     'daily_mix',
-          payload:    agg as unknown as Record<string, unknown>,
-        })
-        tally('performance_transparency', 'performance_transparency', out.outcome === 'ok')
+      const fresh = await isSourceFresh('signals', 'published_at', 72)
+      if (!fresh) {
+        tally('performance_transparency', 'performance_transparency', false, 'source_stale')
+      } else {
+        const agg = await aggregatePerformanceTransparency(7)
+        if (agg) {
+          const fp = aggregateFingerprint('performance_transparency', agg.window_days, agg.sample_size, {
+            settled: agg.signals_settled, win_rate: agg.win_rate_pct ?? -1,
+          })
+          if (await wasRecentlyPublished('performance_transparency', fp, 20)) {
+            tally('performance_transparency', 'performance_transparency', false, 'duplicate_recent')
+          } else {
+            const out = await ingestEvent({
+              event_type: 'performance.transparency.weekly',
+              source:     'daily_mix',
+              payload:    { ...(agg as unknown as Record<string, unknown>), fingerprint: fp },
+            })
+            tally('performance_transparency', 'performance_transparency', out.outcome === 'ok')
+          }
+        }
       }
     } catch (err) {
       tally('performance_transparency', 'performance_transparency', false, err instanceof Error ? err.message : 'unknown')
