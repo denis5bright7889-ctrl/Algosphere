@@ -119,6 +119,34 @@ export async function GET() {
   // ── Build the per-phase checklist ──────────────────────────────────
   const phases: PhaseCheck[] = []
 
+  // Phase 0 — Shadow Execution Engine (the missing core)
+  const since24h = new Date(Date.now() - 86_400_000).toISOString()
+  const { count: ingested24h } = await db
+    .from('shadow_executions')
+    .select('*', { count: 'exact', head: true })
+    .gte('created_at', since24h)
+  const { count: openCount } = await db
+    .from('shadow_executions')
+    .select('*', { count: 'exact', head: true })
+    .in('actual_status', ['mirrored', 'testnet'])
+    .is('closed_at', null)
+  phases.push({
+    phase: 0, name: 'Shadow Execution Engine',
+    status: shadowCount > 0 ? 'ok' : 'pending',
+    evidence: {
+      ingest_endpoint:       'POST /api/shadow/ingest',
+      lifecycle_endpoint:    'GET /api/cron/shadow-lifecycle',
+      status_endpoint:       'GET /api/admin/shadow-engine-status',
+      shadow_executions:     shadowCount,
+      open_positions:        openCount ?? 0,
+      ingested_24h:          ingested24h ?? 0,
+      simulation_only:       true,
+    },
+    notes: shadowCount > 0
+      ? ['Engine is live. Lifecycle ticker should run on schedule to close positions when SL/TP hit.']
+      : ['Engine ready but no signals ingested yet. POST a normalized signal to /api/shadow/ingest to start data flow.'],
+  })
+
   // Phase 1 — Rebrand
   phases.push({
     phase: 1, name: 'Rebrand',
@@ -312,15 +340,20 @@ export async function GET() {
       : ['One or more tables missing — migration 80 may not be applied.'],
   })
 
-  // Phase 13 — Verification matrix (this endpoint itself)
+  // Phase 13 — Verification matrix + Ops Dashboard endpoint
   phases.push({
-    phase: 13, name: 'Verification Matrix',
+    phase: 13, name: 'Verification Matrix + Ops Dashboard',
     status: 'ok',
     evidence: {
-      endpoint:    '/api/admin/validation-center/verify',
-      verifies:    phases.length,
+      verification_endpoint: '/api/admin/validation-center/verify',
+      ops_dashboard:         '/api/admin/validation-ops-dashboard',
+      shadow_engine_status:  '/api/admin/shadow-engine-status',
+      verifies:              phases.length + 1,
     },
-    notes: ['This endpoint. Run it any time to re-audit.'],
+    notes: [
+      'This endpoint. Run any time to re-audit.',
+      'GET /api/admin/validation-ops-dashboard for real-time monitoring + alerts.',
+    ],
   })
 
   // ── Success-criteria scorecard from the spec ───────────────────────
