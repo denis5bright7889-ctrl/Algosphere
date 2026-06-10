@@ -23,6 +23,8 @@ import {
   type ValidationCoachReview, type ValidationCoachGrade,
   type ValidationCoachRecommendation,
 } from '@/lib/intelligence/validation-coach'
+import { deriveMilestones, type Achievement } from '@/lib/intelligence/milestones'
+import { Trophy, Lock, Award, Zap, Shield, Building2, Crown, Flame } from 'lucide-react'
 
 export const metadata = { title: 'AI Strategy Validation Center — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'
@@ -215,6 +217,18 @@ export default async function ShadowPage() {
 
   // ── Phase 7: AI Strategy Coach reviews per graded strategy ─────────
   const coachReviews = reviewAllStrategiesForValidation(stratReport.strategies)
+
+  // ── Phase 10: gamification — derive earned/locked badges + streak
+  //    from the aggregates we already computed. No DB hit; the
+  //    validation_milestones writer ships in a later slice.
+  const milestones = deriveMilestones({
+    closedTrades: closed
+      .filter(r => typeof r.follower_pnl === 'number')
+      .map(r => ({ follower_pnl: r.follower_pnl as number, closed_at: r.closed_at })),
+    brokerQuality,
+    strategies:   stratReport.strategies,
+    coachReviews,
+  })
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
@@ -498,6 +512,43 @@ export default async function ShadowPage() {
           Methodology: Readiness score = 25% sample + 25% PF + 20% Sharpe + 15% drawdown + 15% win rate.
           Grade follows readiness (A+ ≥ 95, A ≥ 90, B+ ≥ 85, B ≥ 80, C ≥ 70, else D). Recommendation is
           mechanical: approve ≥ 80, watchlist 60–79, reject &lt; 60. Coach is fully deterministic — no LLM.
+        </p>
+      </section>
+
+      {/* ── Phase 10: Achievements (gamification) ────────────────── */}
+      <section className="mb-6 rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+          <h2 className="text-sm font-bold uppercase tracking-widest">Achievements</h2>
+          <p className="text-[11px] text-muted-foreground tabular-nums">
+            <span className="text-foreground">{milestones.earned_count}</span>/{milestones.total_count} earned ·{' '}
+            current streak <span className="text-foreground">{milestones.current_streak}</span> ·{' '}
+            best <span className="text-foreground">{milestones.best_streak}</span>
+          </p>
+        </div>
+
+        {/* Current streak banner — shows up only when there IS a streak */}
+        {milestones.current_streak > 0 && (
+          <div className="mb-3 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-[12px] text-amber-200">
+            <Flame className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
+            <span>
+              <span className="font-bold">{milestones.current_streak}-trade winning streak</span> active.
+              {milestones.best_streak > milestones.current_streak && (
+                <span className="text-amber-200/80"> Best ever: {milestones.best_streak}.</span>
+              )}
+            </span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
+          {milestones.achievements.map((a) => (
+            <AchievementBadge key={a.kind} a={a} />
+          ))}
+        </div>
+
+        <p className="mt-3 text-[10px] text-muted-foreground/80">
+          Methodology: Every badge ties to a numeric threshold against your real aggregates — no
+          fabricated achievements. The "Top 1% Validation" badge is permanently locked until
+          peer-comparison data is available; we won't award it against a placeholder.
         </p>
       </section>
 
@@ -992,9 +1043,11 @@ function CoachReviewCard({ review }: { review: ValidationCoachReview }) {
                 : review.readiness_score >= 60 ? 'bg-amber-500'
                 : 'bg-rose-500',
             )}
-            // Dynamic width can't be expressed in a static Tailwind class;
-            // inline style is the standard pattern for progress bars.
-            // eslint-disable-next-line react/forbid-dom-props
+            // Dynamic width can't be expressed in a static Tailwind class
+            // (Tailwind purges classes it doesn't see at build time, and a
+            // 0–100 runtime score can't be statically enumerated). Inline
+            // style is the industry-standard pattern for progress bars.
+            // eslint-disable-next-line
             style={{ width: `${review.readiness_score}%` }}
           />
         </div>
@@ -1030,6 +1083,91 @@ function ReviewSection({ label, tone, items }: {
           <li key={i} className="leading-snug">• {s}</li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+/** Phase 10 — Achievement badge tile. Three visual states:
+ *  • Earned        — green tone, full-saturation icon
+ *  • In progress   — amber tone, partial-progress ring
+ *  • Locked        — gray tone, lock icon
+ *  • Blocked       — gray tone + footer reason (e.g. peer data missing)
+ */
+function AchievementBadge({ a }: { a: Achievement }) {
+  // Icon per milestone kind. Lucide chosen to keep the icon family
+  // consistent with the rest of the validation center.
+  const ICONS: Record<Achievement['kind'], typeof Trophy> = {
+    validated_strategy:   Trophy,
+    broker_verified:      Shield,
+    execution_elite:      Award,
+    risk_master:          Zap,
+    institutional_trader: Building2,
+    top_percentile:       Crown,
+    streak_5:             Flame,
+    streak_10:            Flame,
+    streak_25:            Flame,
+    streak_50:            Flame,
+  }
+  const Icon = a.earned ? ICONS[a.kind] : (a.blocked_reason ? Lock : ICONS[a.kind])
+
+  const tone = a.earned
+    ? 'border-emerald-500/40 bg-emerald-500/[0.06]'
+    : a.blocked_reason
+      ? 'border-border bg-muted/10 opacity-70'
+      : (a.progress ?? 0) > 0
+        ? 'border-amber-500/30 bg-amber-500/[0.04]'
+        : 'border-border bg-muted/5 opacity-70'
+
+  const iconTone = a.earned
+    ? 'text-emerald-400'
+    : a.blocked_reason
+      ? 'text-muted-foreground/50'
+      : (a.progress ?? 0) > 0
+        ? 'text-amber-300'
+        : 'text-muted-foreground/50'
+
+  return (
+    <div className={cn('rounded-xl border p-3 transition', tone)}>
+      <div className="flex items-start gap-2">
+        <Icon className={cn('h-5 w-5 shrink-0 mt-0.5', iconTone)} strokeWidth={1.75} aria-hidden />
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-bold leading-tight truncate">{a.label}</p>
+          <p className={cn(
+            'mt-0.5 text-[9px] uppercase tracking-wider font-bold',
+            a.earned ? 'text-emerald-400'
+              : a.blocked_reason ? 'text-muted-foreground/60'
+              : (a.progress ?? 0) > 0 ? 'text-amber-300'
+              : 'text-muted-foreground/60',
+          )}>
+            {a.earned ? 'Earned' : a.blocked_reason ? 'Locked' : a.progress_label ?? 'Locked'}
+          </p>
+        </div>
+      </div>
+
+      <p className="mt-2 text-[10px] text-muted-foreground/80 leading-snug">
+        {a.description}
+      </p>
+
+      {/* Progress bar — only when there's meaningful intermediate progress */}
+      {a.progress != null && a.progress > 0 && a.progress < 1 && !a.blocked_reason && (
+        <div className="mt-2 h-1 w-full rounded-full bg-muted/30 overflow-hidden">
+          <div
+            className={cn(
+              'h-full rounded-full transition-all',
+              a.earned ? 'bg-emerald-500' : 'bg-amber-500',
+            )}
+            // eslint-disable-next-line
+            style={{ width: `${Math.round((a.progress ?? 0) * 100)}%` }}
+          />
+        </div>
+      )}
+
+      {/* Blocked-reason footer — honest about why a badge can't be earned */}
+      {a.blocked_reason && (
+        <p className="mt-1.5 text-[9px] italic text-muted-foreground/70 leading-snug">
+          {a.blocked_reason}
+        </p>
+      )}
     </div>
   )
 }
