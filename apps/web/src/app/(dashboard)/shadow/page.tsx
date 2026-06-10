@@ -18,6 +18,11 @@ import {
   aggregateStrategyPerformance, STRATEGY_MIN_SAMPLE,
   type StrategyMetrics, type StrategyRanking,
 } from '@/lib/intelligence/strategy-performance-aggregate'
+import {
+  reviewAllStrategiesForValidation,
+  type ValidationCoachReview, type ValidationCoachGrade,
+  type ValidationCoachRecommendation,
+} from '@/lib/intelligence/validation-coach'
 
 export const metadata = { title: 'AI Strategy Validation Center — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'
@@ -207,6 +212,9 @@ export default async function ShadowPage() {
     .filter((r): r is NonNullable<typeof r> => r !== null)
 
   const stratReport = aggregateStrategyPerformance(strategyRows)
+
+  // ── Phase 7: AI Strategy Coach reviews per graded strategy ─────────
+  const coachReviews = reviewAllStrategiesForValidation(stratReport.strategies)
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
@@ -459,6 +467,37 @@ export default async function ShadowPage() {
           expectancy, avg hold, max drawdown, recovery factor, risk score, confidence score) computed
           from closed shadow trades. Rankings activate only with ≥ 2 strategies above the {STRATEGY_MIN_SAMPLE}-trade
           sample threshold — one-strategy "leaderboards" are dishonest.
+        </p>
+      </section>
+
+      {/* ── Phase 7: AI Strategy Coach v2 ─────────────────────────── */}
+      <section className="mb-6 rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+          <h2 className="text-sm font-bold uppercase tracking-widest">AI Strategy Coach</h2>
+          <p className="text-[11px] text-muted-foreground tabular-nums">
+            {coachReviews.length > 0
+              ? `${coachReviews.length} strateg${coachReviews.length === 1 ? 'y' : 'ies'} reviewed · approve-ready first`
+              : 'Reviews activate at the institutional sample threshold'}
+          </p>
+        </div>
+
+        {coachReviews.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-border/60 bg-muted/10 p-6 text-center text-xs text-muted-foreground">
+            Coach reviews appear once a strategy clears {STRATEGY_MIN_SAMPLE} closed shadow trades. The coach
+            refuses to review undersampled strategies — no fabricated grades.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {coachReviews.map((r) => (
+              <CoachReviewCard key={r.strategy_id} review={r} />
+            ))}
+          </div>
+        )}
+
+        <p className="mt-3 text-[10px] text-muted-foreground/80">
+          Methodology: Readiness score = 25% sample + 25% PF + 20% Sharpe + 15% drawdown + 15% win rate.
+          Grade follows readiness (A+ ≥ 95, A ≥ 90, B+ ≥ 85, B ≥ 80, C ≥ 70, else D). Recommendation is
+          mechanical: approve ≥ 80, watchlist 60–79, reject &lt; 60. Coach is fully deterministic — no LLM.
         </p>
       </section>
 
@@ -892,6 +931,105 @@ function RankingCard({ ranking }: { ranking: StrategyRanking }) {
           ))}
         </ol>
       )}
+    </div>
+  )
+}
+
+/** Phase 7 AI Strategy Coach review card. */
+function CoachReviewCard({ review }: { review: ValidationCoachReview }) {
+  const gradeTone: Record<ValidationCoachGrade, string> = {
+    'A+': 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
+    'A':  'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
+    'B+': 'border-blue-500/40 bg-blue-500/10 text-blue-300',
+    'B':  'border-blue-500/40 bg-blue-500/10 text-blue-300',
+    'C':  'border-amber-500/40 bg-amber-500/10 text-amber-300',
+    'D':  'border-rose-500/40 bg-rose-500/10 text-rose-300',
+  }
+  const recTone: Record<ValidationCoachRecommendation, string> = {
+    approve:   'border-emerald-500/40 bg-emerald-500/[0.08] text-emerald-200',
+    watchlist: 'border-amber-500/40  bg-amber-500/[0.08]    text-amber-200',
+    reject:    'border-rose-500/40   bg-rose-500/[0.08]     text-rose-200',
+  }
+  const recLabel: Record<ValidationCoachRecommendation, string> = {
+    approve:   '✓ Approve for Live',
+    watchlist: '⏳ Watchlist',
+    reject:    '✕ Reject',
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-background/30 p-4">
+      {/* Header: name + grade chip + readiness + recommendation pill */}
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+        <div className="min-w-0">
+          <p className="text-sm font-bold truncate">{review.strategy_name}</p>
+          <p className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground tabular-nums">
+            Readiness {review.readiness_score}/100
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={cn(
+            'rounded-md border px-2 py-0.5 text-sm font-black tabular-nums',
+            gradeTone[review.overall_grade],
+          )}>
+            {review.overall_grade}
+          </span>
+          <span className={cn(
+            'rounded-md border px-2 py-1 text-[10px] font-bold uppercase tracking-wider',
+            recTone[review.recommendation],
+          )}>
+            {recLabel[review.recommendation]}
+          </span>
+        </div>
+      </div>
+
+      {/* Readiness bar */}
+      <div className="mb-4">
+        <div className="h-1.5 w-full rounded-full bg-muted/30 overflow-hidden">
+          <div
+            className={cn(
+              'h-full rounded-full transition-all',
+              review.readiness_score >= 80 ? 'bg-emerald-500'
+                : review.readiness_score >= 60 ? 'bg-amber-500'
+                : 'bg-rose-500',
+            )}
+            // Dynamic width can't be expressed in a static Tailwind class;
+            // inline style is the standard pattern for progress bars.
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ width: `${review.readiness_score}%` }}
+          />
+        </div>
+      </div>
+
+      {/* 4 review sections */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
+        <ReviewSection label="What's working" tone="green" items={review.whats_working} />
+        <ReviewSection label="What's failing" tone="red"   items={review.whats_failing} />
+        <ReviewSection label="What to fix"    tone="amber" items={review.whats_to_fix} />
+        <ReviewSection label="Risk assessment" tone="blue" items={[review.risk_assessment]} />
+      </div>
+    </div>
+  )
+}
+
+function ReviewSection({ label, tone, items }: {
+  label: string
+  tone:  'green' | 'red' | 'amber' | 'blue'
+  items: string[]
+}) {
+  const toneClasses = {
+    green: 'border-emerald-500/30 bg-emerald-500/[0.04]',
+    red:   'border-rose-500/30 bg-rose-500/[0.04]',
+    amber: 'border-amber-500/30 bg-amber-500/[0.04]',
+    blue:  'border-blue-500/30 bg-blue-500/[0.04]',
+  }
+  return (
+    <div className={cn('rounded-lg border p-2.5', toneClasses[tone])}>
+      <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground mb-1">{label}</p>
+      <ul className="space-y-1 text-foreground/90">
+        {items.map((s, i) => (
+          <li key={i} className="leading-snug">• {s}</li>
+        ))}
+      </ul>
     </div>
   )
 }
