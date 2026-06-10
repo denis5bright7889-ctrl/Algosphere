@@ -138,6 +138,121 @@ const EDUCATIONAL_TOPICS: Array<{
     body:        'A signal\'s journey: (1) market-data provider returns OHLCV bars; (2) feature engineer computes technicals; (3) regime engine labels the bar; (4) ensemble strategies vote signed contributions; (5) confidence engine sums weighted votes vs regime-adaptive threshold; (6) 15 risk gates validate; (7) signal-emission writes to the signals table + WebSocket-pushes to subscribers; (8) Telegram + Discord adapters fan out. Each step writes its outcome to system_event_log — so every signal is auditable end-to-end. If the signal never reaches you, the log tells you which step rejected it.',
     reading_min: 5,
   },
+  // ── Phase 6: Trading Psychology expansion (10 topics) ───────────────
+  // Behavioural-economics framing, evidence-based. AlgoSphere\'s
+  // Psychology Engine V2 grades these axes from journal data, so the
+  // copy aligns to what the platform actually measures.
+  {
+    topic:       'Psychology: tilt',
+    headline:    'Tilt — the 90-minute window where 60% of bad trades happen',
+    body:        'Tilt is the post-loss emotional state where you abandon your rules to "make it back". Most retail studies put 50-60% of catastrophic drawdowns inside a 90-minute window after a 2R+ losing trade. The tell: position size creeps up, stops widen, entries skip the checklist. AlgoSphere\'s Psychology Engine flags a tilt-risk score on your journal after any loss and shows when your historical tilt-window trades cluster. The fix is mechanical: cooldown timer + reduced size for the next 3 trades. Discipline scales; willpower doesn\'t.',
+    reading_min: 4,
+  },
+  {
+    topic:       'Psychology: revenge trading',
+    headline:    'Revenge trading — the trade you take to argue with the market',
+    body:        'A revenge trade isn\'t about price; it\'s about reclaiming the feeling of being right. Signature pattern: you re-enter the same pair within 30 minutes of a loss, often in the same direction, often with size larger than your plan. The market doesn\'t know you lost — only you do. AlgoSphere flags rapid same-pair re-entries in the journal so the pattern is impossible to hide from yourself. The hardest skill in trading isn\'t finding the next setup. It\'s sitting on your hands after the last one.',
+    reading_min: 3,
+  },
+  {
+    topic:       'Psychology: recency bias',
+    headline:    'Recency bias — why your last 3 trades dictate your next 30',
+    body:        'Humans weight the most recent outcomes far more than statistical reality justifies. A 3-trade losing streak feels like the strategy is "broken" even when the backtest shows streaks of 6 are normal at the strategy\'s win rate. The reverse traps too — 3 wins in a row feel like a green light to oversize. AlgoSphere\'s Psychology Engine compares your trade-size variance to your historical baseline; when it spikes, the recency-bias score climbs. Trust the sample, not the streak.',
+    reading_min: 3,
+  },
+  {
+    topic:       'Psychology: confirmation bias',
+    headline:    'Confirmation bias — why every chart you see "confirms" your trade',
+    body:        'Once you\'re in a position, your brain hunts for evidence supporting it and discounts evidence against it. The Reuters terminal looks bullish if you\'re long. AlgoSphere\'s solution: write your invalidation thesis IN the trade entry. The Psychology Engine flags entries with no invalidation note as elevated-bias trades, and your historical "no-invalidation" trades show measurably worse outcomes. The discipline is in the recorded thought, not the price action.',
+    reading_min: 3,
+  },
+  {
+    topic:       'Psychology: overconfidence',
+    headline:    'Overconfidence — the 7-trade winning streak that ends in a 20% drawdown',
+    body:        'A win streak doesn\'t mean the market changed in your favour — it usually means random variance lined up. The danger isn\'t the streak; it\'s the size creep that follows it. The Kelly Criterion says optimal size is proportional to edge, not recent results. AlgoSphere\'s journal tracks confidence_level vs realised outcome — overconfidence is the gap between the two. Trim the gap and the drawdown shrinks.',
+    reading_min: 3,
+  },
+  {
+    topic:       'Psychology: underconfidence',
+    headline:    'Underconfidence — when your best setups are the ones you skip',
+    body:        'After a losing run, traders downsize good setups or skip them entirely — the inverse of overconfidence but equally costly. The pattern: A-grade setups taken with quarter-size, B-grade setups taken at full size out of impatience. AlgoSphere\'s Psychology Engine compares your confidence_level rating to the coach\'s grade for the same trade; chronic underconfidence shows as a downward bias. Trade the setup, not the mood.',
+    reading_min: 3,
+  },
+  {
+    topic:       'Psychology: emotional discipline',
+    headline:    'Emotional discipline — the only edge that compounds',
+    body:        'Strategies decay; markets shift; brokers change spreads. The one thing that compounds across all of it is the discipline to execute your rules when you don\'t feel like it. Studies of prop-firm traders show top quartile vs bottom quartile differs more on rule-adherence than on strategy choice. AlgoSphere\'s coach grades discipline 0-100 on every journal entry — the trend matters more than any single score.',
+    reading_min: 3,
+  },
+  {
+    topic:       'Psychology: patience',
+    headline:    'Patience — the trader\'s muscle most never train',
+    body:        'A-grade setups don\'t appear hourly. They appear when a confluence of regime + structure + session aligns — typically 2-5x per week per pair. Traders trained on hourly charts develop a "boredom premium" — they take B and C setups just to be in the market. AlgoSphere\'s coach tracks your setup_validity rating across the journal; A-validity trades have measurably higher expectancy. Patience is just the willingness to grade your own setup honestly before you click.',
+    reading_min: 3,
+  },
+  {
+    topic:       'Psychology: fear management',
+    headline:    'Fear management — the trade you don\'t take is sometimes the worst trade',
+    body:        'Fear shows up two ways: skipping good setups (cost: missed expectancy), and exiting winners too early (cost: cut R multiple). Both look like discipline from the inside. The diagnostic: track what your exit_quality would have been if you held to your original target. AlgoSphere\'s coach grades exit_quality separately from entry_quality — the gap between the two is your fear tax. Most traders pay it monthly without noticing.',
+    reading_min: 3,
+  },
+  {
+    topic:       'Psychology: greed management',
+    headline:    'Greed management — why the trader who can take profit beats the trader who can\'t',
+    body:        'Greed isn\'t holding for a bigger win; that\'s patience. Greed is moving your target AFTER price hits your original level. The shift looks like "letting profits run" but it\'s actually changing the rules mid-trade. AlgoSphere\'s coach flags trades where the take-profit was moved post-entry, and the data shows those trades give back ~40% of their peak unrealised P&L on average. The exit you planned at the entry is usually the right one.',
+    reading_min: 3,
+  },
+  // ── Phase 7: Risk Management expansion (8 topics) ───────────────────
+  // Capital-preservation framing. Maps directly to AlgoSphere\'s 15-gate
+  // risk firewall and the position-sizing calculator already shipped.
+  {
+    topic:       'Risk: position sizing math',
+    headline:    'Position sizing — the one calculation that makes or breaks an account',
+    body:        'Position size = (account equity × risk %) ÷ |entry − stop|. Every variable matters, but the most-skipped one is |entry − stop| — traders fix lot size first and stop second, which means risk varies per trade. AlgoSphere\'s position-sizing calculator inverts that: fix risk %, fix stop, derive size. Paste a signal in and the math is done. The cost of getting this wrong scales with leverage — at 50:1, a 0.1% size error becomes a 5% account swing.',
+    reading_min: 4,
+  },
+  {
+    topic:       'Risk: portfolio exposure',
+    headline:    'Portfolio exposure — the hidden risk you didn\'t open one trade at a time',
+    body:        'Three forex trades at 1% risk each isn\'t 3% portfolio risk — it\'s closer to 5-8% because the pairs share USD legs and move together when the dollar regime shifts. AlgoSphere\'s 15-gate risk firewall includes an exposure gate that sums total active risk across all open positions and blocks new entries above your configured ceiling. The institutional rule: cap total simultaneous exposure at 5x your per-trade risk.',
+    reading_min: 4,
+  },
+  {
+    topic:       'Risk: correlation risk',
+    headline:    'Correlation risk — why 4 "diversified" longs can all blow up together',
+    body:        'EURUSD + GBPUSD + AUDUSD + NZDUSD aren\'t four trades — they\'re four expressions of the same "long non-USD" bet. When the dollar rips, all four lose simultaneously. AlgoSphere\'s correlation gate computes rolling-30d Pearson correlation across the watchlist and refuses new entries that would push your portfolio correlation past a threshold. Real diversification means uncorrelated edges, not multiple symbols.',
+    reading_min: 4,
+  },
+  {
+    topic:       'Risk: risk of ruin',
+    headline:    'Risk of ruin — the math behind "why even a 60% win-rate strategy can blow up"',
+    body:        'Risk of ruin is the probability your account hits zero before reaching your goal. At 60% win rate and 1R:1R reward, risking 1% per trade gives you ~0.001% ruin risk over 100 trades. At 5% per trade, the same strategy gives ~40% ruin risk. The math is brutal because losses compound percentages, not dollars. AlgoSphere\'s risk-of-ruin tool plugs your strategy\'s real win rate + R-multiple + chosen risk % into the formula. Most retail accounts blow up because the math wasn\'t checked.',
+    reading_min: 4,
+  },
+  {
+    topic:       'Risk: drawdown recovery',
+    headline:    'Drawdown recovery math — why a 50% loss requires a 100% gain',
+    body:        'Drawdown recovery is asymmetric. A 10% drawdown needs 11% to recover; a 25% drawdown needs 33%; a 50% drawdown needs 100%; a 75% drawdown needs 300%. This is why institutional traders enforce max-drawdown circuit breakers — not because the loss itself is fatal, but because the recovery becomes statistically improbable. AlgoSphere\'s drawdown gate auto-disables new entries when the daily drawdown crosses a configurable threshold. Live to trade tomorrow.',
+    reading_min: 4,
+  },
+  {
+    topic:       'Risk: leverage management',
+    headline:    'Leverage — the amplifier that doesn\'t care which direction you\'re wrong in',
+    body:        'Leverage doesn\'t change your edge; it changes the variance of your equity curve. 100:1 leverage on a 60% win-rate strategy still has a 60% win rate — but the per-trade equity swings are 100x larger. Most retail accounts that blow up had a strategy with positive expectancy that died of variance under leverage. AlgoSphere\'s position-sizing calculator works in RISK %, not LEVERAGE — because risk % is what blows up an account, not leverage. Pick risk first; leverage is just a multiplier on the math.',
+    reading_min: 4,
+  },
+  {
+    topic:       'Risk: volatility-adjusted sizing',
+    headline:    'Volatility-adjusted sizing — why XAUUSD and EURUSD shouldn\'t use the same lot size',
+    body:        'XAUUSD\'s ATR is roughly 30x EURUSD\'s in absolute dollar terms per lot. A 1% risk position on EURUSD might be 0.1 lots; on XAUUSD, 0.01. Fixed-lot sizing across pairs hides risk asymmetry — your "small XAU position" is the same dollar risk as a "huge EUR position". AlgoSphere\'s sizing engine normalises against the symbol\'s ATR + pip value so 1% risk truly means 1% across the universe. Same risk, different math.',
+    reading_min: 4,
+  },
+  {
+    topic:       'Risk: capital preservation',
+    headline:    'Capital preservation — the only goal that compounds across regimes',
+    body:        'In trending markets, aggressive sizing wins. In choppy markets, aggressive sizing kills accounts. The trader who preserves capital across BOTH regimes ends the year ahead of the trader who outperformed in one. AlgoSphere\'s engine throttles your active risk during regime-transition windows (volatility spikes, structure breaks) — not because the next trade is bad, but because the variance is uncertain. The first job of risk management is to still be trading next month. Returns are downstream of that.',
+    reading_min: 4,
+  },
 ]
 
 function pickDailyEducationalTrio(now: Date): typeof EDUCATIONAL_TOPICS {
