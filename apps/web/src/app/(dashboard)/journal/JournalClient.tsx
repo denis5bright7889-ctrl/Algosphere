@@ -1,7 +1,7 @@
 'use client'
 
 import { Fragment, useState } from 'react'
-import { X, Brain, AlertOctagon, Zap, Plug, Cpu, Landmark, Hand } from 'lucide-react'
+import { X, Brain, AlertOctagon, Zap, Plug, Cpu, Landmark, Hand, Pencil } from 'lucide-react'
 import type { JournalEntry } from '@/lib/types'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import AddTradeModal from './AddTradeModal'
@@ -58,6 +58,8 @@ export default function JournalClient({
 }: Props) {
   const [entries, setEntries] = useState<EntryWire[]>(initialEntries as EntryWire[])
   const [showModal, setShowModal] = useState(false)
+  // When set, the modal opens in edit mode pre-filled from this entry.
+  const [editingEntry, setEditingEntry] = useState<EntryWire | null>(null)
 
   const totalPnl = entries.reduce((s, e) => s + (e.pnl ?? 0), 0)
   const wins = entries.filter((e) => (e.pnl ?? 0) > 0).length
@@ -65,8 +67,29 @@ export default function JournalClient({
   const winRate = entries.length ? Math.round((wins / entries.length) * 100) : 0
 
   function handleAdded(entry: JournalEntry) {
-    setEntries((prev) => [entry as EntryWire, ...prev])
+    const wire = entry as EntryWire
+    // Edit mode → replace the row in place. Create mode → prepend.
+    setEntries((prev) => {
+      const idx = prev.findIndex((e) => e.id === wire.id)
+      if (idx >= 0) {
+        const next = prev.slice()
+        next[idx] = wire
+        return next
+      }
+      return [wire, ...prev]
+    })
     setShowModal(false)
+    setEditingEntry(null)
+  }
+
+  function handleEdit(entry: EntryWire) {
+    setEditingEntry(entry)
+    setShowModal(true)
+  }
+
+  function closeModal() {
+    setShowModal(false)
+    setEditingEntry(null)
   }
 
   async function handleDelete(id: string) {
@@ -148,14 +171,24 @@ export default function JournalClient({
                     {e.trade_date ? formatDate(e.trade_date) : '—'}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  aria-label="Delete trade"
-                  onClick={() => handleDelete(e.id)}
-                  className="-mr-1 -mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-destructive active:bg-accent touch-manipulation"
-                >
-                  <X className="h-4 w-4" strokeWidth={1.75} aria-hidden />
-                </button>
+                <div className="-mr-1 -mt-1 flex shrink-0 items-center gap-0.5">
+                  <button
+                    type="button"
+                    aria-label="Edit trade"
+                    onClick={() => handleEdit(e)}
+                    className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:text-foreground active:bg-accent touch-manipulation"
+                  >
+                    <Pencil className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Delete trade"
+                    onClick={() => handleDelete(e.id)}
+                    className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:text-destructive active:bg-accent touch-manipulation"
+                  >
+                    <X className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                  </button>
+                </div>
               </div>
 
               <div className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
@@ -260,14 +293,24 @@ export default function JournalClient({
                         ) : '—'}
                       </td>
                       <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          aria-label="Delete trade"
-                          onClick={() => handleDelete(e.id)}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-xs text-muted-foreground hover:bg-muted hover:text-destructive touch-manipulation"
-                        >
-                          <X className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
-                        </button>
+                        <div className="inline-flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            aria-label="Edit trade"
+                            onClick={() => handleEdit(e)}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-xs text-muted-foreground hover:bg-muted hover:text-foreground touch-manipulation"
+                          >
+                            <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Delete trade"
+                            onClick={() => handleDelete(e.id)}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-xs text-muted-foreground hover:bg-muted hover:text-destructive touch-manipulation"
+                          >
+                            <X className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                     {coach && (
@@ -290,7 +333,8 @@ export default function JournalClient({
         <AddTradeModal
           userId={userId}
           onAdded={handleAdded}
-          onClose={() => setShowModal(false)}
+          onClose={closeModal}
+          editEntry={editingEntry}
         />
       )}
     </div>

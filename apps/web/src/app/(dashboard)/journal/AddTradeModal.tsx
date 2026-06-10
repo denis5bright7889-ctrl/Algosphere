@@ -27,6 +27,9 @@ interface Props {
   userId: string
   onAdded: (entry: JournalEntry) => void
   onClose: () => void
+  /** When present, the modal opens in EDIT mode — pre-fills the form
+   *  from this entry and submits a PATCH instead of a POST. */
+  editEntry?: JournalEntry | null
 }
 
 const SETUP_TAGS = ['breakout', 'trend', 'reversal', 'range', 'news', 'scalp'] as const
@@ -147,8 +150,47 @@ const INITIAL_FORM: FormState = {
 
 type SectionKey = 'core' | 'strategy' | 'psychology' | 'execution' | 'thesis'
 
-export default function AddTradeModal({ onAdded, onClose }: Props) {
-  const [form, setForm]     = useState<FormState>(INITIAL_FORM)
+export default function AddTradeModal({ onAdded, onClose, editEntry }: Props) {
+  // Edit-mode seed: hydrate the form from the passed entry. String
+  // coercion mirrors the input fields' types (the form holds strings,
+  // the API expects numbers — handleSubmit re-parses).
+  const isEdit = Boolean(editEntry)
+  const seedForm = useMemo<FormState>(() => {
+    if (!editEntry) return INITIAL_FORM
+    const e = editEntry as unknown as Record<string, unknown>
+    const str = (v: unknown) => v == null ? '' : String(v)
+    return {
+      pair:        str(e.pair),
+      direction:   (e.direction === 'sell' ? 'sell' : 'buy'),
+      trade_date:  typeof e.trade_date === 'string' ? e.trade_date : new Date().toISOString().slice(0, 10),
+      entry_price: str(e.entry_price),
+      exit_price:  str(e.exit_price),
+      lot_size:    str(e.lot_size),
+      pips:        str(e.pips),
+      pnl:         str(e.pnl),
+      risk_amount: str(e.risk_amount),
+      risk_pct:    str(e.risk_pct),
+      setup_tag:   str(e.setup_tag),
+      strategy_used:    str(e.strategy_used),
+      setup_validity:   str(e.setup_validity),
+      market_regime:    str(e.market_regime),
+      session:          str(e.session),
+      emotion_pre:      str(e.emotion_pre),
+      reason_for_entry: str(e.reason_for_entry),
+      revenge_trade:    e.revenge_trade === true,
+      rule_compliance:  str(e.rule_compliance),
+      confidence_level: typeof e.confidence_level === 'number' ? e.confidence_level : 5,
+      entry_quality:      str(e.entry_quality),
+      exit_quality:       str(e.exit_quality),
+      management_quality: str(e.management_quality),
+      thesis:             str(e.thesis),
+      entry_confirmation: str(e.entry_confirmation),
+      invalidations:      str(e.invalidations),
+      reflection:         str(e.reflection),
+    }
+  }, [editEntry])
+
+  const [form, setForm]     = useState<FormState>(seedForm)
   const [section, setSection] = useState<SectionKey>('core')
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState<string | null>(null)
@@ -210,11 +252,17 @@ export default function AddTradeModal({ onAdded, onClose }: Props) {
         reflection:         form.reflection         || undefined,
       }
 
-      const res  = await fetch('/api/journal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
+      const res = isEdit && editEntry
+        ? await fetch(`/api/journal/${editEntry.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          })
+        : await fetch('/api/journal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          })
       const json = await res.json()
       if (!res.ok) {
         setError(json.error ?? 'Save failed')
@@ -242,9 +290,11 @@ export default function AddTradeModal({ onAdded, onClose }: Props) {
       <div className="relative z-10 w-full max-w-2xl rounded-t-2xl sm:rounded-2xl bg-card border border-border shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
           <div>
-            <h2 className="text-base font-bold">Log a trade</h2>
+            <h2 className="text-base font-bold">{isEdit ? 'Edit trade' : 'Log a trade'}</h2>
             <p className="text-[11px] text-muted-foreground">
-              Each entry generates 5 process grades + 3+ AI insights — no PnL grading.
+              {isEdit
+                ? 'Saving will re-grade the trade with the deterministic coach.'
+                : 'Each entry generates 5 process grades + 3+ AI insights — no PnL grading.'}
             </p>
           </div>
           <button type="button" aria-label="Close" onClick={onClose} className="text-muted-foreground hover:text-foreground">
@@ -325,7 +375,7 @@ export default function AddTradeModal({ onAdded, onClose }: Props) {
                   (loading || !canSubmit) && 'opacity-50 cursor-not-allowed',
                 )}
               >
-                {loading ? 'Saving…' : 'Save trade'}
+                {loading ? 'Saving…' : isEdit ? 'Save changes' : 'Save trade'}
               </button>
             </div>
           </div>
