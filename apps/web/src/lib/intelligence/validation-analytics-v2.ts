@@ -50,6 +50,14 @@ export interface V2Input {
   follower_pnl: number
   /** Closed-at ISO string — used for time-windowed annualisation. */
   closed_at:    string | null
+  /** Optional slippage_pct for execution-alpha. */
+  slippage_pct?: number | null
+  /** Optional broker for broker-alpha. */
+  broker?:      string | null
+  /** Optional symbol for risk-concentration. */
+  symbol?:      string | null
+  /** Optional lot size for risk-concentration. */
+  lot_size?:    number | null
 }
 
 export interface V2Metrics {
@@ -60,6 +68,17 @@ export interface V2Metrics {
   ulcer_index:         number | null
   mar:                 number | null
   gain_to_pain:        number | null
+  // V2 expansion (the 9 additional metrics the spec named)
+  tail_risk_pct:       number | null   // worst 1% loss as % of mean trade
+  strategy_decay:      number | null   // recent-half PF / older-half PF (<1 = decay)
+  regime_stability:    number | null   // 0-100 (stddev of windowed returns ÷ mean abs)
+  ci_95_lower:         number | null   // 95% CI lower bound on mean return per trade
+  ci_95_upper:         number | null   // upper bound
+  forward_test_reliability: number | null   // 0-100 (consistency between halves)
+  validation_confidence_score: number | null  // 0-100 (composite of sample + CI tightness + stability)
+  execution_alpha:     number | null   // null — requires slippage_pct on input; computed when present
+  broker_alpha:        number | null   // null — requires broker_id on input
+  risk_concentration:  number | null   // 0-100 Herfindahl of position size by symbol (when known)
   methodology: {
     var_alpha:                  number
     annualisation_days:         number
@@ -128,6 +147,16 @@ export function computeAnalyticsV2(trades: V2Input[]): V2Metrics {
     ulcer_index:         null,
     mar:                 null,
     gain_to_pain:        null,
+    tail_risk_pct:       null,
+    strategy_decay:      null,
+    regime_stability:    null,
+    ci_95_lower:         null,
+    ci_95_upper:         null,
+    forward_test_reliability:    null,
+    validation_confidence_score: null,
+    execution_alpha:     null,
+    broker_alpha:        null,
+    risk_concentration:  null,
     methodology: {
       var_alpha:                  0.05,
       annualisation_days:         TRADING_DAYS_PER_YEAR,
@@ -190,6 +219,128 @@ export function computeAnalyticsV2(trades: V2Input[]): V2Metrics {
   // monthly bucketed view.
   const g2p = grossLosses > 0 ? Math.round((grossWins / grossLosses) * 100) / 100 : null
 
+  // ── V2-expansion metrics ────────────────────────────────────────
+  const mu = pnls.reduce((a, b) => a + b, 0) / pnls.length
+  const variance = pnls.reduce((a, b) => a + (b - mu) ** 2, 0) / (pnls.length - 1)
+  const sd = Math.sqrt(variance)
+
+  // Tail Risk — worst 1% loss / mean abs trade (×100 → %)
+  const tail1Count = Math.max(1, Math.floor(0.01 * sortedAsc.length))
+  const tail1Mean  = sortedAsc.slice(0, tail1Count).reduce((a, b) => a + b, 0) / tail1Count
+  const meanAbs    = pnls.reduce((a, b) => a + Math.abs(b), 0) / pnls.length
+  const tailRisk   = meanAbs > 0
+    ? Math.round((Math.abs(tail1Mean) / meanAbs) * 100 * 100) / 100
+    : null
+
+  // Strategy Decay — recent-half PF / older-half PF. <1 = decay.
+  const closedSorted = trades
+    .filter(t => t.closed_at)
+    .sort((a, b) => (a.closed_at ?? '').localeCompare(b.closed_at ?? ''))
+  let decay: number | null = null
+  if (closedSorted.length >= 20) {
+    const mid = Math.floor(closedSorted.length / 2)
+    const older = closedSorted.slice(0, mid).map(t => t.follower_pnl)
+    const newer = closedSorted.slice(mid).map(t => t.follower_pnl)
+    const pfOf = (arr: number[]) => {
+      const w = arr.filter(p => p > 0).reduce((a, b) => a + b, 0)
+      const l = Math.abs(arr.filter(p => p < 0).reduce((a, b) => a + b, 0))
+      return l > 0 ? w / l : null
+    }
+    const pfOld = pfOf(older)
+    const pfNew = pfOf(newer)
+    if (pfOld != null && pfNew != null && pfOld > 0) {
+      decay = Math.round((pfNew / pfOld) * 100) / 100
+    }
+  }
+
+  // Regime Stability — 1 - (sd of rolling-window means / overall mean abs).
+  // Windowed at trades.length / 5. Lower stability = noisier regime.
+  let regimeStability: number | null = null
+  if (pnls.length >= 25) {
+    const win = Math.max(5, Math.floor(pnls.length / 5))
+    const windowMeans: number[] = []
+    for (let i = 0; i + win <= pnls.length; i++) {
+      const slice = pnls.slice(i, i + win)
+      windowMeans.push(slice.reduce((a, b) => a + b, 0) / win)
+    }
+    if (windowMeans.length >= 3) {
+      const wMu = windowMeans.reduce((a, b) => a + b, 0) / windowMeans.length
+      const wSd = Math.sqrt(windowMeans.reduce((a, b) => a + (b - wMu) ** 2, 0) / (windowMeans.length - 1))
+      const denom = Math.abs(wMu) + wSd
+      regimeStability = denom > 0
+        ? Math.round(Math.max(0, Math.min(1, 1 - wSd / denom)) * 100)
+        : null
+    }
+  }
+
+  // 95% Confidence interval on mean return per trade (t-approx → ±1.96σ/√n)
+  const se = sd / Math.sqrt(pnls.length)
+  const ciLow  = Math.round((mu - 1.96 * se) * 100) / 100
+  const ciHigh = Math.round((mu + 1.96 * se) * 100) / 100
+
+  // Forward-test reliability — consistency between halves.
+  // 100 = identical PF; 0 = wildly divergent.
+  let forwardReliability: number | null = null
+  if (decay != null) {
+    // Map decay to 0-100: decay==1 → 100, decay≤0 or ≥2 → 0
+    const distance = Math.abs(decay - 1)
+    forwardReliability = Math.round(Math.max(0, Math.min(1, 1 - distance)) * 100)
+  }
+
+  // Validation confidence score — composite of sample + CI tightness +
+  // regime stability. Each term 0-1, weighted 40/30/30.
+  const sampleTerm = Math.min(1, pnls.length / 100)
+  const ciTightness = Math.abs(mu) > 0
+    ? Math.max(0, Math.min(1, 1 - (ciHigh - ciLow) / (Math.abs(mu) * 4)))
+    : 0
+  const stabTerm = (regimeStability ?? 0) / 100
+  const valConf = Math.round((sampleTerm * 0.4 + ciTightness * 0.3 + stabTerm * 0.3) * 100)
+
+  // Execution alpha — null unless slippage_pct present on inputs.
+  // "Alpha" here: realised pnl vs theoretical-no-slippage pnl.
+  let executionAlpha: number | null = null
+  const slipRows = trades.filter(t => typeof t.slippage_pct === 'number')
+  if (slipRows.length >= MIN_SAMPLE_V2 / 2) {
+    const avgSlipBps = (slipRows.reduce((s, t) => s + Math.abs(t.slippage_pct as number), 0) / slipRows.length) * 10_000
+    executionAlpha = Math.round((-avgSlipBps) * 100) / 100   // negative = cost
+  }
+
+  // Broker alpha — null unless broker present on inputs and ≥ 2 brokers.
+  let brokerAlpha: number | null = null
+  const byBroker = new Map<string, number[]>()
+  for (const t of trades) {
+    if (typeof t.broker === 'string' && t.broker) {
+      const arr = byBroker.get(t.broker) ?? []
+      arr.push(t.follower_pnl)
+      byBroker.set(t.broker, arr)
+    }
+  }
+  if (byBroker.size >= 2) {
+    const means = [...byBroker.values()].map(arr => arr.reduce((a, b) => a + b, 0) / arr.length)
+    const max = Math.max(...means)
+    const min = Math.min(...means)
+    brokerAlpha = meanAbs > 0
+      ? Math.round(((max - min) / meanAbs) * 100 * 100) / 100
+      : null
+  }
+
+  // Risk concentration — Herfindahl index of position size by symbol.
+  // 100 = all in one symbol; near 0 = highly diversified.
+  let riskConc: number | null = null
+  const byLot = new Map<string, number>()
+  for (const t of trades) {
+    if (typeof t.symbol === 'string' && typeof t.lot_size === 'number') {
+      byLot.set(t.symbol, (byLot.get(t.symbol) ?? 0) + t.lot_size)
+    }
+  }
+  if (byLot.size > 0) {
+    const total = [...byLot.values()].reduce((a, b) => a + b, 0)
+    if (total > 0) {
+      const hhi = [...byLot.values()].reduce((a, b) => a + (b / total) ** 2, 0)
+      riskConc = Math.round(hhi * 100 * 100) / 100
+    }
+  }
+
   return {
     sample_size:  trades.length,
     omega,
@@ -198,6 +349,16 @@ export function computeAnalyticsV2(trades: V2Input[]): V2Metrics {
     ulcer_index:  ui == null ? null : Math.round(ui * 100) / 100,
     mar,
     gain_to_pain: g2p,
+    tail_risk_pct:       tailRisk,
+    strategy_decay:      decay,
+    regime_stability:    regimeStability,
+    ci_95_lower:         Number.isFinite(ciLow)  ? ciLow  : null,
+    ci_95_upper:         Number.isFinite(ciHigh) ? ciHigh : null,
+    forward_test_reliability:    forwardReliability,
+    validation_confidence_score: valConf,
+    execution_alpha:     executionAlpha,
+    broker_alpha:        brokerAlpha,
+    risk_concentration:  riskConc,
     methodology: {
       var_alpha:           0.05,
       annualisation_days:  TRADING_DAYS_PER_YEAR,
@@ -209,6 +370,15 @@ export function computeAnalyticsV2(trades: V2Input[]): V2Metrics {
         'Ulcer Index = RMS of percentage drawdowns from running peak.',
         'MAR ratio = annualised return ÷ max drawdown; null when DD = 0 or trade span < 7 days.',
         'Gain-to-Pain collapses to Omega in single-bucket data — disclosed honestly rather than synthesised monthly buckets.',
+        'Tail Risk = mean of worst 1% bucket ÷ mean |trade| × 100.',
+        'Strategy Decay = recent-half PF ÷ older-half PF (<1 = decay). Requires ≥ 20 closed trades.',
+        'Regime Stability = 1 - (stddev of windowed means ÷ |mean| + stddev), scaled 0-100. Requires ≥ 25 trades.',
+        'CI 95% on mean trade pnl, t-approx (±1.96 σ/√n).',
+        'Forward Test Reliability = 1 - |decay - 1|, scaled 0-100.',
+        'Validation Confidence Score = 40% sample + 30% CI tightness + 30% regime stability.',
+        'Execution Alpha = -avg |slippage_pct| × 10000 (basis points; negative = cost). Null when slippage not in input.',
+        'Broker Alpha = (best broker mean - worst broker mean) ÷ mean |trade| × 100. Requires ≥ 2 brokers in input.',
+        'Risk Concentration = Herfindahl index of position-size share by symbol × 100.',
       ],
     },
   }

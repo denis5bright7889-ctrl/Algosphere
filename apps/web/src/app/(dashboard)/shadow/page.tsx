@@ -24,7 +24,7 @@ import {
   type ValidationCoachRecommendation,
 } from '@/lib/intelligence/validation-coach'
 import { deriveMilestones, type Achievement } from '@/lib/intelligence/milestones'
-import { Trophy, Lock, Award, Zap, Shield, Building2, Crown, Flame } from 'lucide-react'
+import { Trophy, Lock, Award, Zap, Shield, Building2, Crown, Flame, FileSearch } from 'lucide-react'
 
 export const metadata = { title: 'AI Strategy Validation Center — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'
@@ -217,6 +217,31 @@ export default async function ShadowPage() {
 
   // ── Phase 7: AI Strategy Coach reviews per graded strategy ─────────
   const coachReviews = reviewAllStrategiesForValidation(stratReport.strategies)
+
+  // ── Phase 4 forensics rows for the recent shadow list. Inline join
+  //    is cheap (20 shadow rows × shadow_execution_id lookup). The
+  //    UI surfaces composite + grade per row without fanning out.
+  const recentIds = list.slice(0, 50).map(r => r.id)
+  const { data: forensicsData } = recentIds.length > 0
+    ? await supabase
+        .from('trade_quality_scores')
+        .select('shadow_execution_id, composite_score, grade, entry_quality, execution_quality, outcome_quality, process_quality')
+        .in('shadow_execution_id', recentIds)
+    : { data: [] }
+  const forensicsByShadow = new Map<string, {
+    composite: number; grade: string
+    entry: number; exec: number; outcome: number; process: number
+  }>()
+  for (const f of ((forensicsData ?? []) as Array<{
+    shadow_execution_id: string; composite_score: number; grade: string
+    entry_quality: number; execution_quality: number; outcome_quality: number; process_quality: number
+  }>)) {
+    forensicsByShadow.set(f.shadow_execution_id, {
+      composite: f.composite_score, grade: f.grade,
+      entry:     f.entry_quality,   exec:  f.execution_quality,
+      outcome:   f.outcome_quality, process: f.process_quality,
+    })
+  }
 
   // ── Phase 10: gamification — derive earned/locked badges + streak
   //    from the aggregates we already computed. No DB hit; the
@@ -631,7 +656,7 @@ export default async function ShadowPage() {
 
           {/* Desktop: table */}
           <div className="hidden md:block rounded-2xl border border-border bg-card overflow-x-auto">
-          <table className="w-full min-w-[720px] text-xs">
+          <table className="w-full min-w-[820px] text-xs">
             <thead>
               <tr className="text-left text-[10px] text-muted-foreground uppercase tracking-wider border-b border-border/40">
                 <th className="px-4 py-2.5">When</th>
@@ -641,6 +666,7 @@ export default async function ShadowPage() {
                 <th className="px-4 py-2.5 text-right">Filled</th>
                 <th className="px-4 py-2.5 text-right">Slip</th>
                 <th className="px-4 py-2.5 text-right">Drift</th>
+                <th className="px-4 py-2.5 text-right">Forensics</th>
                 <th className="px-4 py-2.5 text-right">Status</th>
               </tr>
             </thead>
@@ -680,6 +706,9 @@ export default async function ShadowPage() {
                     {r.pnl_drift_pct != null ? `${r.pnl_drift_pct.toFixed(2)}%` : '—'}
                   </td>
                   <td className="px-4 py-2 text-right">
+                    <ForensicsCell f={forensicsByShadow.get(r.id) ?? null} />
+                  </td>
+                  <td className="px-4 py-2 text-right">
                     <span className={cn(
                       'rounded-full border px-2 py-0.5 text-[9px] font-bold capitalize',
                       r.actual_status === 'mirrored' && 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
@@ -689,6 +718,16 @@ export default async function ShadowPage() {
                     )}>
                       {r.actual_status}
                     </span>
+                    {/* Manual close: only on open positions */}
+                    {!r.closed_at && (r.actual_status === 'mirrored' || r.actual_status === 'testnet') && (
+                      <a
+                        href={`/api/admin/shadow-manual-close?prefill=${r.id}`}
+                        className="ml-2 inline-flex h-6 items-center rounded border border-border/60 bg-muted/20 px-1.5 text-[9px] font-bold uppercase tracking-wider text-muted-foreground hover:bg-muted/40"
+                        title="Manual close (admin)"
+                      >
+                        Close
+                      </a>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -1169,6 +1208,36 @@ function AchievementBadge({ a }: { a: Achievement }) {
         </p>
       )}
     </div>
+  )
+}
+
+/** Phase 4 — inline forensics summary chip rendered in the Recent
+ *  Validation Sessions table. Shows grade + composite score; null
+ *  forensics rows display a "—" placeholder. Hover reveals the 4
+ *  sub-scores via the title attribute. */
+function ForensicsCell({ f }: { f: { composite: number; grade: string; entry: number; exec: number; outcome: number; process: number } | null }) {
+  if (!f) {
+    return (
+      <span className="inline-flex items-center gap-1 text-muted-foreground/50">
+        <FileSearch className="h-3 w-3" strokeWidth={1.5} aria-hidden />
+        <span className="text-[10px]">—</span>
+      </span>
+    )
+  }
+  const gradeTone: Record<string, string> = {
+    'A': 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
+    'B': 'border-blue-500/40 bg-blue-500/10 text-blue-300',
+    'C': 'border-amber-500/40 bg-amber-500/10 text-amber-300',
+    'D': 'border-rose-500/40 bg-rose-500/10 text-rose-300',
+    'F': 'border-rose-500/40 bg-rose-500/10 text-rose-300',
+  }
+  return (
+    <span
+      className={cn('inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-bold tabular-nums', gradeTone[f.grade] ?? 'border-border text-muted-foreground')}
+      title={`Entry ${f.entry} · Exec ${f.exec} · Outcome ${f.outcome} · Process ${f.process}`}
+    >
+      {f.grade}<span className="opacity-70">{f.composite}</span>
+    </span>
   )
 }
 

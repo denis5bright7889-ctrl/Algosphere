@@ -123,13 +123,24 @@ function normal(rng: () => number, mean: number, sd: number): number {
   return mean + sd * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2)
 }
 
-// ── Symbol classification ──────────────────────────────────────────
-/** True if the engine can fetch a live spot price for the symbol via
- *  the public Binance ticker. Used by the lifecycle ticker to decide
- *  whether to skip a row (never fabricate a price). */
+// ── Symbol classification + multi-source price fetch ──────────────
 function canPriceCrypto(symbol: string): boolean {
   const s = symbol.toUpperCase()
   return s.endsWith('USDT') || s.endsWith('USDC') || s.endsWith('BUSD')
+}
+
+/** Forex / metals symbols TwelveData can price on the Basic plan. */
+const TD_SYMBOL_MAP: Record<string, string> = {
+  EURUSD: 'EUR/USD', GBPUSD: 'GBP/USD', USDJPY: 'USD/JPY',
+  AUDUSD: 'AUD/USD', NZDUSD: 'NZD/USD', USDCHF: 'USD/CHF',
+  USDCAD: 'USD/CAD', GBPJPY: 'GBP/JPY', EURJPY: 'EUR/JPY',
+  EURGBP: 'EUR/GBP', XAUUSD: 'XAU/USD', XAGUSD: 'XAG/USD',
+  XPTUSD: 'XPT/USD', XPDUSD: 'XPD/USD',
+}
+
+function canPriceForex(symbol: string): boolean {
+  const s = symbol.toUpperCase()
+  return Boolean(TD_SYMBOL_MAP[s]) && Boolean(process.env.TWELVE_DATA_API_KEY)
 }
 
 async function fetchBinancePrice(symbol: string): Promise<number | null> {
@@ -145,6 +156,34 @@ async function fetchBinancePrice(symbol: string): Promise<number | null> {
   } catch {
     return null
   }
+}
+
+async function fetchTwelveDataPrice(symbol: string): Promise<number | null> {
+  const key = process.env.TWELVE_DATA_API_KEY
+  if (!key) return null
+  const td = TD_SYMBOL_MAP[symbol.toUpperCase()]
+  if (!td) return null
+  try {
+    const res = await fetch(
+      `https://api.twelvedata.com/price?symbol=${encodeURIComponent(td)}&apikey=${key}`,
+      { cache: 'no-store' },
+    )
+    if (!res.ok) return null
+    const j = (await res.json()) as { price?: string; status?: string; message?: string }
+    if (j.status === 'error') return null
+    const p = typeof j.price === 'string' ? Number(j.price) : NaN
+    return Number.isFinite(p) && p > 0 ? p : null
+  } catch {
+    return null
+  }
+}
+
+/** Fetch current price for a symbol from the appropriate provider.
+ *  Returns null for any symbol we genuinely can't price (no fabrication). */
+async function fetchPriceFor(symbol: string): Promise<number | null> {
+  if (canPriceCrypto(symbol)) return fetchBinancePrice(symbol)
+  if (canPriceForex(symbol))  return fetchTwelveDataPrice(symbol)
+  return null
 }
 
 // ── Public API ─────────────────────────────────────────────────────
@@ -310,11 +349,7 @@ export async function tickShadowLifecycle(): Promise<LifecycleTickResult> {
   const priceBySymbol = new Map<string, number | null>()
   const seenSymbols = new Set(rows.map(r => r.symbol))
   for (const symbol of seenSymbols) {
-    if (canPriceCrypto(symbol)) {
-      priceBySymbol.set(symbol, await fetchBinancePrice(symbol))
-    } else {
-      priceBySymbol.set(symbol, null)   // honest skip
-    }
+    priceBySymbol.set(symbol, await fetchPriceFor(symbol))
   }
 
   for (const r of rows) {

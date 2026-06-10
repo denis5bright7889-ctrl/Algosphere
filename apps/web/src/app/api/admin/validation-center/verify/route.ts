@@ -341,18 +341,33 @@ export async function GET() {
   })
 
   // Phase 13 — Verification matrix + Ops Dashboard endpoint
+  const [{ count: writerRunsCount }, { count: dlqCount }, { count: stateCount }, { count: stateMachineHistoryCount }] = await Promise.all([
+    db.from('writer_runs').select('*', { count: 'exact', head: true }),
+    db.from('writer_dlq').select('*', { count: 'exact', head: true }).eq('resolved', false),
+    db.from('strategy_state').select('*', { count: 'exact', head: true }),
+    db.from('strategy_qualification_history').select('*', { count: 'exact', head: true }),
+  ])
   phases.push({
-    phase: 13, name: 'Verification Matrix + Ops Dashboard',
+    phase: 13, name: 'Verification Matrix + Ops + State Machine',
     status: 'ok',
     evidence: {
       verification_endpoint: '/api/admin/validation-center/verify',
       ops_dashboard:         '/api/admin/validation-ops-dashboard',
       shadow_engine_status:  '/api/admin/shadow-engine-status',
-      verifies:              phases.length + 1,
+      chained_cron:          '/api/cron/validation-daily',
+      state_machine:         '/api/admin/state-machine-write',
+      manual_close:          '/api/admin/shadow-manual-close',
+      writer_runs_logged:    writerRunsCount ?? 0,
+      writer_dlq_unresolved: dlqCount ?? 0,
+      strategies_in_state:   stateCount ?? 0,
+      qualification_history: stateMachineHistoryCount ?? 0,
+      analytics_v2_metrics_count: 15,   // 6 originals + 9 expansion
+      forex_price_provider:  process.env.TWELVE_DATA_API_KEY ? 'TwelveData' : 'none',
     },
     notes: [
       'This endpoint. Run any time to re-audit.',
-      'GET /api/admin/validation-ops-dashboard for real-time monitoring + alerts.',
+      'GET /api/admin/validation-ops-dashboard for real-time health + alerts.',
+      'GET /api/cron/validation-daily (Bearer CRON_SECRET) runs ALL writers in sequence.',
     ],
   })
 
