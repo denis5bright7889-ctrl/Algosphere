@@ -31,6 +31,7 @@ from loguru import logger
 
 import producers
 import factory
+import founder
 from storage import db, ensure_bucket_exists, upload, log_attempt, worker_id
 
 
@@ -206,7 +207,9 @@ def main() -> None:
         if now - last_heal > HEAL_EVERY_S:
             factory.run_selfheal(); last_heal = now
         if now - last_gen > GEN_EVERY_S:
-            factory.run_generator(); last_gen = now
+            factory.run_generator()
+            founder.run_founder_factory()   # real events → founder reels
+            last_gen = now
         if now - last_pub > PUB_EVERY_S:
             factory.run_publisher(); last_pub = now
 

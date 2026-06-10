@@ -104,6 +104,7 @@ REGISTRY: Dict[str, Producer] = {
     # ── Videos (Remotion event_video composition + edge-tts +
     #            FFmpeg thumbnail). Each entry produces MP4 + JPG.
     'signal_reel':                  produce_video,
+    'founder_reel':                 produce_video,   # Founder Media Engine
     'trade_recap_video':            produce_video,
     'weekly_recap_video':           produce_video,
     'monthly_recap_video':          produce_video,

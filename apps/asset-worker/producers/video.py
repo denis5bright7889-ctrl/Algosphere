@@ -321,7 +321,18 @@ def produce(item: dict, out_dir: Path, asset_kind: str = 'signal_reel') -> Dict[
     payload = prov.get('payload') or prov
     title = item.get('title') or asset_kind.replace('_', ' ').title()
 
-    scenes, theme = _build_scenes(asset_kind, payload)
+    # Founder-media reels carry their own LLM-authored scene list (text +
+    # seconds). Everything else uses the per-kind built-in scripts.
+    reel_scenes = payload.get('reel_scenes')
+    if reel_scenes:
+        scenes = [{'id': f's{i}', 'text': str(s.get('text', ''))[:90],
+                   'dur': max(1.5, min(4.5, float(s.get('seconds', 3) or 3)))}
+                  for i, s in enumerate(reel_scenes) if s.get('text')]
+        theme = payload.get('theme') or 'reflective'
+        if not scenes:
+            scenes, theme = _build_scenes(asset_kind, payload)
+    else:
+        scenes, theme = _build_scenes(asset_kind, payload)
     total_s = sum(s['dur'] for s in scenes)
     final_mp4 = out_dir / f'{asset_kind}.mp4'
     silent    = out_dir / f'{asset_kind}_silent.mp4'

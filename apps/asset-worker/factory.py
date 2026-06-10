@@ -388,8 +388,8 @@ def run_publisher() -> None:
         return
     try:
         rows = (db().table('growth_content_items')
-                .select('id,title,body_md,channels,asset_urls,asset_state,provenance')
-                .eq('provenance->>source', 'factory')
+                .select('id,title,body_md,channels,asset_urls,asset_state,provenance,content_format')
+                .in_('provenance->>source', ['factory', 'founder'])
                 .in_('asset_state', ['ready', 'partial'])
                 .neq('status', 'published')
                 .order('scheduled_for', desc=False).limit(1).execute().data) or []
@@ -439,13 +439,16 @@ def run_publisher() -> None:
         except Exception as e:
             fb = 'err:' + str(e)[:40]
         try:
-            # Instagram is most reliable with a plain image — its API rejects
-            # media_type=REELS on some apps ("Only photo or video can be
-            # accepted"). Post the card image when we have one; only fall back
-            # to a reel for video-only items.
-            ig_url = image_url or video_url
-            ig_is_video = image_url is None and video_url is not None
-            ig = _post_instagram(meta_caption, ig_url, ig_is_video)
+            # Founder content is a REEL — post the video to IG (that's the
+            # whole point; reels get the reach). For other (card) content,
+            # post the image, since IG's API rejects media_type=REELS on some
+            # apps for non-video items.
+            if it.get('content_format') == 'reel' and video_url:
+                ig = _post_instagram(meta_caption, video_url, True)
+            else:
+                ig_url = image_url or video_url
+                ig_is_video = image_url is None and video_url is not None
+                ig = _post_instagram(meta_caption, ig_url, ig_is_video)
         except Exception as e:
             ig = 'err:' + str(e)[:40]
         # Back off for the full Meta interval whether or not it succeeded —
