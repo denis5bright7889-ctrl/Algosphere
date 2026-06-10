@@ -25,6 +25,9 @@ export type ContentKind =
   | 'educational'
   | 'announcement'
   | 'trade_breakdown'
+  | 'coach_insights'
+  | 'broker_truth'
+  | 'performance_transparency'
 
 export interface GeneratedDraft {
   kind:         ContentKind
@@ -502,6 +505,203 @@ export function generateTradeBreakdown(i: TradeBreakdownInput): GeneratedDraft {
       broker:       i.broker ?? null,
       trade_date:   i.trade_date,
       generated_at: new Date().toISOString(),
+    },
+  }
+}
+
+
+// ─── Coach Insights (Phase 3) ───────────────────────────────────────
+// Aggregate "this week\'s coach themes" derived from the V3 coach
+// evaluator output across all journal entries. Anonymised; no
+// individual user surfaces.
+
+export interface CoachInsightsInput {
+  window_days:    number
+  window_label:   string
+  sample_size:    number
+  avg_quality:    number
+  avg_execution:  number
+  avg_psychology: number
+  avg_risk:       number
+  avg_discipline: number
+  avg_timing:     number
+  top_themes:     Array<{ theme: string; count: number }>
+  grade_mix:      Array<{ grade: string; count: number; pct: number }>
+}
+
+export function generateCoachInsights(i: CoachInsightsInput): GeneratedDraft {
+  const gradeLine = i.grade_mix.slice(0, 4)
+    .map((g) => `${g.grade} ${g.pct}%`).join(' · ')
+
+  const themeLines = i.top_themes.length === 0
+    ? ['_No standout themes this week._']
+    : i.top_themes.map((t, idx) => `${idx + 1}. **${t.theme}** — flagged on ${t.count} trade${t.count === 1 ? '' : 's'}`)
+
+  const body_md = [
+    `> **Coach insights — ${i.window_label} · ${i.sample_size} graded trades.** Anonymised across all AlgoSphere users; no individual trades referenced.`,
+    '',
+    '## The week in process grades',
+    '',
+    `Grade mix: ${gradeLine}`,
+    `Avg overall: **${i.avg_quality}/100**`,
+    '',
+    '## Five-axis means',
+    `- Execution:  ${i.avg_execution}`,
+    `- Psychology: ${i.avg_psychology}`,
+    `- Risk:       ${i.avg_risk}`,
+    `- Discipline: ${i.avg_discipline}`,
+    `- Timing:     ${i.avg_timing}`,
+    '',
+    '## What the coach flagged most',
+    ...themeLines,
+    '',
+    `_Sample: ${i.sample_size} coach evaluations across the past ${i.window_days} days. Means are arithmetic; themes are literal-match counts. Not financial advice._`,
+  ].join('\n')
+
+  return {
+    kind:         'coach_insights',
+    title:        `AlgoSphere Coach insights — ${i.window_label}`,
+    summary:      `Across ${i.sample_size} graded trades the coach flagged: ${i.top_themes[0]?.theme ?? 'no standout themes'}. Avg overall: ${i.avg_quality}/100.`,
+    body_md,
+    tags:         ['coach', 'insights', 'psychology', 'weekly'],
+    is_synthetic: false,
+    disclaimer:   `Aggregate of ${i.sample_size} anonymised coach evaluations. Past performance does not predict future results.`,
+    cta_text:     'See your own grade — AlgoSphere',
+    cta_url:      'https://algospherequant.com/journal',
+    provenance: {
+      type:         'coach_insights',
+      window_days:  i.window_days,
+      sample_size:  i.sample_size,
+      generated_at: new Date().toISOString(),
+    },
+  }
+}
+
+
+// ─── Broker Truth Analytics (Phase 4) ───────────────────────────────
+// Aggregate of real broker-detected closed trades. NEVER references
+// an individual user.
+
+export interface BrokerTruthInput {
+  window_days:        number
+  window_label:       string
+  sample_size:        number
+  win_rate_pct:       number
+  avg_duration_hours: number | null
+  avg_pnl_usd:        number
+  total_pnl_usd:      number
+  most_traded:        Array<{ pair: string; count: number; pct: number }>
+  most_active_session: { session: string; count: number; pct: number } | null
+  brokers_represented: number
+}
+
+export function generateBrokerTruthAnalytics(i: BrokerTruthInput): GeneratedDraft {
+  const pairLine = i.most_traded.length === 0
+    ? '—'
+    : i.most_traded.map((p) => `${p.pair} (${p.pct}%)`).join(' · ')
+
+  const body_md = [
+    `> **Broker-truth analytics — ${i.window_label} · ${i.sample_size} closed trades, anonymised.** Every figure derived from real broker reality sync data; no estimates.`,
+    '',
+    '## Trade activity',
+    `- Closed trades:        **${i.sample_size}**`,
+    `- Brokers represented:  ${i.brokers_represented}`,
+    `- Win rate:             **${i.win_rate_pct}%**`,
+    `- Avg hold:             ${i.avg_duration_hours != null ? `${i.avg_duration_hours}h` : '—'}`,
+    '',
+    '## P&L (aggregate, account currency)',
+    `- Total realised:       ${i.total_pnl_usd >= 0 ? '+' : ''}${i.total_pnl_usd}`,
+    `- Avg per trade:        ${i.avg_pnl_usd >= 0 ? '+' : ''}${i.avg_pnl_usd}`,
+    '',
+    '## Where the activity concentrated',
+    `- Most traded pairs:    ${pairLine}`,
+    `- Most active session:  ${i.most_active_session ? `${i.most_active_session.session} (${i.most_active_session.pct}%)` : '—'}`,
+    '',
+    `_Sample: ${i.sample_size} closed trades from the past ${i.window_days} days, sourced from broker history sync (MT5 \`HistoryDealsGet\`). Aggregate-only; no individual user identifiable._`,
+  ].join('\n')
+
+  return {
+    kind:         'broker_truth',
+    title:        `Broker-truth analytics — ${i.window_label}`,
+    summary:      `${i.sample_size} closed trades across ${i.brokers_represented} broker${i.brokers_represented === 1 ? '' : 's'} · ${i.win_rate_pct}% win rate · ${i.total_pnl_usd >= 0 ? '+' : ''}${i.total_pnl_usd} total realised.`,
+    body_md,
+    tags:         ['broker-truth', 'analytics', 'weekly', 'transparency'],
+    is_synthetic: false,
+    disclaimer:   `Aggregate of ${i.sample_size} closed broker trades, anonymised. Past performance does not predict future results.`,
+    cta_text:     'Connect your broker — AlgoSphere',
+    cta_url:      'https://algospherequant.com/brokers',
+    provenance: {
+      type:         'broker_truth',
+      window_days:  i.window_days,
+      sample_size:  i.sample_size,
+      generated_at: new Date().toISOString(),
+    },
+  }
+}
+
+
+// ─── Performance Transparency (Phase 5) ─────────────────────────────
+// AlgoSphere\'s OWN signal performance, not user performance. Refuses
+// to publish outcome-based metrics below the sample threshold.
+
+export interface PerformanceTransparencyInput {
+  window_days:           number
+  window_label:          string
+  sample_size:           number
+  signals_published:     number
+  signals_settled:       number
+  signals_in_flight:     number
+  win_rate_pct:          number | null
+  avg_r_multiple:        number | null
+  profit_factor:         number | null
+  expectancy_r:          number | null
+  by_pair:               Array<{ pair: string; count: number; pct: number }>
+  confidence_disclaimer: string
+}
+
+export function generatePerformanceTransparency(i: PerformanceTransparencyInput): GeneratedDraft {
+  const pairLine = i.by_pair.length === 0
+    ? '—'
+    : i.by_pair.slice(0, 4).map((p) => `${p.pair} (${p.count})`).join(' · ')
+
+  const fmt = (v: number | null): string => v == null ? 'N/A (insufficient sample)' : String(v)
+
+  const body_md = [
+    `> **AlgoSphere signal performance — ${i.window_label}.** Engine-generated signals only. No user trades, no extrapolation.`,
+    '',
+    '## Signal volume',
+    `- Published:    **${i.signals_published}**`,
+    `- Settled:      ${i.signals_settled}`,
+    `- In-flight:    ${i.signals_in_flight}`,
+    '',
+    '## Outcomes (settled signals)',
+    `- Win rate:     ${i.win_rate_pct == null ? 'N/A' : `**${i.win_rate_pct}%**`}`,
+    `- Avg R:R (planned): ${fmt(i.avg_r_multiple)}`,
+    `- Profit factor (pips): ${fmt(i.profit_factor)}`,
+    `- Expectancy (pips/signal): ${fmt(i.expectancy_r)}`,
+    '',
+    '## Pair coverage',
+    `- Top pairs by signal count: ${pairLine}`,
+    '',
+    `_${i.confidence_disclaimer} Past performance does not predict future results._`,
+  ].join('\n')
+
+  return {
+    kind:         'performance_transparency',
+    title:        `AlgoSphere performance — ${i.window_label}`,
+    summary:      `${i.signals_published} signals published · ${i.signals_settled} settled${i.win_rate_pct != null ? ` · ${i.win_rate_pct}% win rate` : ' · win rate suppressed (insufficient sample)'}.`,
+    body_md,
+    tags:         ['performance', 'transparency', 'weekly', 'signals'],
+    is_synthetic: false,
+    disclaimer:   `${i.signals_settled} settled signals across the past ${i.window_days} days. ${i.confidence_disclaimer}`,
+    cta_text:     'See the live signal feed',
+    cta_url:      'https://algospherequant.com/signals',
+    provenance: {
+      type:              'performance_transparency',
+      window_days:       i.window_days,
+      sample_size:       i.sample_size,
+      signals_settled:   i.signals_settled,
+      generated_at:      new Date().toISOString(),
     },
   }
 }

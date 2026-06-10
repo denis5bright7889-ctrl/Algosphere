@@ -24,6 +24,9 @@
  */
 import { createClient as serviceClient, type SupabaseClient } from '@supabase/supabase-js'
 import { ingestEvent, type IngestedEvent } from './automation'
+import { aggregateCoachInsights }            from '../intelligence/coach-insights-aggregate'
+import { aggregateBrokerTruth }              from '../intelligence/broker-truth-aggregate'
+import { aggregatePerformanceTransparency }  from '../intelligence/performance-transparency-aggregate'
 
 function svc(): SupabaseClient {
   return serviceClient(
@@ -529,6 +532,61 @@ export async function runDailyMix(): Promise<DailyMixSummary> {
     }
   } catch (err) {
     tally('trade_breakdown', 'trade_breakdown', false, err instanceof Error ? err.message : 'unknown')
+  }
+
+  // 7.7) Weekly aggregates — Phases 3 + 4 + 5. Fire only on Monday so
+  // each aggregate lands once per week, not every day. Sample-gated
+  // INSIDE each aggregator: returns null when threshold isn't met,
+  // we skip silently rather than publish a thin claim.
+  //   - Coach insights:  ≥10 journal_coach_evaluations
+  //   - Broker truth:    ≥20 closed broker trades
+  //   - Performance:     ≥30 published signals + outcomes
+  const dow = new Date().getUTCDay()   // 0=Sun, 1=Mon...
+  if (dow === 1) {
+    // Phase 3 — Coach insights
+    try {
+      const agg = await aggregateCoachInsights(7)
+      if (agg) {
+        const out = await ingestEvent({
+          event_type: 'coach.insights.weekly',
+          source:     'daily_mix',
+          payload:    agg as unknown as Record<string, unknown>,
+        })
+        tally('coach_insights', 'coach_insights', out.outcome === 'ok')
+      }
+    } catch (err) {
+      tally('coach_insights', 'coach_insights', false, err instanceof Error ? err.message : 'unknown')
+    }
+
+    // Phase 4 — Broker truth
+    try {
+      const agg = await aggregateBrokerTruth(7)
+      if (agg) {
+        const out = await ingestEvent({
+          event_type: 'broker.truth.weekly',
+          source:     'daily_mix',
+          payload:    agg as unknown as Record<string, unknown>,
+        })
+        tally('broker_truth', 'broker_truth', out.outcome === 'ok')
+      }
+    } catch (err) {
+      tally('broker_truth', 'broker_truth', false, err instanceof Error ? err.message : 'unknown')
+    }
+
+    // Phase 5 — Performance transparency
+    try {
+      const agg = await aggregatePerformanceTransparency(7)
+      if (agg) {
+        const out = await ingestEvent({
+          event_type: 'performance.transparency.weekly',
+          source:     'daily_mix',
+          payload:    agg as unknown as Record<string, unknown>,
+        })
+        tally('performance_transparency', 'performance_transparency', out.outcome === 'ok')
+      }
+    } catch (err) {
+      tally('performance_transparency', 'performance_transparency', false, err instanceof Error ? err.message : 'unknown')
+    }
   }
 
   // 8) Daily video — the video.daily rule above already fires the

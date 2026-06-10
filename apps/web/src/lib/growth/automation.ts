@@ -19,6 +19,8 @@ import {
   generateStrategyOfTheWeek, generateBacktestBreakdown,
   generateEducational, generateProductUpdate, generateMarketReport,
   generateTradeBreakdown,
+  generateCoachInsights, generateBrokerTruthAnalytics,
+  generatePerformanceTransparency,
   type GeneratedDraft, type ContentKind,
 } from './generators'
 import { polishDraft } from './llm-polish'
@@ -27,10 +29,13 @@ import { polishDraft } from './llm-polish'
 //    approved → published gauntlet). Anything outside this set forces
 //    output_status='draft' regardless of what the rule says.
 const AUTO_PUBLISH_KINDS = new Set<ContentKind>([
-  'market_report',      // engine snapshot, no individual perf claims
-  'educational',        // tutorial / explainer
-  'announcement',       // labelled brand announcement
-  'psychology_insight', // aggregated behavioural copy
+  'market_report',           // engine snapshot, no individual perf claims
+  'educational',             // tutorial / explainer
+  'announcement',            // labelled brand announcement
+  'psychology_insight',      // aggregated behavioural copy
+  'coach_insights',          // Phase 3 — aggregated, sample-gated (≥10)
+  'broker_truth',            // Phase 4 — aggregated, sample-gated (≥20)
+  'performance_transparency',// Phase 5 — aggregated, sample-gated (≥30)
 ])
 
 export type EventType =
@@ -166,6 +171,21 @@ function tryGenerate(kind: ContentKind, payload: Record<string, unknown>): Gener
         // result so the auto-publish chain skips half-formed trades.
         if (!payload.pair || !payload.direction || payload.entry_price == null || payload.exit_price == null) return null
         return generateTradeBreakdown(payload as unknown as Parameters<typeof generateTradeBreakdown>[0])
+
+      case 'coach_insights':
+        // Aggregate produced by lib/intelligence/coach-insights-aggregate.
+        // Required: sample_size present (the aggregator returns null
+        // when below MIN_SAMPLE; we double-check here).
+        if (typeof payload.sample_size !== 'number' || payload.sample_size < 10) return null
+        return generateCoachInsights(payload as unknown as Parameters<typeof generateCoachInsights>[0])
+
+      case 'broker_truth':
+        if (typeof payload.sample_size !== 'number' || payload.sample_size < 20) return null
+        return generateBrokerTruthAnalytics(payload as unknown as Parameters<typeof generateBrokerTruthAnalytics>[0])
+
+      case 'performance_transparency':
+        if (typeof payload.sample_size !== 'number' || payload.sample_size < 30) return null
+        return generatePerformanceTransparency(payload as unknown as Parameters<typeof generatePerformanceTransparency>[0])
 
       default:
         return null
