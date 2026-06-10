@@ -14,6 +14,10 @@ import {
 } from '@/lib/intelligence/broker-quality-aggregate'
 import { buildEquityCurve } from '@/lib/intelligence/equity-curve'
 import EquityCurveChart from '@/components/shadow/EquityCurveChart'
+import {
+  aggregateStrategyPerformance, STRATEGY_MIN_SAMPLE,
+  type StrategyMetrics, type StrategyRanking,
+} from '@/lib/intelligence/strategy-performance-aggregate'
 
 export const metadata = { title: 'AI Strategy Validation Center — AlgoSphere Quant' }
 export const dynamic = 'force-dynamic'
@@ -144,6 +148,65 @@ export default async function ShadowPage() {
       .filter(r => typeof r.follower_pnl === 'number')
       .map(r => ({ follower_pnl: r.follower_pnl as number, closed_at: r.closed_at })),
   )
+
+  // ── Phase 5: strategy attribution + performance report ─────────────
+  // 3-hop join: shadow_executions.copy_trade_id → copy_trades →
+  // strategy_subscriptions → published_strategies.name. Supabase's
+  // nested-select syntax does it in one round-trip.
+  // We only need rows that HAVE a copy_trade_id (others can't be
+  // attributed to a strategy) and we re-pull the per-row outcome
+  // fields the aggregator needs.
+  const { data: attributedRows } = list.length > 0
+    ? await supabase
+        .from('shadow_executions')
+        .select(`
+          id, created_at, closed_at, follower_pnl, actual_status,
+          slippage_pct, pnl_drift_pct,
+          copy_trade:copy_trades (
+            subscription:strategy_subscriptions (
+              strategy:published_strategies ( id, name )
+            )
+          )
+        `)
+        .eq('user_id', user.id)
+        .not('copy_trade_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(500)
+    : { data: [] }
+
+  type AttribRow = {
+    created_at:    string
+    closed_at:     string | null
+    follower_pnl:  number | null
+    actual_status: string
+    slippage_pct:  number | null
+    pnl_drift_pct: number | null
+    copy_trade?: {
+      subscription?: {
+        strategy?: { id: string; name: string } | null
+      } | null
+    } | null
+  }
+
+  const strategyRows = (attributedRows ?? [])
+    .map((r) => {
+      const ar = r as unknown as AttribRow
+      const strat = ar.copy_trade?.subscription?.strategy
+      if (!strat?.id) return null
+      return {
+        strategy_id:    strat.id,
+        strategy_name:  strat.name,
+        follower_pnl:   ar.follower_pnl,
+        closed_at:      ar.closed_at,
+        created_at:     ar.created_at,
+        actual_status:  ar.actual_status,
+        slippage_pct:   ar.slippage_pct,
+        pnl_drift_pct:  ar.pnl_drift_pct,
+      }
+    })
+    .filter((r): r is NonNullable<typeof r> => r !== null)
+
+  const stratReport = aggregateStrategyPerformance(strategyRows)
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
@@ -360,6 +423,43 @@ export default async function ShadowPage() {
           </p>
         </div>
         <EquityCurveChart points={curve.points} summary={curve.summary} />
+      </section>
+
+      {/* ── Phase 5: Strategy Performance Center ─────────────────── */}
+      <section className="mb-6 rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+          <h2 className="text-sm font-bold uppercase tracking-widest">Strategy Performance Center</h2>
+          <p className="text-[11px] text-muted-foreground tabular-nums">
+            {stratReport.strategies.length > 0
+              ? `${stratReport.strategies.length} strateg${stratReport.strategies.length === 1 ? 'y' : 'ies'} attributed · grades activate at ${STRATEGY_MIN_SAMPLE} closed`
+              : 'No strategies attributed yet'}
+          </p>
+        </div>
+
+        {stratReport.empty || stratReport.strategies.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-border/60 bg-muted/10 p-6 text-center text-xs text-muted-foreground">
+            Subscribe to a published strategy in full-auto mode to begin per-strategy validation.
+          </p>
+        ) : (
+          <>
+            <StrategyMetricsTable strategies={stratReport.strategies} />
+
+            {stratReport.rankings.length > 0 && (
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                {stratReport.rankings.map((r) => (
+                  <RankingCard key={r.category} ranking={r} />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        <p className="mt-3 text-[10px] text-muted-foreground/80">
+          Methodology: 10 institutional metrics per strategy (win rate, profit factor, Sharpe, Sortino,
+          expectancy, avg hold, max drawdown, recovery factor, risk score, confidence score) computed
+          from closed shadow trades. Rankings activate only with ≥ 2 strategies above the {STRATEGY_MIN_SAMPLE}-trade
+          sample threshold — one-strategy "leaderboards" are dishonest.
+        </p>
       </section>
 
       {/* ── Recent executions table (existing surface) ────────────── */}
@@ -664,6 +764,134 @@ function SubMetric({ label, value, tone }: {
         tone === 'amber' && 'text-amber-300',
         tone === 'red'   && 'text-rose-400',
       )}>{value}</p>
+    </div>
+  )
+}
+
+/** Phase 5: per-strategy metric table. */
+function StrategyMetricsTable({ strategies }: { strategies: StrategyMetrics[] }) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-background/30 overflow-x-auto">
+      <table className="w-full min-w-[720px] text-xs">
+        <thead>
+          <tr className="text-left text-[10px] text-muted-foreground uppercase tracking-wider border-b border-border/40">
+            <th className="px-3 py-2 font-medium">Strategy</th>
+            <th className="px-3 py-2 text-right font-medium">Sample</th>
+            <th className="px-3 py-2 text-right font-medium">Win Rate</th>
+            <th className="px-3 py-2 text-right font-medium">PF</th>
+            <th className="px-3 py-2 text-right font-medium">Sharpe</th>
+            <th className="px-3 py-2 text-right font-medium">Sortino</th>
+            <th className="px-3 py-2 text-right font-medium">Expectancy</th>
+            <th className="px-3 py-2 text-right font-medium">Avg Hold</th>
+            <th className="px-3 py-2 text-right font-medium">Max DD</th>
+            <th className="px-3 py-2 text-right font-medium">Recovery</th>
+            <th className="px-3 py-2 text-right font-medium">Risk</th>
+            <th className="px-3 py-2 text-right font-medium">Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {strategies.map((s) => {
+            const v = (x: number | null, fmt: 'pct' | 'num' | 'usd' | 'hours' = 'num') => {
+              if (x == null) return <span className="text-muted-foreground/50">—</span>
+              if (fmt === 'pct')   return `${x}%`
+              if (fmt === 'usd')   return `${x >= 0 ? '+' : ''}${x.toFixed(2)}`
+              if (fmt === 'hours') return `${x}h`
+              return x.toFixed(2)
+            }
+            return (
+              <tr key={s.strategy_id} className="border-b border-border/30 last:border-0 hover:bg-muted/10">
+                <td className="px-3 py-2 font-medium truncate max-w-[180px]" title={s.strategy_name}>
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate">{s.strategy_name}</span>
+                    {s.collecting_data && (
+                      <span className="rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-amber-300 shrink-0">
+                        Collecting
+                      </span>
+                    )}
+                  </div>
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                  {s.closed_count}/{s.sample_size}
+                </td>
+                <td className={cn(
+                  'px-3 py-2 text-right tabular-nums',
+                  s.win_rate_pct == null ? ''
+                    : s.win_rate_pct >= 55 ? 'text-emerald-400'
+                    : s.win_rate_pct >= 45 ? 'text-amber-300' : 'text-rose-400',
+                )}>{v(s.win_rate_pct, 'pct')}</td>
+                <td className={cn(
+                  'px-3 py-2 text-right tabular-nums',
+                  s.profit_factor == null ? ''
+                    : s.profit_factor >= 1.5 ? 'text-emerald-400'
+                    : s.profit_factor >= 1   ? 'text-amber-300' : 'text-rose-400',
+                )}>{v(s.profit_factor)}</td>
+                <td className={cn(
+                  'px-3 py-2 text-right tabular-nums',
+                  s.sharpe == null ? ''
+                    : s.sharpe >= 1.5 ? 'text-emerald-400'
+                    : s.sharpe >= 1   ? 'text-amber-300' : 'text-rose-400',
+                )}>{v(s.sharpe)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{v(s.sortino)}</td>
+                <td className={cn(
+                  'px-3 py-2 text-right tabular-nums',
+                  s.expectancy == null ? ''
+                    : s.expectancy > 0 ? 'text-emerald-400' : 'text-rose-400',
+                )}>{v(s.expectancy, 'usd')}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{v(s.avg_holding_hours, 'hours')}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-rose-400/80">
+                  {s.max_drawdown == null ? '—' : `−${s.max_drawdown.toFixed(2)}`}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">{v(s.recovery_factor)}</td>
+                <td className={cn(
+                  'px-3 py-2 text-right tabular-nums',
+                  s.risk_score == null ? ''
+                    : s.risk_score >= 70 ? 'text-emerald-400'
+                    : s.risk_score >= 50 ? 'text-amber-300' : 'text-rose-400',
+                )}>{v(s.risk_score)}</td>
+                <td className={cn(
+                  'px-3 py-2 text-right tabular-nums',
+                  s.confidence_score == null ? ''
+                    : s.confidence_score >= 70 ? 'text-emerald-400'
+                    : s.confidence_score >= 50 ? 'text-amber-300' : 'text-rose-400',
+                )}>{v(s.confidence_score)}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/** Phase 5: ranking card (one of top / worst / consistent / risky). */
+function RankingCard({ ranking }: { ranking: StrategyRanking }) {
+  const toneByCategory: Record<StrategyRanking['category'], string> = {
+    top:        'border-emerald-500/30 bg-emerald-500/[0.04]',
+    worst:      'border-rose-500/30 bg-rose-500/[0.04]',
+    consistent: 'border-blue-500/30 bg-blue-500/[0.04]',
+    risky:      'border-amber-500/30 bg-amber-500/[0.04]',
+  }
+  return (
+    <div className={cn('rounded-xl border bg-background/30 p-3', toneByCategory[ranking.category])}>
+      <div className="flex items-baseline justify-between gap-2 mb-2">
+        <p className="text-xs font-bold uppercase tracking-wider">{ranking.label}</p>
+        <p className="text-[9px] text-muted-foreground">{ranking.criterion}</p>
+      </div>
+      {ranking.entries.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground">—</p>
+      ) : (
+        <ol className="space-y-1">
+          {ranking.entries.map((e, i) => (
+            <li key={e.strategy_id} className="flex items-center justify-between gap-2 text-[11px]">
+              <span className="flex items-center gap-2 min-w-0">
+                <span className="text-muted-foreground tabular-nums w-4">{i + 1}.</span>
+                <span className="truncate font-medium">{e.strategy_name}</span>
+              </span>
+              <span className="tabular-nums shrink-0 text-muted-foreground">{e.score}</span>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   )
 }
