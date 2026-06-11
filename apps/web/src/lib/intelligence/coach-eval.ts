@@ -1,26 +1,22 @@
 /**
- * Deterministic per-trade coach evaluator (Journal V3 — Behavioral
- * Trading Intelligence System).
+ * Deterministic per-trade coach evaluator (Journal V3 → trust-hardened V3.1).
  *
- * Pure-function, never fails. Reads the structured behavioral record
- * the V3 form captures (Strategy + Psychology + Execution + Outcome)
- * and emits:
+ * Pure-function, never fails. Reads the structured behavioral record the V3
+ * form captures (Strategy + Psychology + Execution + Outcome) and emits five
+ * PROCESS grades + an overall + insights.
  *
- *   - 5 process grades (Execution / Psychology / Risk / Discipline /
- *     Timing), each 0-100, derived from PROCESS data only — never from
- *     PnL outcome. A losing trade can be A-grade execution; a winning
- *     trade can be poor execution.
- *   - overall_score (the existing `quality_score`) and letter grade.
- *   - emotional_flag + reason (for the psychology UI).
- *   - what_worked / what_to_fix bounded arrays (3-5 of each).
- *   - ai_insights — 3+ specific behavioral insights ("you tend to
- *     overtrade after losses", "London remains your highest-expectancy
- *     session", etc.) that downstream engines read directly.
- *   - advancement — one concrete next step the trader can act on.
+ * TRUST AUDIT (v3, EVALUATOR_VERSION 3) — cardinal rule: missing data is never
+ * scored as positive behavior.
+ *   • Each axis returns a score ONLY when it has evidence; otherwise `null`
+ *     ("Insufficient Data"). The old baselines (55–65) that made an EMPTY
+ *     trade score ~56/"C" are gone.
+ *   • Overall = mean of EVIDENCED axes only (no imputation). Zero evidence →
+ *     quality_score = null, grade = null, confidence = 'insufficient'.
+ *   • Every evaluation carries `confidence` + `data_completeness` so the UI
+ *     can show how much the score can be trusted.
+ *   • ONE grade scale (gradeForScore) — no more dual A+/A-F bands.
  *
- * Called from /api/journal POST after a successful insert. The row is
- * inserted into `journal_coach_evaluations` (one row per evaluator
- * run; latest wins on display).
+ * PnL never enters a process grade (a losing trade can be A-grade process).
  */
 
 export interface EvaluatorInput {
@@ -69,33 +65,35 @@ export interface EvaluatorInput {
 }
 
 
-export type LetterGrade = 'A+' | 'A' | 'B+' | 'B' | 'C+' | 'C' | 'D'
+export type LetterGrade = 'A' | 'B' | 'C' | 'D' | 'F'
+export type Confidence  = 'high' | 'medium' | 'low' | 'insufficient'
 
 /**
- * Map a 0-100 quality_score to a letter grade per the AlgoSphere V2
- * grade band. Display-only; the underlying numeric score is the
- * canonical source of truth (letter is a UI nicety).
- *
- *    95–100 → A+         85–89 → B+         70–79 → C+
- *    90–94  → A          80–84 → B          60–69 → C
- *    <60                                    → D
+ * THE single canonical grade scale (trust audit — was previously two
+ * inconsistent scales in this file). 0-100 → letter, null-safe.
+ *    ≥85 A · ≥70 B · ≥55 C · ≥40 D · <40 F · null → null (Insufficient Data)
  */
-export function letterGradeFor(score: number | null | undefined): LetterGrade | null {
+export function gradeForScore(score: number | null | undefined): LetterGrade | null {
   if (score == null || !Number.isFinite(score)) return null
   const s = Math.round(score)
-  if (s >= 95) return 'A+'
-  if (s >= 90) return 'A'
-  if (s >= 85) return 'B+'
-  if (s >= 80) return 'B'
-  if (s >= 70) return 'C+'
-  if (s >= 60) return 'C'
-  return 'D'
+  if (s >= 85) return 'A'
+  if (s >= 70) return 'B'
+  if (s >= 55) return 'C'
+  if (s >= 40) return 'D'
+  return 'F'
 }
 
+/** @deprecated kept for callers; now delegates to the unified scale. */
+export const letterGradeFor = gradeForScore
+
+
 export interface CoachEvaluation {
-  // Overall (existing public contract)
-  quality_score:    number   // 0-100
-  strategy_grade:   'A' | 'B' | 'C' | 'D' | 'F'
+  // Overall — null when there is not enough evidence to grade the trade.
+  quality_score:    number | null   // 0-100 | null
+  strategy_grade:   LetterGrade | null
+  confidence:       Confidence
+  data_completeness: number          // 0-1 — fraction of the 5 axes with evidence
+
   emotional_flag:   boolean
   emotional_reason: string | null
   what_worked:      string[]
@@ -103,17 +101,17 @@ export interface CoachEvaluation {
   advancement:      string | null
   evaluator_version: number
 
-  // V3 — five process sub-grades + ranked insights
-  execution_grade:  number   // 0-100
-  psychology_grade: number   // 0-100
-  risk_grade:       number   // 0-100
-  discipline_grade: number   // 0-100
-  timing_grade:     number   // 0-100
-  ai_insights:      string[] // 3+ specific behavioral observations
+  // Five process sub-grades — null when that axis has no evidence.
+  execution_grade:  number | null
+  psychology_grade: number | null
+  risk_grade:       number | null
+  discipline_grade: number | null
+  timing_grade:     number | null
+  ai_insights:      string[]
 }
 
 
-export const EVALUATOR_VERSION = 2
+export const EVALUATOR_VERSION = 3
 
 
 export function evaluateTrade(input: EvaluatorInput): CoachEvaluation {
@@ -123,21 +121,23 @@ export function evaluateTrade(input: EvaluatorInput): CoachEvaluation {
   const discipline = scoreDiscipline(input)
   const timing     = scoreTiming(input)
 
-  // Overall = unweighted average of the 5 process axes. Process-based;
-  // PnL never enters the score directly (only as a tie-breaker on
-  // tied execution sub-scores).
-  const overall = Math.round(
-    (execution.score + psychology.score + risk.score + discipline.score + timing.score) / 5,
-  )
+  const axes = [execution, psychology, risk, discipline, timing]
+  const evidenced = axes.filter((a): a is AxisResult & { score: number } => a.score != null)
+  const data_completeness = Math.round((evidenced.length / axes.length) * 100) / 100
 
-  const grade =
-    overall >= 85 ? 'A' :
-    overall >= 70 ? 'B' :
-    overall >= 55 ? 'C' :
-    overall >= 40 ? 'D' : 'F'
+  // Overall = mean of EVIDENCED axes only. No baseline, no imputation.
+  let quality_score: number | null = null
+  let confidence: Confidence = 'insufficient'
+  if (evidenced.length > 0) {
+    quality_score = Math.round(
+      evidenced.reduce((s, a) => s + a.score, 0) / evidenced.length,
+    )
+    confidence = evidenced.length >= 4 ? 'high'
+               : evidenced.length >= 2 ? 'medium'
+               : 'low'
+  }
+  const grade = gradeForScore(quality_score)
 
-  // Combine the per-axis worked / fix bullets, bounded so the UI stays
-  // scannable.
   const worked = [
     ...execution.worked, ...psychology.worked, ...risk.worked,
     ...discipline.worked, ...timing.worked,
@@ -152,24 +152,23 @@ export function evaluateTrade(input: EvaluatorInput): CoachEvaluation {
 
   const insights = generateTradeInsights({
     input,
-    execution: execution.score,
-    psychology: psychology.score,
-    risk: risk.score,
-    discipline: discipline.score,
-    timing: timing.score,
-    overall,
+    execution: execution.score, psychology: psychology.score, risk: risk.score,
+    discipline: discipline.score, timing: timing.score,
+    confidence, data_completeness,
   })
 
   const advancement = computeAdvancement({
-    grade, overall, emotionalFlag,
-    execution: execution.score, psychology: psychology.score,
-    risk: risk.score, discipline: discipline.score, timing: timing.score,
+    confidence, emotionalFlag,
+    execution: execution.score, psychology: psychology.score, risk: risk.score,
+    discipline: discipline.score, timing: timing.score, overall: quality_score,
     input,
   })
 
   return {
-    quality_score:     overall,
+    quality_score,
     strategy_grade:    grade,
+    confidence,
+    data_completeness,
     emotional_flag:    emotionalFlag,
     emotional_reason:  emotionalReason,
     what_worked:       worked,
@@ -187,56 +186,63 @@ export function evaluateTrade(input: EvaluatorInput): CoachEvaluation {
 
 
 // ─── Axis scorers ──────────────────────────────────────────────────
+// Each returns score:null when the axis has NO evidence (never a baseline).
 
 interface AxisResult {
-  score:           number      // 0-100
+  score:           number | null
   worked:          string[]
   fix:             string[]
   emotionalFlag?:  boolean
   emotionalReason?: string | null
 }
 
-/** Execution grade — how cleanly the trade was opened, managed, closed.
- *  Strictly process: never reads PnL. */
+/** Execution — scored only from the execution-quality ratings actually
+ *  logged (weights renormalised over what's present; no imputation). */
 function scoreExecution(i: EvaluatorInput): AxisResult {
   const worked: string[] = []
   const fix:    string[] = []
+  const parts: Array<[number, number]> = []   // [value, weight]
   const eq = qualityScore(i.entry_quality)
   const xq = qualityScore(i.exit_quality)
   const mq = qualityScore(i.management_quality)
+  if (eq != null) parts.push([eq, 0.35])
+  if (mq != null) parts.push([mq, 0.35])
+  if (xq != null) parts.push([xq, 0.30])
 
-  // Weighted average: entry 35, management 35, exit 30 — entry & mgmt
-  // matter more than the exit on most trades.
-  const filled = [eq, xq, mq].filter((s): s is number => s != null)
-  if (filled.length === 0) {
+  if (parts.length === 0) {
     fix.push('Execution quality not rated — score entry, exit, and management to enable execution analytics.')
-    return { score: 55, worked, fix }   // mild credit for trades unrated yet
+    return { score: null, worked, fix }   // ← Insufficient Data, NOT 55
   }
-  const score = Math.round(
-    ((eq ?? 65) * 0.35) + ((mq ?? 65) * 0.35) + ((xq ?? 65) * 0.30),
-  )
+  const wsum = parts.reduce((s, [, w]) => s + w, 0)
+  const score = Math.round(parts.reduce((s, [v, w]) => s + v * w, 0) / wsum)
 
   if ((eq ?? 0) >= 80) worked.push(`Entry quality rated ${i.entry_quality} — high-precision execution.`)
   if ((mq ?? 0) >= 80) worked.push('Trade management rated strong — kept the plan through the noise.')
-  if ((eq ?? 100) < 50) fix.push(`Entry quality rated ${i.entry_quality} — review what made it sloppy.`)
-  if ((xq ?? 100) < 50) fix.push(`Exit quality rated ${i.exit_quality} — early/late exits leak edge.`)
+  if (eq != null && eq < 50) fix.push(`Entry quality rated ${i.entry_quality} — review what made it sloppy.`)
+  if (xq != null && xq < 50) fix.push(`Exit quality rated ${i.exit_quality} — early/late exits leak edge.`)
 
-  return { score, worked, fix }
+  return { score: clamp(score), worked, fix }
 }
 
-/** Psychology grade — emotional/mental state coming into the trade. */
+/** Psychology — needs at least one logged psychological signal. */
 function scorePsychology(i: EvaluatorInput): AxisResult {
-  let score = 60
   const worked: string[] = []
   const fix:    string[] = []
   let emotionalFlag = false
   let emotionalReason: string | null = null
 
   const pre = (i.emotion_pre ?? '').toLowerCase()
+  const rfe = (i.reason_for_entry ?? '').toLowerCase()
+  const hasEvidence = !!pre || !!rfe || i.revenge_trade != null || i.confidence_level != null
+  if (!hasEvidence) {
+    fix.push('Emotional state not logged — capture emotion_pre + reason_for_entry so psychology analytics turn on.')
+    return { score: null, worked, fix }   // ← Insufficient Data, NOT 56
+  }
+
+  let score = 60   // neutral anchor — only reached once there IS evidence
   if (pre) {
     if (pre === 'calm' || pre === 'focused' || pre === 'confident' || pre.includes('focus')) {
-      score += 18
-      worked.push(`Entered ${pre} — emotional baseline supports execution.`)
+      score += 18; worked.push(`Entered ${pre} — emotional baseline supports execution.`)
     } else if (pre === 'fomo' || pre.includes('fomo')) {
       score -= 25; emotionalFlag = true; emotionalReason = 'Pre-trade FOMO'
       fix.push('Pre-trade FOMO flagged — pause 15 min and re-validate the setup before any retake.')
@@ -250,190 +256,133 @@ function scorePsychology(i: EvaluatorInput): AxisResult {
       score -= 28; emotionalFlag = true; emotionalReason = 'Pre-trade frustration/anger'
       fix.push('Frustration or anger before entry — stop trading for the session.')
     }
-  } else {
-    fix.push('Emotional state not logged — capture emotion_pre on every trade so psychology analytics turn on.')
-    score -= 4
   }
 
-  // Reason for entry — strategy_signal > confirmation > news > impulse/FOMO
-  const rfe = (i.reason_for_entry ?? '').toLowerCase()
   if (rfe === 'strategy_signal') { score += 12; worked.push('Entry from a strategy signal — rule-based.') }
   else if (rfe === 'confirmation_setup') { score += 8; worked.push('Confirmation-based entry — quality bias.') }
   else if (rfe === 'news') { score -= 4; fix.push('News-driven entry — verify the playbook covered this regime.') }
   else if (rfe === 'impulse') {
-    score -= 18; emotionalFlag = true
-    emotionalReason = emotionalReason ?? 'Impulse entry'
+    score -= 18; emotionalFlag = true; emotionalReason = emotionalReason ?? 'Impulse entry'
     fix.push('Impulsive entry — name the specific rule that this trade broke.')
-  }
-  else if (rfe === 'fomo') {
-    score -= 20; emotionalFlag = true
-    emotionalReason = emotionalReason ?? 'FOMO entry'
+  } else if (rfe === 'fomo') {
+    score -= 20; emotionalFlag = true; emotionalReason = emotionalReason ?? 'FOMO entry'
     fix.push('FOMO-tagged entry — sit out the next setup to recalibrate.')
   }
 
-  // Revenge trade is a hard penalty regardless of other inputs.
   if (i.revenge_trade === true) {
-    score -= 22; emotionalFlag = true
-    emotionalReason = emotionalReason ?? 'Revenge trade'
+    score -= 22; emotionalFlag = true; emotionalReason = emotionalReason ?? 'Revenge trade'
     fix.push('Self-identified as a revenge trade — log the trigger (the prior loss) so the pattern surfaces.')
   }
 
-  // Confidence vs setup_validity: high confidence on an invalid setup
-  // is overconfidence; low confidence on a valid setup is hesitation.
   const conf = i.confidence_level
   const sv   = (i.setup_validity ?? '').toLowerCase()
   if (conf != null && sv) {
-    if (sv === 'no' && conf >= 8) {
-      score -= 12
-      fix.push(`Confidence ${conf}/10 on a setup you marked invalid — overconfidence bias.`)
-    } else if (sv === 'yes' && conf <= 4) {
-      score -= 6
-      fix.push(`Confidence ${conf}/10 on a valid setup — hesitation costs edge; build a rule-confirmation drill.`)
-    } else if (sv === 'yes' && conf >= 7) {
-      score += 5
-      worked.push(`Confidence ${conf}/10 aligned with a valid setup.`)
-    }
+    if (sv === 'no' && conf >= 8) { score -= 12; fix.push(`Confidence ${conf}/10 on a setup you marked invalid — overconfidence bias.`) }
+    else if (sv === 'yes' && conf <= 4) { score -= 6; fix.push(`Confidence ${conf}/10 on a valid setup — hesitation costs edge.`) }
+    else if (sv === 'yes' && conf >= 7) { score += 5; worked.push(`Confidence ${conf}/10 aligned with a valid setup.`) }
   }
 
   return { score: clamp(score), worked, fix, emotionalFlag, emotionalReason }
 }
 
-/** Risk grade — sizing and exposure relative to setup quality. */
+/** Risk — requires logged risk_pct (fails closed: risk we can't measure is
+ *  Insufficient Data, never a passing 54). */
 function scoreRisk(i: EvaluatorInput): AxisResult {
-  let score = 60
   const worked: string[] = []
   const fix:    string[] = []
   const r = i.risk_pct
 
-  if (r != null) {
-    if (r <= 0) {
-      fix.push('Risk recorded as zero — likely a logging gap; capture risk_pct on every trade.')
-      score -= 8
-    } else if (r > 5) {
-      score -= 30
-      fix.push(`Risked ${pctStr(r)} on a single trade — far outside the institutional 0.5–1.5% band.`)
-    } else if (r > 2) {
-      score -= 15
-      fix.push(`Risked ${pctStr(r)}. Above the 2% retail cap; trim sizing.`)
-    } else if (r >= 0.4 && r <= 1.5) {
-      score += 18
-      worked.push(`Risk ${pctStr(r)} sat in the disciplined band.`)
-    } else if (r < 0.4) {
-      score += 4  // under-risking isn't terrible but doesn't compound capital
-    }
-
-    // Sizing × setup_validity — overstaking an invalid setup is the
-    // most expensive risk pattern.
-    const sv = (i.setup_validity ?? '').toLowerCase()
-    if (sv === 'no' && r > 1) {
-      score -= 14
-      fix.push(`Risked ${pctStr(r)} on an invalid setup — cap to 0.25% or pass.`)
-    } else if (sv === 'partial' && r > 1.5) {
-      score -= 6
-      fix.push(`${pctStr(r)} on a partial setup — half-size partials.`)
-    }
-  } else {
-    fix.push('Risk per trade missing — log risk_pct so the coach can score sizing.')
-    score -= 6
+  if (r == null) {
+    fix.push('Risk per trade missing — log risk_pct so the coach can score sizing (risk is never assumed safe).')
+    return { score: null, worked, fix }   // ← Insufficient Data, NOT 54
   }
+
+  let score = 60
+  if (r <= 0) {
+    fix.push('Risk recorded as zero — likely a logging gap; capture risk_pct on every trade.')
+    score -= 8
+  } else if (r > 5) {
+    score -= 30; fix.push(`Risked ${pctStr(r)} on a single trade — far outside the institutional 0.5–1.5% band.`)
+  } else if (r > 2) {
+    score -= 15; fix.push(`Risked ${pctStr(r)}. Above the 2% retail cap; trim sizing.`)
+  } else if (r >= 0.4 && r <= 1.5) {
+    score += 18; worked.push(`Risk ${pctStr(r)} sat in the disciplined band.`)
+  } else if (r < 0.4) {
+    score += 4
+  }
+
+  const sv = (i.setup_validity ?? '').toLowerCase()
+  if (sv === 'no' && r > 1) { score -= 14; fix.push(`Risked ${pctStr(r)} on an invalid setup — cap to 0.25% or pass.`) }
+  else if (sv === 'partial' && r > 1.5) { score -= 6; fix.push(`${pctStr(r)} on a partial setup — half-size partials.`) }
 
   return { score: clamp(score), worked, fix }
 }
 
-/** Discipline grade — rule compliance + mistakes. */
+/** Discipline — requires a logged compliance/violation/mistake/reflection. */
 function scoreDiscipline(i: EvaluatorInput): AxisResult {
-  let score = 65
   const worked: string[] = []
   const fix:    string[] = []
-
-  // rule_compliance is the new V3 field; rule_violation kept as a legacy
-  // alias — if either says "broken", penalty applies.
   const rc = (i.rule_compliance ?? '').toLowerCase()
-  if (rc === 'full') {
-    score += 18
-    worked.push('Full rule compliance — playbook-aligned trade.')
-  } else if (rc === 'partial') {
-    score -= 10
-    fix.push('Partial rule compliance — name the specific rule that slipped and build a tripwire.')
-  } else if (rc === 'none') {
-    score -= 30
-    fix.push('No rule compliance — this is a freelance trade; classify it as such, then decide whether the rule needs updating.')
-  } else if (i.rule_violation === true) {
-    score -= 22
-    fix.push('Rule violation logged — investigate which rule and add a tripwire.')
-  } else if (!rc) {
-    fix.push('Rule compliance not logged — capture it on every trade to make discipline measurable.')
-    score -= 4
-  }
-
-  // Revenge trade is a discipline problem too.
-  if (i.revenge_trade === true) {
-    score -= 14
-    fix.push('Revenge trade flagged — explicit discipline breach.')
-  }
-
-  // Mistakes array: −5 each, bounded.
   const mistakes = Array.isArray(i.mistakes) ? i.mistakes : []
+  const hasReflection = !!(i.what_went_well?.trim() || (i.reflection ?? i.improvements ?? '').trim())
+  const hasEvidence = !!rc || i.rule_violation != null || mistakes.length > 0 || hasReflection
+  if (!hasEvidence) {
+    fix.push('Rule compliance not logged — capture it on every trade to make discipline measurable.')
+    return { score: null, worked, fix }   // ← Insufficient Data, NOT 61
+  }
+
+  let score = 65
+  if (rc === 'full') { score += 18; worked.push('Full rule compliance — playbook-aligned trade.') }
+  else if (rc === 'partial') { score -= 10; fix.push('Partial rule compliance — name the specific rule that slipped and build a tripwire.') }
+  else if (rc === 'none') { score -= 30; fix.push('No rule compliance — this is a freelance trade; classify it, then decide whether the rule needs updating.') }
+  else if (i.rule_violation === true) { score -= 22; fix.push('Rule violation logged — investigate which rule and add a tripwire.') }
+
+  if (i.revenge_trade === true) { score -= 14; fix.push('Revenge trade flagged — explicit discipline breach.') }
+
   if (mistakes.length > 0) {
     score -= Math.min(20, mistakes.length * 5)
     for (const m of mistakes.slice(0, 2)) fix.push(`Logged mistake: ${m}.`)
   }
-
-  // Self-coaching = discipline reps.
-  if (i.what_went_well && i.what_went_well.trim().length > 0) {
-    score += 5; worked.push('Self-noted what went well — reinforces the rep.')
-  }
-  if ((i.reflection ?? i.improvements ?? '').trim().length > 0) {
-    score += 5; worked.push('Captured a reflection — self-awareness is the lever.')
-  }
+  if (i.what_went_well && i.what_went_well.trim().length > 0) { score += 5; worked.push('Self-noted what went well — reinforces the rep.') }
+  if ((i.reflection ?? i.improvements ?? '').trim().length > 0) { score += 5; worked.push('Captured a reflection — self-awareness is the lever.') }
 
   return { score: clamp(score), worked, fix }
 }
 
-/** Timing grade — was this trade taken in the right environment? */
+/** Timing — requires setup_validity, a strategy×regime pair, or a session. */
 function scoreTiming(i: EvaluatorInput): AxisResult {
-  let score = 60
   const worked: string[] = []
   const fix:    string[] = []
-
-  // Setup_validity is the strongest timing signal — taking an invalid
-  // setup is bad timing regardless of session.
   const sv = (i.setup_validity ?? '').toLowerCase()
-  if (sv === 'yes')      { score += 18; worked.push('Setup conditions valid at entry.') }
-  else if (sv === 'partial') { score -= 6; fix.push('Setup only partially valid — partials underperform; wait for full confirmation next time.') }
-  else if (sv === 'no')      { score -= 20; fix.push('Setup invalid at entry — this trade was timing without a thesis.') }
-  else                        { fix.push('Setup validity not rated — log it so timing analytics turn on.'); score -= 4 }
-
-  // Market regime fit. Strategy_used × market_regime is informative.
   const strat  = (i.strategy_used ?? '').toLowerCase()
   const regime = (i.market_regime ?? i.market_context ?? '').toLowerCase()
+  const sess = (i.session ?? '').toLowerCase()
+  const hasEvidence = !!sv || (!!strat && !!regime) || !!sess
+  if (!hasEvidence) {
+    fix.push('Setup validity / session not rated — log them so timing analytics turn on.')
+    return { score: null, worked, fix }   // ← Insufficient Data, NOT 56
+  }
+
+  let score = 60
+  if (sv === 'yes')      { score += 18; worked.push('Setup conditions valid at entry.') }
+  else if (sv === 'partial') { score -= 6; fix.push('Setup only partially valid — wait for full confirmation next time.') }
+  else if (sv === 'no')      { score -= 20; fix.push('Setup invalid at entry — this trade was timing without a thesis.') }
+
   if (strat && regime) {
     const fit = regimeFit(strat, regime)
     if (fit === 'strong')   { score += 10; worked.push(`${labelStrategy(strat)} in a ${regime} regime — strategy-environment fit.`) }
     else if (fit === 'weak'){ score -= 10; fix.push(`${labelStrategy(strat)} in a ${regime} regime — historical mismatch; expect lower win rate.`) }
   }
 
-  // Session is informative if logged; ideally the platform learns the
-  // user's per-session edge from history, but a generic prior helps
-  // until the sample matures.
-  const sess = (i.session ?? '').toLowerCase()
-  if (sess === 'off_hours') {
-    score -= 6
-    fix.push('Off-hours entry — liquidity gaps amplify slippage; tighter risk needed.')
-  } else if (sess === 'overlap') {
-    score += 4
-    worked.push('Session overlap — liquidity-rich window.')
-  }
+  if (sess === 'off_hours') { score -= 6; fix.push('Off-hours entry — liquidity gaps amplify slippage; tighter risk needed.') }
+  else if (sess === 'overlap') { score += 4; worked.push('Session overlap — liquidity-rich window.') }
 
   return { score: clamp(score), worked, fix }
 }
 
 
-// ─── Strategy × regime fit table ───────────────────────────────────
-
+// ─── Strategy × regime fit table (PRIOR, low confidence) ───────────
 function regimeFit(strategy: string, regime: string): 'strong' | 'neutral' | 'weak' {
-  // Conservative priors — meant to be overridden later by user-specific
-  // segment edges learned from the journal.
   const fits: Record<string, Record<string, 'strong' | 'weak'>> = {
     trend_following: { trending: 'strong', ranging: 'weak',     reversal: 'weak'   },
     breakout:        { trending: 'strong', volatile: 'strong',  ranging: 'weak'    },
@@ -452,132 +401,102 @@ function labelStrategy(s: string): string {
 
 
 // ─── Insight generator ───────────────────────────────────────────
-
 function generateTradeInsights(ctx: {
-  input:      EvaluatorInput
-  execution:  number
-  psychology: number
-  risk:       number
-  discipline: number
-  timing:     number
-  overall:    number
+  input: EvaluatorInput
+  execution: number | null; psychology: number | null; risk: number | null
+  discipline: number | null; timing: number | null
+  confidence: Confidence; data_completeness: number
 }): string[] {
   const out: string[] = []
   const i = ctx.input
 
-  // 1. Strongest axis (lead with what's working)
-  const grades: Array<[string, number]> = [
-    ['Execution', ctx.execution], ['Psychology', ctx.psychology],
-    ['Risk',      ctx.risk],      ['Discipline', ctx.discipline],
-    ['Timing',    ctx.timing],
-  ]
-  const sortedDesc = [...grades].sort((a, b) => b[1] - a[1])
-  const sortedAsc  = [...grades].sort((a, b) => a[1] - b[1])
-  const best = sortedDesc[0]!
-  const worst = sortedAsc[0]!
-  if (best[1] >= 70) out.push(`Strongest axis: ${best[0]} (${best[1]}/100) — leaned on the right rep here.`)
-  if (worst[1] < 50) out.push(`Weakest axis: ${worst[0]} (${worst[1]}/100) — focus next session.`)
+  // Lead with an honesty statement about how much was logged.
+  if (ctx.confidence === 'insufficient') {
+    out.push('Insufficient data to grade this trade — log Strategy + Psychology + Risk so the coach can evaluate it.')
+  } else if (ctx.confidence === 'low') {
+    out.push(`Low-confidence read: only ${Math.round(ctx.data_completeness * 5)} of 5 process areas were logged.`)
+  }
 
-  // 2. Pattern: emotion + outcome
+  const grades: Array<[string, number | null]> = [
+    ['Execution', ctx.execution], ['Psychology', ctx.psychology], ['Risk', ctx.risk],
+    ['Discipline', ctx.discipline], ['Timing', ctx.timing],
+  ]
+  const present = grades.filter((g): g is [string, number] => g[1] != null)
+  if (present.length) {
+    const best = [...present].sort((a, b) => b[1] - a[1])[0]!
+    const worst = [...present].sort((a, b) => a[1] - b[1])[0]!
+    if (best[1] >= 70) out.push(`Strongest axis: ${best[0]} (${best[1]}/100) — leaned on the right rep here.`)
+    if (worst[1] < 50) out.push(`Weakest axis: ${worst[0]} (${worst[1]}/100) — focus next session.`)
+  }
+
   const pre = (i.emotion_pre ?? '').toLowerCase()
   const pnl = i.pnl
   if (pre && pnl != null) {
-    if ((pre === 'fomo' || pre === 'angry' || pre === 'frustrated') && pnl < 0) {
+    if ((pre === 'fomo' || pre === 'angry' || pre === 'frustrated') && pnl < 0)
       out.push(`${labelStrategy(pre)} entries that lose — recurring pattern. Lock the rule that catches it.`)
-    } else if ((pre === 'calm' || pre === 'focused' || pre === 'confident') && pnl > 0) {
+    else if ((pre === 'calm' || pre === 'focused' || pre === 'confident') && pnl > 0)
       out.push('Calm or focused entries that win — the rep you want to repeat.')
-    }
   }
-
-  // 3. Revenge × outcome
   if (i.revenge_trade === true) {
     out.push(pnl != null && pnl > 0
       ? 'Revenge trade that worked — the math is biased; the win reinforces a destructive pattern.'
       : 'Revenge trade that lost — the cost of unmanaged emotion.')
   }
-
-  // 4. Strategy × regime fit when both present
   const strat  = (i.strategy_used ?? '').toLowerCase()
   const regime = (i.market_regime ?? i.market_context ?? '').toLowerCase()
   if (strat && regime) {
     const fit = regimeFit(strat, regime)
-    if (fit === 'weak') {
-      out.push(`${labelStrategy(strat)} in a ${regime} regime is historically low-edge — verify the playbook covers this case.`)
-    } else if (fit === 'strong') {
-      out.push(`${labelStrategy(strat)} in a ${regime} regime is your high-edge environment.`)
-    }
+    if (fit === 'weak') out.push(`${labelStrategy(strat)} in a ${regime} regime is historically low-edge (prior, low confidence) — verify the playbook covers this case.`)
+    else if (fit === 'strong') out.push(`${labelStrategy(strat)} in a ${regime} regime is your high-edge environment (prior, low confidence).`)
   }
-
-  // 5. Risk × setup_validity
   const r  = i.risk_pct
   const sv = (i.setup_validity ?? '').toLowerCase()
-  if (r != null && r > 1 && sv === 'no') {
-    out.push(`Risked ${pctStr(r)} on a setup you marked invalid — the canonical overconfidence leak.`)
-  } else if (r != null && r > 2) {
-    out.push(`Risked ${pctStr(r)} — above the institutional band; one bad streak takes you out.`)
-  }
+  if (r != null && r > 1 && sv === 'no') out.push(`Risked ${pctStr(r)} on a setup you marked invalid — the canonical overconfidence leak.`)
+  else if (r != null && r > 2) out.push(`Risked ${pctStr(r)} — above the institutional band; one bad streak takes you out.`)
 
-  // 6. Rule compliance discipline
-  const rc = (i.rule_compliance ?? '').toLowerCase()
-  if (rc === 'none')         out.push('Freelance trade — name what made you deviate so the rule can adapt or hold.')
-  else if (rc === 'partial') out.push('Partial rule compliance — identify which clause slipped first.')
-
-  // 7. Execution × outcome decoupling
-  if (ctx.execution >= 75 && pnl != null && pnl < 0) {
-    out.push('Clean execution on a losing trade — the cost of doing business. Don\'t change the process to chase the outcome.')
-  } else if (ctx.execution <= 45 && pnl != null && pnl > 0) {
+  if (ctx.execution != null && ctx.execution >= 75 && pnl != null && pnl < 0)
+    out.push("Clean execution on a losing trade — the cost of doing business. Don't change the process to chase the outcome.")
+  else if (ctx.execution != null && ctx.execution <= 45 && pnl != null && pnl > 0)
     out.push('Sloppy execution on a winning trade — the outcome flatters bad process. Tighten the next entry.')
-  }
 
-  // Always emit at least 3.
   if (out.length < 3) {
-    if (!i.emotion_pre)        out.push('Log emotion_pre on every trade — psychology analytics turn on at ~10 logged entries.')
-    if (!i.strategy_used)      out.push('Tag strategy_used — strategy-edge analytics require it.')
-    if (!i.setup_validity)     out.push('Rate setup_validity — timing analytics depend on it.')
-    if (out.length < 3)         out.push('Build the habit of capturing reason_for_entry + reflection on every trade.')
+    if (!i.emotion_pre)    out.push('Log emotion_pre on every trade — psychology analytics turn on at ~10 logged entries.')
+    if (!i.strategy_used)  out.push('Tag strategy_used — strategy-edge analytics require it.')
+    if (!i.setup_validity) out.push('Rate setup_validity — timing analytics depend on it.')
+    if (out.length < 3)    out.push('Build the habit of capturing reason_for_entry + reflection on every trade.')
   }
-
   return out.slice(0, 6)
 }
 
 
 // ─── Advancement (one next step) ────────────────────────────────────
-
 function computeAdvancement(ctx: {
-  grade: string; overall: number; emotionalFlag: boolean
-  execution: number; psychology: number; risk: number
-  discipline: number; timing: number
+  confidence: Confidence; emotionalFlag: boolean
+  execution: number | null; psychology: number | null; risk: number | null
+  discipline: number | null; timing: number | null; overall: number | null
   input: EvaluatorInput
 }): string {
-  // Lead with the most actionable single fix.
-  if (ctx.input.revenge_trade === true) {
+  if (ctx.confidence === 'insufficient')
+    return 'Not enough logged yet to coach this trade. Capture Strategy (setup validity, regime) + Psychology (emotion, reason) + Risk (risk %) — then the grade means something.'
+  if (ctx.input.revenge_trade === true)
     return 'Next session: write down what triggered the revenge trade (which loss, how recent) and add the rule that would have stopped it.'
-  }
-  if (ctx.emotionalFlag) {
-    return 'Next entry: log emotion_pre BEFORE clicking the order, then read the rule that the emotion is biased against. If they conflict, skip.'
-  }
-  if (ctx.risk < 40) {
+  if (ctx.emotionalFlag)
+    return 'Next entry: log emotion_pre BEFORE clicking the order, then read the rule the emotion is biased against. If they conflict, skip.'
+  if (ctx.risk != null && ctx.risk < 40)
     return 'Next trade: cap risk to 0.5% and let the strategy prove itself at the disciplined sizing band before scaling.'
-  }
-  if (ctx.discipline < 50) {
+  if (ctx.discipline != null && ctx.discipline < 50)
     return 'Pre-trade ritual this week: read the rule for the setup out loud before pulling the trigger.'
-  }
-  if (ctx.timing < 50) {
+  if (ctx.timing != null && ctx.timing < 50)
     return 'Next time you see this setup: wait for setup_validity = yes before entering. Partials underperform.'
-  }
-  if (ctx.execution < 50) {
+  if (ctx.execution != null && ctx.execution < 50)
     return 'Next trade: name what would make entry quality "excellent" before placing the order, then judge afterwards.'
-  }
-  // Strong trade — reinforce the rep.
-  if (ctx.overall >= 80) {
+  if (ctx.overall != null && ctx.overall >= 80)
     return 'Strong trade. Capture what made it work in your reflection so it scales.'
-  }
   return 'Capture a one-line reflection on this trade — the lever that moves discipline is volume of reps × honesty in the review.'
 }
 
 
 // ─── Helpers ────────────────────────────────────────────────────────
-
 function qualityScore(label: string | null | undefined): number | null {
   if (!label) return null
   switch (label.toLowerCase()) {
@@ -594,6 +513,5 @@ function clamp(n: number): number {
 }
 
 function pctStr(r: number): string {
-  // r is already a percentage (e.g. 1.5 means 1.5%)
   return `${r.toFixed(2)}%`
 }

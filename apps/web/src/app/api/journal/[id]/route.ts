@@ -133,6 +133,8 @@ export async function PATCH(
   const coach = {
     quality_score:    ev.quality_score,
     strategy_grade:   ev.strategy_grade,
+    confidence:       ev.confidence,
+    data_completeness: ev.data_completeness,
     emotional_flag:   ev.emotional_flag,
     emotional_reason: ev.emotional_reason,
     advancement:      ev.advancement,
@@ -156,6 +158,8 @@ export async function PATCH(
         user_id:           user.id,
         quality_score:     ev.quality_score,
         strategy_grade:    ev.strategy_grade,
+        confidence:        ev.confidence,
+        data_completeness: ev.data_completeness,
         emotional_flag:    ev.emotional_flag,
         emotional_reason:  ev.emotional_reason,
         what_worked:       ev.what_worked,

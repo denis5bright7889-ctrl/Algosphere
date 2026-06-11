@@ -8,7 +8,7 @@ import type { PerformanceMetrics, DrawdownPoint } from '@/lib/types'
 const ANNUALISATION = Math.sqrt(252) // daily → annual
 const RISK_FREE_RATE = 0             // assume 0 for trading context
 
-export function computeMetrics(pnlSeries: number[]): PerformanceMetrics {
+export function computeMetrics(pnlSeries: number[], startingBalance = 0): PerformanceMetrics {
   if (pnlSeries.length === 0) return emptyMetrics()
 
   const wins = pnlSeries.filter(p => p > 0)
@@ -20,7 +20,7 @@ export function computeMetrics(pnlSeries: number[]): PerformanceMetrics {
 
   const sharpe = computeSharpe(pnlSeries)
   const sortino = computeSortino(pnlSeries)
-  const { maxDrawdownPct, maxDrawdownUsd } = computeMaxDrawdown(pnlSeries)
+  const { maxDrawdownPct, maxDrawdownUsd } = computeMaxDrawdown(pnlSeries, startingBalance)
   const profitFactor = losses.length
     ? Math.abs(wins.reduce((a, b) => a + b, 0)) / Math.abs(losses.reduce((a, b) => a + b, 0))
     : wins.length > 0 ? Infinity : 0
@@ -69,35 +69,50 @@ function computeSortino(series: number[]): number {
   return downsideStd === 0 ? 0 : (mean / downsideStd) * ANNUALISATION
 }
 
-function computeMaxDrawdown(series: number[]): { maxDrawdownPct: number; maxDrawdownUsd: number } {
-  let peak = 0
-  let cumulative = 0
+/**
+ * Max drawdown against ACCOUNT EQUITY (not peak cumulative PnL).
+ *
+ * Fix (trust audit): the prior version used `ddUsd / peakCumulativePnL`, which
+ *   (a) produced drawdowns > 100% (e.g. +$100 then −$150 → "150%"), and
+ *   (b) reported 0% for any account that was net-negative from trade 1
+ *       (peak seeded at 0, never exceeded → denominator skipped).
+ * Equity is now `startingBalance + cumulative`, peak is seeded at the starting
+ * balance, and the percentage is clamped to [0,1]. When the real starting
+ * balance is unknown (0), the result is the high-water-mark drawdown of the
+ * PnL curve, still bounded and never fabricated above 100%.
+ */
+function computeMaxDrawdown(
+  series: number[], startingBalance = 0,
+): { maxDrawdownPct: number; maxDrawdownUsd: number } {
+  let equity = startingBalance
+  let peak = startingBalance
   let maxDrawdownPct = 0
   let maxDrawdownUsd = 0
 
   for (const pnl of series) {
-    cumulative += pnl
-    if (cumulative > peak) peak = cumulative
-    const ddUsd = peak - cumulative
-    const ddPct = peak > 0 ? ddUsd / peak : 0
-    if (ddPct > maxDrawdownPct) {
-      maxDrawdownPct = ddPct
-      maxDrawdownUsd = ddUsd
-    }
+    equity += pnl
+    if (equity > peak) peak = equity
+    const ddUsd = peak - equity
+    // Denominator is peak EQUITY. If peak ≤ 0 (no positive equity reference),
+    // any decline is a full (100%) drawdown rather than a divide-by-zero skip.
+    const ddPct = peak > 0 ? Math.min(ddUsd / peak, 1) : (ddUsd > 0 ? 1 : 0)
+    if (ddUsd > maxDrawdownUsd) maxDrawdownUsd = ddUsd
+    if (ddPct > maxDrawdownPct) maxDrawdownPct = ddPct
   }
   return { maxDrawdownPct, maxDrawdownUsd }
 }
 
 export function computeDrawdownCurve(
-  series: { date: string; pnl: number }[]
+  series: { date: string; pnl: number }[], startingBalance = 0,
 ): DrawdownPoint[] {
-  let peak = 0
-  let cumulative = 0
+  let equity = startingBalance
+  let peak = startingBalance
   return series.map(({ date, pnl }) => {
-    cumulative += pnl
-    if (cumulative > peak) peak = cumulative
-    const drawdown_pct = peak > 0 ? -((peak - cumulative) / peak) * 100 : 0
-    return { date, equity: round(cumulative, 2), drawdown_pct: round(drawdown_pct, 2) }
+    equity += pnl
+    if (equity > peak) peak = equity
+    const ddUsd = peak - equity
+    const ddPctMag = peak > 0 ? Math.min(ddUsd / peak, 1) : (ddUsd > 0 ? 1 : 0)
+    return { date, equity: round(equity, 2), drawdown_pct: round(-ddPctMag * 100, 2) }
   })
 }
 

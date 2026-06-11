@@ -206,6 +206,8 @@ export async function POST(request: NextRequest) {
   const coach = {
     quality_score:    evalRow.quality_score,
     strategy_grade:   evalRow.strategy_grade,
+    confidence:       evalRow.confidence,
+    data_completeness: evalRow.data_completeness,
     emotional_flag:   evalRow.emotional_flag,
     emotional_reason: evalRow.emotional_reason,
     advancement:      evalRow.advancement,
@@ -225,6 +227,8 @@ export async function POST(request: NextRequest) {
         user_id:           user.id,
         quality_score:     evalRow.quality_score,
         strategy_grade:    evalRow.strategy_grade,
+        confidence:        evalRow.confidence,
+        data_completeness: evalRow.data_completeness,
         emotional_flag:    evalRow.emotional_flag,
         emotional_reason:  evalRow.emotional_reason,
         what_worked:       evalRow.what_worked,

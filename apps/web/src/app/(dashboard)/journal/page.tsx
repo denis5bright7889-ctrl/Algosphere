@@ -35,7 +35,7 @@ export default async function JournalPage() {
     // append-only; the dashboard always reads the freshest).
     supabase
       .from('journal_coach_evaluations')
-      .select('id, journal_entry_id, quality_score, strategy_grade, emotional_flag, emotional_reason, advancement, what_to_fix, ai_insights, execution_grade, psychology_grade, risk_grade, discipline_grade, timing_grade, created_at')
+      .select('id, journal_entry_id, quality_score, strategy_grade, confidence, data_completeness, emotional_flag, emotional_reason, advancement, what_to_fix, ai_insights, execution_grade, psychology_grade, risk_grade, discipline_grade, timing_grade, created_at')
       .eq('user_id', user!.id)
       .order('created_at', { ascending: false }),
     // Auto-fill status: does the user have any broker connected? The
@@ -62,8 +62,10 @@ export default async function JournalPage() {
   type EvalRow = {
     id:                string
     journal_entry_id:  string
-    quality_score:     number
+    quality_score:     number | null
     strategy_grade:    CoachEvalSummary['strategy_grade']
+    confidence:        CoachEvalSummary['confidence']
+    data_completeness: number | null
     emotional_flag:    boolean
     emotional_reason:  string | null
     advancement:       string | null
@@ -81,6 +83,8 @@ export default async function JournalPage() {
     coachByEntry[row.journal_entry_id] = {
       quality_score:    row.quality_score,
       strategy_grade:   row.strategy_grade,
+      confidence:       row.confidence,
+      data_completeness: row.data_completeness,
       emotional_flag:   row.emotional_flag,
       emotional_reason: row.emotional_reason,
       advancement:      row.advancement,

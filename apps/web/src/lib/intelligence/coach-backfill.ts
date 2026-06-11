@@ -156,6 +156,8 @@ export async function backfillCoachEvalsForUser(userId: string): Promise<Backfil
         user_id:           userId,
         quality_score:     e.quality_score,
         strategy_grade:    e.strategy_grade,
+        confidence:        e.confidence,
+        data_completeness: e.data_completeness,
         emotional_flag:    e.emotional_flag,
         emotional_reason:  e.emotional_reason,
         what_worked:       e.what_worked,
