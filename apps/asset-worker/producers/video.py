@@ -270,27 +270,64 @@ def _resolve_track(theme: str) -> Path | None:
     return tracks[0] if tracks else None
 
 
+# Per-theme musical bed: a 4-chord progression (semitone offsets from the
+# theme root) + seconds-per-chord. This gives real chord MOVEMENT + a per-chord
+# swell (rhythm) instead of a flat drone.
+_THEME_PROG = {
+    'tense':         ([0, -2, -5, -7], 1.8),   # descending, restless
+    'reflective':    ([0, 3, -2, -4], 2.6),    # wistful
+    'institutional': ([0, 5, -3, 2], 2.4),     # grounded movement
+    'calm':          ([0, 4, -1, -3], 2.8),    # soft major
+    'lift':          ([0, 4, 7, 5], 2.0),      # rising, hopeful
+}
+
+
 def _synth_bed(theme: str, dur: float, out: Path) -> Path | None:
-    """Synthesize a royalty-free ambient theme bed with ffmpeg lavfi.
-    A soft triad pad (root + maj third + fifth) with tremolo, low-pass
-    and a short echo. Never copyrighted; always available."""
-    _, root, trem, lp = _THEME_AUDIO.get(theme, _THEME_AUDIO['institutional'])
-    third = root * (2 ** (4 / 12))   # major third
-    fifth = root * (2 ** (7 / 12))   # perfect fifth
-    cmd = [
-        'ffmpeg', '-y',
-        '-f', 'lavfi', '-i', f'sine=frequency={root:.2f}:duration={dur:.2f}',
-        '-f', 'lavfi', '-i', f'sine=frequency={third:.2f}:duration={dur:.2f}',
-        '-f', 'lavfi', '-i', f'sine=frequency={fifth:.2f}:duration={dur:.2f}',
-        '-filter_complex',
-        (f'[0][1][2]amix=inputs=3:normalize=1,'
-         f'tremolo=f={trem}:d=0.4,lowpass=f={lp},aecho=0.8:0.88:220:0.3,'
-         f'afade=t=in:st=0:d=1.5,afade=t=out:st={max(0,dur-1.2):.2f}:d=1.2,'
-         f'volume=1.2[a]'),
-        '-map', '[a]', '-c:a', 'aac', '-b:a', '128k', str(out),
-    ]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    return out if r.returncode == 0 and out.exists() and out.stat().st_size > 0 else None
+    """Synthesize a royalty-free MUSICAL bed (not a drone): a looping 4-chord
+    progression, each chord a triad+octave with a swell envelope for rhythm,
+    then low-pass + reverb + fades. Never copyrighted; never muted on IG.
+    Returns None on any failure (caller promotes a silent render)."""
+    _, root, _trem, lp = _THEME_AUDIO.get(theme, _THEME_AUDIO['institutional'])
+    prog, beat = _THEME_PROG.get(theme, ([0, 5, -3, 2], 2.4))
+    work = out.parent
+    try:
+        segs: list[Path] = []
+        for i, semi in enumerate(prog):
+            r = root * (2 ** (semi / 12.0))
+            voices = [r / 2, r, r * (2 ** (4 / 12)), r * (2 ** (7 / 12)), r * 2]  # bass+triad+oct
+            inputs: list[str] = []
+            for v in voices:
+                inputs += ['-f', 'lavfi', '-i', f'sine=frequency={v:.2f}:duration={beat:.2f}']
+            fc = (f'[0][1][2][3][4]amix=inputs=5:normalize=1,'
+                  f'afade=t=in:st=0:d=0.12,'
+                  f'afade=t=out:st={max(0.1, beat - 0.3):.2f}:d=0.3,volume=1.5[a]')
+            seg = work / f'_chord_{i}.wav'
+            r2 = subprocess.run(['ffmpeg', '-y', *inputs, '-filter_complex', fc,
+                                 '-map', '[a]', '-c:a', 'pcm_s16le', str(seg)],
+                                capture_output=True, text=True, timeout=60)
+            if r2.returncode != 0 or not seg.exists():
+                return None
+            segs.append(seg)
+
+        lst = work / '_prog.txt'
+        lst.write_text(''.join(f"file '{s.as_posix()}'\n" for s in segs), encoding='utf-8')
+        prog_wav = work / '_prog.wav'
+        rc = subprocess.run(['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', str(lst),
+                             '-c', 'copy', str(prog_wav)], capture_output=True, text=True, timeout=60)
+        if rc.returncode != 0 or not prog_wav.exists():
+            return None
+
+        fade_out = max(0.1, dur - 1.2)
+        rm = subprocess.run(
+            ['ffmpeg', '-y', '-stream_loop', '-1', '-i', str(prog_wav), '-t', f'{dur:.2f}',
+             '-filter_complex',
+             (f'lowpass=f={lp},aecho=0.8:0.85:240:0.3,'
+              f'afade=t=in:st=0:d=1.0,afade=t=out:st={fade_out:.2f}:d=1.2,volume=1.1[a]'),
+             '-map', '[a]', '-c:a', 'aac', '-b:a', '128k', str(out)],
+            capture_output=True, text=True, timeout=120)
+        return out if rm.returncode == 0 and out.exists() and out.stat().st_size > 0 else None
+    except Exception:
+        return None
 
 
 def _mux(silent: Path, audio: Path, out: Path, dur: float, loop: bool) -> None:
