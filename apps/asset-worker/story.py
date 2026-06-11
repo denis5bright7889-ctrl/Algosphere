@@ -72,48 +72,80 @@ _EMOTION_BY_TYPE = {
 
 
 def _fallback(event: dict) -> dict:
+    """Deterministic but VARIED — different events produce different reels even
+    with no LLM. Rotation is keyed off the event identity so it's stable on
+    retry but distinct across events (no two losses share the same hook)."""
+    import hashlib
     et = event.get('event_type', 'note')
     emotion = _EMOTION_BY_TYPE.get(et, 'insight')
     rd = event.get('raw_data') or {}
     subject = (rd.get('summary') or rd.get('message') or rd.get('pair')
                or rd.get('title') or et.replace('_', ' '))
-    templates = {
+    pips = rd.get('pips')
+    seed_src = str(event.get('dedup_key') or rd.get('sha') or subject)
+    idx = int(hashlib.sha1(seed_src.encode()).hexdigest(), 16)
+
+    # (hook variants, story-opener variants, lesson variants, conflict)
+    banks = {
         'failure': (
-            [f"I watched it go wrong in real time.", "This one stung.",
-             "Nobody tells you how loss feels at 2am."],
-            f"Today {subject} didn't go my way. Building AlgoSphere alone in Kenya, "
-            f"every setback feels personal — and expensive. I sat with it instead of "
-            f"hiding it. The market doesn't care how hard you worked.",
-            "Losses are tuition. Pay attention, not just money.",
+            ["I watched it go wrong in real time.", "This one cost me.",
+             "Nobody warns you how a loss feels at 2am.", f"{subject}. Ouch.",
+             "I almost closed the laptop tonight."],
+            [f"Today {subject} didn't go my way.",
+             f"A losing trade ({subject}) hit while I was watching live.",
+             f"{subject} went against the plan today."],
+            ["Losses are tuition — pay attention, not just money.",
+             "A red day is data, not a verdict.",
+             "The market doesn't care how hard you worked. Adjust anyway."],
             "Wanting it to work vs. accepting what actually happened."),
         'struggle': (
-            [f"3am. Something broke again.", "Solo founder problems.",
-             "No team to call. Just me."],
-            f"{subject} broke today. With no team and a tight budget, every failure "
-            f"is mine to fix before users notice. I was tired. I fixed it anyway. "
-            f"That's the part nobody posts about.",
-            "Resilience isn't loud. It's showing up to fix it again.",
-            "Exhaustion vs. the promise I made to the people using this."),
+            ["3am. It broke again.", "Solo-founder problems.", "No team to call. Just me.",
+             f"{subject} broke and it was on me.", "Tired, but I fixed it anyway."],
+            [f"{subject} broke today.",
+             f"Something failed: {subject}. With no team, it's mine to fix.",
+             f"{subject} went down before users noticed — barely."],
+            ["Resilience isn't loud. It's showing up to fix it again.",
+             "Reliability is a promise you keep when nobody's watching.",
+             "Build boring safety nets before you need them."],
+            "Exhaustion vs. the promise I made to people using this."),
         'win': (
-            [f"It actually worked.", "Small win. Huge for me.",
-             "Months of doubt, one good moment."],
-            f"{subject} worked today. After months of building AlgoSphere alone with "
-            f"almost nothing, a small win hits different. I'm not celebrating yet — "
-            f"but I let myself breathe for a second.",
-            "Momentum is built from small proofs that you're not crazy.",
+            ["It actually worked.", "Small win. Huge for me.",
+             "Months of doubt, one good moment.", f"{subject} — finally.",
+             "Let myself breathe for a second today."],
+            [f"{subject} worked today.",
+             f"A win today ({subject}{f', +{pips} pips' if pips else ''}).",
+             f"{subject} landed the way it was supposed to."],
+            ["Momentum is small proofs that you're not crazy.",
+             "Celebrate the process, not the payout.",
+             "One win doesn't change the edge — but it refuels you."],
             "Quiet doubt vs. one piece of evidence it's real."),
         'insight': (
-            [f"I changed my mind today.", "A small thing I got wrong.",
-             "Building teaches you fast."],
-            f"Working on {subject} today taught me something. Building a trading "
-            f"platform solo in Kenya forces clarity — you can't afford to be wrong "
-            f"for long. I shipped the lesson.",
-            "Clarity comes from constraints, not comfort.",
+            ["I changed my mind today.", "A small thing I got wrong.",
+             "Building teaches you fast.", f"Shipped: {subject}.",
+             "Constraints made this obvious."],
+            [f"Working on {subject} today taught me something.",
+             f"Shipped {subject}. It clarified something I'd been avoiding.",
+             f"{subject} forced a decision I'd been dodging."],
+            ["Clarity comes from constraints, not comfort.",
+             "Ship the lesson, not just the feature.",
+             "You can't afford to be wrong for long when you're solo."],
             "What I assumed vs. what the work revealed."),
     }
-    hooks, body, lesson, conflict = templates[emotion]
+    hooks, openers, lessons, conflict = banks[emotion]
+    hook0 = hooks[idx % len(hooks)]
+    opener = openers[idx % len(openers)]
+    lesson = lessons[idx % len(lessons)]
+    tail = {
+        'failure': "Building AlgoSphere alone in Kenya, every setback feels personal — and expensive. I sat with it instead of hiding it.",
+        'struggle': "No team, tight budget — every failure is mine to catch before users do. I was tired. I shipped the fix.",
+        'win': "After months building solo with almost nothing, a small win hits different. Not celebrating yet — just grateful.",
+        'insight': "Building a trading platform solo forces clarity. You learn in public or you don't learn fast enough.",
+    }[emotion]
+    body = f"{opener} {tail}"
+    # rotate which 3 hooks we expose as angles
+    angles = [hook0] + [h for h in hooks if h != hook0][:2]
     return {
-        'hook_angles': hooks,
+        'hook_angles': angles,
         'story': body,
         'emotion_type': emotion,
         'lesson': lesson,
