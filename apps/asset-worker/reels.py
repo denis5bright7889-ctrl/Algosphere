@@ -42,12 +42,11 @@ RULES:
   then ONE engagement question. No engineering jargon.
 - Diary energy, first person, Kenya/solo-founder reality, money & pressure real.
 
-Return ONLY JSON:
+Return ONLY JSON (keep it compact — no markdown, no trailing commas):
 {{
   "hook": "the strongest one-liner",
   "reel_scenes": [{{"text":"<=10 words","seconds":2.5}}, ... 5-7 items],
-  "caption": "full caption WITHOUT hashtags",
-  "carousel": ["7 slides: hook, story x4, lesson, question"]
+  "caption": "full caption WITHOUT hashtags"
 }}"""
 
 
@@ -107,13 +106,13 @@ def generate_reel(story: dict) -> dict:
             for s in out['reel_scenes'][:7] if s.get('text')
         ]
         if scenes:
+            hook = out.get('hook') or scenes[0]['text']
+            # Carousel is derived from the reel (reels-first; carousel is the
+            # fallback surface), so the LLM only has to return the reel + caption.
+            carousel = [hook] + [s['text'] for s in scenes[1:6]] + ['What would you have done? 👇']
             return {
-                'format': 'reel',
-                'hook': out.get('hook') or scenes[0]['text'],
-                'caption': out['caption'],
-                'reel_scenes': scenes,
-                'carousel': (out.get('carousel') or [])[:7],
-                '_source': 'llm',
+                'format': 'reel', 'hook': hook, 'caption': out['caption'],
+                'reel_scenes': scenes, 'carousel': carousel[:7], '_source': 'llm',
             }
         logger.info("reels: LLM scenes empty — fallback")
     return _fallback(story)

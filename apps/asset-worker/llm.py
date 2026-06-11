@@ -37,7 +37,7 @@ def _call_gemini(system: str, user: str, *, temperature: float, json_mode: bool)
         'contents': [{'role': 'user', 'parts': [{'text': user}]}],
         'generationConfig': {
             'temperature': temperature,
-            'maxOutputTokens': 2048,
+            'maxOutputTokens': 4096,
             **({'responseMimeType': 'application/json'} if json_mode else {}),
         },
     }
@@ -73,6 +73,13 @@ def generate_json(system: str, user: str, *, temperature: float = 0.8) -> dict |
         raw = m.group(0)
     try:
         return json.loads(raw)
+    except Exception:
+        pass
+    # Lenient repair: strip trailing commas before } or ] (the most common
+    # malformation), then retry.
+    repaired = re.sub(r',(\s*[}\]])', r'\1', raw)
+    try:
+        return json.loads(repaired)
     except Exception as e:
         logger.warning(f"llm: JSON parse failed — {e}")
         return None
