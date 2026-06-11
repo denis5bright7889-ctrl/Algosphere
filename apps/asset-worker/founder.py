@@ -109,7 +109,9 @@ def run_founder_factory() -> None:
                 'is_synthetic': False,
                 'disclaimer': 'Founder build-in-public. Not financial advice.',
                 'asset_state': 'pending',
-                'asset_kinds': ['founder_reel'],
+                # Reel (audio, primary for IG) + a 7-slide carousel so image
+                # posts are multi-slide swipes, never a single silent card.
+                'asset_kinds': ['founder_reel', 'founder_carousel'],
                 'source_event_id': ev['id'],
                 'story': st,
                 'provenance': {'source': 'founder', 'emotion': emotion,

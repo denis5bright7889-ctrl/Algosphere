@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 import time
 import urllib.request
 from datetime import datetime, timezone, timedelta
@@ -342,6 +343,44 @@ def _post_instagram(caption: str, url: str, is_video: bool) -> str:
     return 'ok' if pub.get('id') else 'err:' + str(pub.get('error'))[:60]
 
 
+def _carousel_urls(asset_urls: dict | None) -> list[str]:
+    """Ordered image URLs for a carousel (keys like '<kind>_slide_N')."""
+    if not asset_urls:
+        return []
+    items = [(k, u) for k, u in asset_urls.items()
+             if isinstance(u, str) and 'slide' in str(k)
+             and ('.jpg' in u or '.jpeg' in u or '.png' in u)]
+    def _idx(k):
+        m = re.search(r'slide_(\d+)', str(k))
+        return int(m.group(1)) if m else 0
+    items.sort(key=lambda kv: _idx(kv[0]))
+    return [u for _, u in items]
+
+
+def _post_instagram_carousel(caption: str, image_urls: list[str]) -> str:
+    """Publish a multi-image IG carousel (2-10 slides). Builds child item
+    containers, then a CAROUSEL container, then publishes. Never raises."""
+    tok = os.environ.get('META_PAGE_ACCESS_TOKEN')
+    ig = os.environ.get('META_IG_USER_ID')
+    urls = [u for u in image_urls if u][:10]
+    if not (tok and ig) or len(urls) < 2:
+        return 'skip'
+    children = []
+    for u in urls:
+        c = _graph_post(f'{ig}/media', {'image_url': u, 'is_carousel_item': 'true', 'access_token': tok})
+        if c.get('id'):
+            children.append(c['id'])
+    if len(children) < 2:
+        return 'err:children'
+    cont = _graph_post(f'{ig}/media', {'media_type': 'CAROUSEL', 'children': ','.join(children),
+                                       'caption': caption, 'access_token': tok})
+    cid = cont.get('id')
+    if not cid:
+        return 'err:' + str(cont.get('error'))[:50]
+    pub = _graph_post(f'{ig}/media_publish', {'creation_id': cid, 'access_token': tok})
+    return 'ok' if pub.get('id') else 'err:' + str(pub.get('error'))[:50]
+
+
 def _discord_webhook(channel_hint: str) -> str | None:
     key = {
         'signals': 'DISCORD_WEBHOOK_SIGNALS_FREE_URL',
@@ -439,16 +478,19 @@ def run_publisher() -> None:
         except Exception as e:
             fb = 'err:' + str(e)[:40]
         try:
-            # Founder content is a REEL — post the video to IG (that's the
-            # whole point; reels get the reach). For other (card) content,
-            # post the image, since IG's API rejects media_type=REELS on some
-            # apps for non-video items.
+            # Instagram rules (engagement-optimised):
+            #   reel  → post the video reel (audio, best reach)
+            #   else  → post a CAROUSEL of >=2 slides (multi-image swipe beats
+            #           a single image)
+            #   never → a single silent image (skip IG; it still goes to
+            #           Telegram/Discord where lone images are fine)
+            slides = _carousel_urls(it.get('asset_urls'))
             if it.get('content_format') == 'reel' and video_url:
                 ig = _post_instagram(meta_caption, video_url, True)
+            elif len(slides) >= 2:
+                ig = _post_instagram_carousel(meta_caption, slides)
             else:
-                ig_url = image_url or video_url
-                ig_is_video = image_url is None and video_url is not None
-                ig = _post_instagram(meta_caption, ig_url, ig_is_video)
+                ig = 'skip:single-image'
         except Exception as e:
             ig = 'err:' + str(e)[:40]
         # Back off for the full Meta interval whether or not it succeeded —

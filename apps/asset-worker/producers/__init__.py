@@ -83,6 +83,7 @@ REGISTRY: Dict[str, Producer] = {
     'weekly_recap_carousel':        produce_carousel,
     'market_recap_carousel':        produce_carousel,
     'feature_release_carousel':     produce_carousel,
+    'founder_carousel':             produce_carousel,   # Founder Media Engine
 
     # ── Blog (markdown + INSERT growth_content_items → /blog) ──────
     'daily_market_blog':            produce_blog,

@@ -43,9 +43,10 @@ def _new_canvas(glow_color=AMBER, glow_xy=(W, 0)) -> Image.Image:
 def _page_pill(d: ImageDraw.ImageDraw, idx: int, total: int) -> None:
     """Top-right slide indicator (e.g. 3 / 5)."""
     text = f'{idx + 1} / {total}'
-    d.rounded_rectangle([W - 200, 50, W - 60, 100], radius=25,
-                        fill=(*AMBER, 30), outline=AMBER, width=2)
-    d.text((W - 130, 75), text, fill=AMBER, font=font(28), anchor='mm')
+    # solid pill + dark label (an RGBA alpha fill doesn't composite on
+    # convert('RGB'), which made amber-on-amber text invisible)
+    d.rounded_rectangle([W - 200, 50, W - 60, 100], radius=25, fill=AMBER)
+    d.text((W - 130, 75), text, fill=BG, font=font(28), anchor='mm')
 
 
 def _slide_shell(idx: int, total: int, glow_color=AMBER) -> tuple:
@@ -243,12 +244,30 @@ def _feature_release(p: dict) -> List[Image.Image]:
     ]
 
 
+def _founder(p: dict) -> List[Image.Image]:
+    """Founder-diary carousel (~7 slides) from the reel scene list: hook →
+    story beats → CTA. Used so Instagram image posts are multi-slide
+    carousels (which out-perform single images), never lone cards."""
+    scenes = p.get('reel_scenes') or []
+    texts = [str(s.get('text', '')).strip() for s in scenes if s.get('text')]
+    hook = str(p.get('title') or (texts[0] if texts else 'Building AlgoSphere'))
+    body = (texts[1:] or texts)[:6]              # story beats (cap 6)
+    total = len(body) + 2                         # hook + beats + CTA
+    slides = [_slide_title_only(0, total, hook, 'BUILDING ALGOSPHERE · KENYA', glow_color=AMBER)]
+    colors = [SKY, EMERALD, AMBER, ROSE, SKY, EMERALD]
+    for i, t in enumerate(body):
+        slides.append(_slide_numbered_bullet(i + 1, total, '', t, color=colors[i % len(colors)]))
+    slides.append(_slide_cta(total - 1, total, 'Follow the build', cta_text='Follow'))
+    return slides
+
+
 _BUILDERS: Dict[str, Callable[[dict], List[Image.Image]]] = {
     'educational_carousel':         _educational,
     'strategy_breakdown_carousel':  _strategy_breakdown,
     'weekly_recap_carousel':        _weekly_recap,
     'market_recap_carousel':        _market_recap,
     'feature_release_carousel':     _feature_release,
+    'founder_carousel':             _founder,
 }
 
 
