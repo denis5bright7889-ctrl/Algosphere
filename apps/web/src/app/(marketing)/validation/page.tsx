@@ -31,7 +31,14 @@ export const metadata = {
     'Every strategy must earn the right to trade live. See how AlgoSphere validates execution quality, broker performance, and strategy readiness using forward-tested market data — sample-gated, anonymised, never fabricated.',
 }
 
-export const revalidate = 1800   // 30 minutes
+// Force dynamic rendering — the aggregator hits Supabase with the
+// service role key, which is a RUNTIME env var. Static prerender at
+// build time would crash with "supabaseKey is required" because the
+// key isn't bundled into the build. The 30-min cache below ISR-style
+// is implemented via `unstable_cache` later if needed; for now we
+// render on demand.
+export const dynamic  = 'force-dynamic'
+export const revalidate = 0
 
 export default async function PublicValidationPage() {
   const stats = await aggregatePublicValidationStats()

@@ -50,11 +50,11 @@ export const PUBLIC_MIN_BROKERS  = 3
 export const PUBLIC_MIN_USERS    = 5
 export const PUBLIC_MIN_REVIEWED = 10
 
-function svc(): SupabaseClient {
-  return serviceClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  )
+function svc(): SupabaseClient | null {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) return null    // build-time / misconfig → caller renders safe empty state
+  return serviceClient(url, key)
 }
 
 type ConfidenceLabel = 'tight' | 'wide' | 'suppressed'
@@ -117,6 +117,24 @@ interface CrossShadowRow {
 
 export async function aggregatePublicValidationStats(): Promise<PublicValidationStats> {
   const db = svc()
+  if (!db) {
+    // Env not configured (build-time prerender, misconfig). Return
+    // the safe pre-threshold state — same shape, all metrics
+    // suppressed. NEVER fabricated.
+    return {
+      generated_at:            new Date().toISOString(),
+      meets_global_threshold:  false,
+      contributing_users:      0,
+      contributing_brokers:    0,
+      contributing_strategies: 0,
+      strategies_validated:    suppressedMetric('Supabase env unavailable in this context.'),
+      trades_analysed:         { value: '0', numeric: 0, sample_size: 0, confidence: 'suppressed', detail: 'Supabase env unavailable.' },
+      broker_accuracy:         suppressedMetric('Supabase env unavailable.'),
+      average_slippage:        suppressedMetric('Supabase env unavailable.'),
+      risk_metrics:            suppressedMetric('Supabase env unavailable.'),
+      validation_success_rate: suppressedMetric('Supabase env unavailable.'),
+    }
+  }
 
   // Cross-user pull from the shadow log. Cap at 50k rows — anything
   // beyond is a degenerate marketing claim anyway.
