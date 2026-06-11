@@ -27,8 +27,10 @@ type EntryWire = JournalEntry & {
  *  shape so the strip can render them inline. All nullable for
  *  backward-compat with pre-V3 evaluation rows. */
 export interface CoachEvalSummary {
-  quality_score:    number
-  strategy_grade:   'A' | 'B' | 'C' | 'D' | 'F'
+  quality_score:    number | null   // null = Insufficient Data
+  strategy_grade:   'A' | 'B' | 'C' | 'D' | 'F' | null
+  confidence?:      'high' | 'medium' | 'low' | 'insufficient' | null
+  data_completeness?: number | null
   emotional_flag:   boolean
   emotional_reason: string | null
   advancement:      string | null
@@ -348,7 +350,10 @@ export default function JournalClient({
   )
 }
 
-const GRADE_STYLES: Record<CoachEvalSummary['strategy_grade'], string> = {
+// strategy_grade is `'A' | 'B' | 'C' | 'D' | 'F' | null` — Record keys
+// can't include null, so we strip null with NonNullable. Null grades
+// render as the "Insufficient data" pill above, never via this map.
+const GRADE_STYLES: Record<NonNullable<CoachEvalSummary['strategy_grade']>, string> = {
   A: 'bg-green-100 text-green-800 ring-green-300',
   B: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
   C: 'bg-amber-50 text-amber-700 ring-amber-200',
@@ -472,8 +477,18 @@ function subGradeTone(score: number | null | undefined): string {
 /** Inline coach strip — renders the overall grade + the 5 process
  *  sub-grades (Execution / Psychology / Risk / Discipline / Timing) +
  *  the lead AI insight if any. Process-based, never PnL-based. */
+const CONFIDENCE_STYLES: Record<string, string> = {
+  high:   'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  medium: 'bg-amber-50 text-amber-700 ring-amber-200',
+  low:    'bg-orange-50 text-orange-700 ring-orange-200',
+  insufficient: 'bg-muted text-muted-foreground ring-border',
+}
+
 function CoachStrip({ eval: ev }: { eval: CoachEvalSummary }) {
-  const gradeCls = GRADE_STYLES[ev.strategy_grade] ?? GRADE_STYLES.C
+  // Trust audit: a trade with too little logged is "Insufficient Data", never
+  // a fabricated grade.
+  const insufficient = ev.quality_score == null || ev.strategy_grade == null || ev.confidence === 'insufficient'
+  const gradeCls = (ev.strategy_grade && GRADE_STYLES[ev.strategy_grade]) || GRADE_STYLES.C
   const hasSubGrades =
     ev.execution_grade  != null || ev.psychology_grade != null ||
     ev.risk_grade       != null || ev.discipline_grade != null ||
@@ -488,16 +503,38 @@ function CoachStrip({ eval: ev }: { eval: CoachEvalSummary }) {
           <Brain className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
           Coach
         </span>
-        <span
-          className={cn(
-            'inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded px-1.5 text-[10px] font-bold ring-1',
-            gradeCls,
-          )}
-          title={`Overall ${ev.strategy_grade} · ${ev.quality_score}/100 — process-based, not PnL-based`}
-        >
-          {ev.strategy_grade}
-        </span>
-        <span className="text-muted-foreground tabular-nums">{ev.quality_score}/100</span>
+        {insufficient ? (
+          <span
+            className="inline-flex h-5 items-center rounded px-1.5 text-[10px] font-semibold ring-1 bg-muted text-muted-foreground ring-border"
+            title="Not enough logged fields to grade this trade — log Strategy + Psychology + Risk"
+          >
+            Insufficient data
+          </span>
+        ) : (
+          <>
+            <span
+              className={cn(
+                'inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded px-1.5 text-[10px] font-bold ring-1',
+                gradeCls,
+              )}
+              title={`Overall ${ev.strategy_grade} · ${ev.quality_score}/100 — process-based, not PnL-based`}
+            >
+              {ev.strategy_grade}
+            </span>
+            <span className="text-muted-foreground tabular-nums">{ev.quality_score}/100</span>
+            {ev.confidence && (
+              <span
+                className={cn(
+                  'inline-flex h-5 items-center rounded-full px-1.5 text-[9px] font-medium uppercase tracking-wider ring-1',
+                  CONFIDENCE_STYLES[ev.confidence] ?? CONFIDENCE_STYLES.medium,
+                )}
+                title={`Confidence: ${ev.confidence}${ev.data_completeness != null ? ` · ${Math.round(ev.data_completeness * 5)}/5 areas logged` : ''}`}
+              >
+                {ev.confidence}
+              </span>
+            )}
+          </>
+        )}
         {ev.emotional_flag && (
           <span
             className="inline-flex items-center gap-1 rounded-full bg-red-50 px-1.5 py-0.5 font-medium text-red-700 ring-1 ring-red-200"
