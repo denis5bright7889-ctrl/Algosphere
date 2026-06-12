@@ -5,6 +5,9 @@ import { X, Brain, AlertOctagon, Zap, Plug, Cpu, Landmark, Hand, Pencil } from '
 import type { JournalEntry } from '@/lib/types'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import AddTradeModal from './AddTradeModal'
+import ScoreExplainer from '@/components/intelligence/ScoreExplainer'
+import { explainCoachEvaluation } from '@/lib/intelligence/explainability'
+import type { EvaluatorInput } from '@/lib/intelligence/coach-eval'
 
 /** Journal entries on the wire carry a few columns beyond the shared
  *  JournalEntry type (source / broker came in via the auto-detection
@@ -234,7 +237,7 @@ export default function JournalClient({
               </div>
 
               {/* Refocus R4b: AI coach evaluation for this trade, if persisted */}
-              {coachMap[e.id] && <CoachStrip eval={coachMap[e.id]!} />}
+              {coachMap[e.id] && <CoachStrip eval={coachMap[e.id]!} entry={e} />}
             </li>
           ))}
         </ul>
@@ -325,7 +328,7 @@ export default function JournalClient({
                     {coach && (
                       <tr className="border-b border-border last:border-0">
                         <td colSpan={10} className="px-4 pb-3 pt-0">
-                          <CoachStrip eval={coach} />
+                          <CoachStrip eval={coach} entry={e} />
                         </td>
                       </tr>
                     )}
@@ -484,10 +487,23 @@ const CONFIDENCE_STYLES: Record<string, string> = {
   insufficient: 'bg-muted text-muted-foreground ring-border',
 }
 
-function CoachStrip({ eval: ev }: { eval: CoachEvalSummary }) {
+function CoachStrip({ eval: ev, entry }: { eval: CoachEvalSummary; entry?: EntryWire }) {
   // Trust audit: a trade with too little logged is "Insufficient Data", never
   // a fabricated grade.
   const insufficient = ev.quality_score == null || ev.strategy_grade == null || ev.confidence === 'insufficient'
+  // Phase 8 — explainability: build the "why is this score what it is" panel.
+  const explanation = entry
+    ? explainCoachEvaluation(entry as unknown as EvaluatorInput, {
+        quality_score:    ev.quality_score,
+        execution_grade:  ev.execution_grade  ?? null,
+        psychology_grade: ev.psychology_grade ?? null,
+        risk_grade:       ev.risk_grade        ?? null,
+        discipline_grade: ev.discipline_grade  ?? null,
+        timing_grade:     ev.timing_grade      ?? null,
+        confidence:       ev.confidence ?? 'insufficient',
+        data_completeness: ev.data_completeness ?? 0,
+      }).overall
+    : null
   const gradeCls = (ev.strategy_grade && GRADE_STYLES[ev.strategy_grade]) || GRADE_STYLES.C
   const hasSubGrades =
     ev.execution_grade  != null || ev.psychology_grade != null ||
@@ -504,12 +520,17 @@ function CoachStrip({ eval: ev }: { eval: CoachEvalSummary }) {
           Coach
         </span>
         {insufficient ? (
-          <span
-            className="inline-flex h-5 items-center rounded px-1.5 text-[10px] font-semibold ring-1 bg-muted text-muted-foreground ring-border"
-            title="Not enough logged fields to grade this trade — log Strategy + Psychology + Risk"
-          >
-            Insufficient data
-          </span>
+          (() => {
+            const chip = (
+              <span
+                className="inline-flex h-5 items-center rounded px-1.5 text-[10px] font-semibold ring-1 bg-muted text-muted-foreground ring-border"
+                title="Not enough logged fields to grade this trade — log Strategy + Psychology + Risk"
+              >
+                Insufficient data
+              </span>
+            )
+            return explanation ? <ScoreExplainer explanation={explanation}>{chip}</ScoreExplainer> : chip
+          })()
         ) : (
           <>
             <span
@@ -521,7 +542,13 @@ function CoachStrip({ eval: ev }: { eval: CoachEvalSummary }) {
             >
               {ev.strategy_grade}
             </span>
-            <span className="text-muted-foreground tabular-nums">{ev.quality_score}/100</span>
+            {explanation ? (
+              <ScoreExplainer explanation={explanation}>
+                <span className="text-muted-foreground tabular-nums">{ev.quality_score}/100</span>
+              </ScoreExplainer>
+            ) : (
+              <span className="text-muted-foreground tabular-nums">{ev.quality_score}/100</span>
+            )}
             {ev.confidence && (
               <span
                 className={cn(
