@@ -15,6 +15,10 @@
  *     and the UI is expected to render an insufficient-data state.
  */
 import type { JournalEntry } from '@/lib/types'
+import {
+  assessEdge, EDGE_SURFACE_MIN, EDGE_MIN_TRADES,
+  type EdgeConfidence, type EdgeVerdict,
+} from './edge-confidence'
 
 // ── V2 journal columns are present at runtime (the page does `select('*')`)
 //    but the shared JournalEntry type still reflects the V1 surface. Widen
@@ -153,6 +157,11 @@ export interface ConditionCohort {
   win_rate:    number  // 0..1
   expectancy:  number  // avg pnl per closed trade
   net_pnl:     number
+  // Evidence-first (Phase 6): no cohort is called profitable/unprofitable
+  // below EDGE_MIN_TRADES — it's 'insufficient_evidence' instead.
+  confidence:  EdgeConfidence
+  verdict:     EdgeVerdict
+  win_rate_ci: { low: number; high: number }   // 95% Wilson interval
 }
 
 export interface ConditionsReport {
@@ -160,6 +169,7 @@ export interface ConditionsReport {
   total_closed:         number
   best:                 ConditionCohort[]
   worst:                ConditionCohort[]
+  insufficient:         ConditionCohort[]   // surfaced but below the edge threshold
   insufficient_reason?: string
 }
 
@@ -178,7 +188,7 @@ export function conditionEdges(entries: V2Entry[]): ConditionsReport {
   )
   if (closed.length < MIN_TRADES_TOTAL) {
     return {
-      reliable: false, total_closed: closed.length, best: [], worst: [],
+      reliable: false, total_closed: closed.length, best: [], worst: [], insufficient: [],
       insufficient_reason:
         `Need ${MIN_TRADES_TOTAL}+ closed trades to surface condition edges — currently ${closed.length}.`,
     }
@@ -209,41 +219,53 @@ export function conditionEdges(entries: V2Entry[]): ConditionsReport {
     bump('emotion_pre',    t.emotion_pre,    pnl)
   }
 
+  // Surface cohorts from EDGE_SURFACE_MIN (so weak samples are shown as
+  // "Insufficient Evidence", not silently dropped), and attach the evidence
+  // verdict + Wilson CI to every one.
   const cohorts: ConditionCohort[] = Array.from(buckets.entries())
-    .filter(([, b]) => b.trades >= MIN_TRADES_COHORT)
+    .filter(([, b]) => b.trades >= EDGE_SURFACE_MIN)
     .map(([id, b]) => {
       const [dim, key] = id.split('::') as [CohortDim, string]
       const winRate    = b.wins / b.trades
       const expectancy = b.net  / b.trades
+      const a = assessEdge({ trades: b.trades, expectancy, wins: b.wins })
       return {
-        dim,
-        key,
+        dim, key,
         label:      `${DIM_LABEL[dim]} · ${prettify(key)}`,
         trades:     b.trades,
         wins:       b.wins,
         win_rate:   round3(winRate),
         expectancy: round2(expectancy),
         net_pnl:    round2(b.net),
+        confidence: a.confidence,
+        verdict:    a.verdict,
+        win_rate_ci: { low: round3(a.win_rate_ci!.low), high: round3(a.win_rate_ci!.high) },
       }
     })
 
-  // Rank by a stable composite: win-rate weighted by sample × expectancy
-  // sign. Cohorts with zero expectancy fall in the middle.
   const score = (c: ConditionCohort) =>
     c.win_rate * Math.log1p(c.trades) * Math.sign(c.expectancy || 1) *
     (Math.abs(c.expectancy) ** 0.5 + 0.5)
 
   const ranked = cohorts.slice().sort((a, b) => score(b) - score(a))
-  const best   = ranked.filter((c) => c.expectancy > 0).slice(0, 5)
-  const worst  = ranked.slice().reverse().filter((c) => c.expectancy < 0).slice(0, 5)
+  // Only EVIDENCED cohorts (confidence ≥ low) may be called best/worst.
+  const evidenced = ranked.filter((c) => c.confidence !== 'insufficient')
+  const best  = evidenced.filter((c) => c.verdict === 'profitable').slice(0, 5)
+  const worst = evidenced.slice().reverse().filter((c) => c.verdict === 'unprofitable').slice(0, 5)
+  // Weak-sample cohorts are SHOWN as Insufficient Evidence (not faked).
+  const insufficient = ranked
+    .filter((c) => c.confidence === 'insufficient')
+    .sort((a, b) => b.trades - a.trades)
+    .slice(0, 8)
 
   return {
-    reliable:     cohorts.length > 0,
+    reliable:     best.length + worst.length > 0,
     total_closed: closed.length,
     best,
     worst,
-    insufficient_reason: cohorts.length === 0
-      ? `Log ${MIN_TRADES_COHORT}+ trades per pair/session/regime to surface edges.`
+    insufficient,
+    insufficient_reason: best.length + worst.length === 0
+      ? `No context has reached ${EDGE_MIN_TRADES}+ closed trades yet — edges stay "Insufficient Evidence" until the sample is statistically defensible.`
       : undefined,
   }
 }

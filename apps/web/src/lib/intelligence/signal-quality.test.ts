@@ -44,14 +44,21 @@ test('per-regime + per-confidence calibration grouping', () => {
   assert.ok(r.per_confidence.some((g) => g.key === '55-64' && g.win_rate === 0))
 })
 
-test('ranking requires a minimum closed sample', () => {
+test('ranking requires the evidence threshold (10 closed) — Phase 6', () => {
   const signals: QSignal[] = [
-    sig('THIN', 'win', 'trending', 80),  // only 1 closed → excluded from rank
-    sig('OK', 'win', 'trending', 80), sig('OK', 'win', 'trending', 80), sig('OK', 'loss', 'trending', 80),
+    // THIN: 4 closed → below the 10-trade edge floor → never ranked.
+    sig('THIN', 'win', 'trending', 80), sig('THIN', 'win', 'trending', 80),
+    sig('THIN', 'win', 'trending', 80), sig('THIN', 'loss', 'trending', 80),
+    // OK: 12 closed → ranked, confidence 'low'.
+    ...Array.from({ length: 9 }, () => sig('OK', 'win', 'trending', 80)),
+    ...Array.from({ length: 3 }, () => sig('OK', 'loss', 'trending', 80)),
   ]
   const r = analyzeSignalQuality({ signals, decisions: [], now: 0 })
   assert.ok(r.best_symbols.some((s) => s.symbol === 'OK'))
   assert.ok(!r.best_symbols.some((s) => s.symbol === 'THIN'))
+  // every symbol carries an evidence tier; the thin one is 'insufficient'
+  assert.equal(r.per_symbol.find((s) => s.symbol === 'THIN')!.confidence, 'insufficient')
+  assert.equal(r.per_symbol.find((s) => s.symbol === 'OK')!.confidence, 'low')
 })
 
 function round(x: number) { return Math.round(x * 100) / 100 }

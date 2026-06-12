@@ -8,6 +8,17 @@
  * fabricate it.
  */
 
+import type { EdgeConfidence } from './edge-confidence'
+
+// Mirror of edge-confidence.edgeConfidence (inlined so this module stays
+// unit-testable under node's native ESM; tiers MUST match edge-confidence.ts).
+function symbolConfidence(closed: number): EdgeConfidence {
+  if (!Number.isFinite(closed) || closed < 10) return 'insufficient'
+  if (closed < 20) return 'low'
+  if (closed < 50) return 'medium'
+  return 'high'
+}
+
 export interface QSignal {
   pair:             string
   result:           'win' | 'loss' | 'breakeven' | null
@@ -25,6 +36,7 @@ export interface SymbolQuality {
   win_rate:        number | null   // null when no closed outcomes yet
   acceptance_rate: number | null   // generated / (generated+rejected+skipped)
   avg_confidence:  number | null
+  confidence:      EdgeConfidence  // evidence tier from closed-trade sample
 }
 export interface GroupQuality { key: string; signals: number; wins: number; losses: number; win_rate: number | null }
 
@@ -39,7 +51,6 @@ export interface SignalQualityReport {
   worst_symbols:  SymbolQuality[]
 }
 
-const MIN_CLOSED_FOR_RANK = 3
 
 export function analyzeSignalQuality(input: {
   signals: QSignal[]
@@ -81,13 +92,16 @@ export function analyzeSignalQuality(input: {
       win_rate: a && (a.wins + a.losses) > 0 ? round2(a.wins / (a.wins + a.losses)) : null,
       acceptance_rate: evals > 0 ? round2((d!.generated) / evals) : null,
       avg_confidence: a && a.confN > 0 ? Math.round(a.confSum / a.confN) : null,
+      confidence: symbolConfidence(a?.closed ?? 0),
     }
   }).sort((x, y) => (y.win_rate ?? -1) - (x.win_rate ?? -1) || y.accepted - x.accepted)
 
   const per_regime = groupWinRate(signals, (s) => s.regime ?? 'unknown')
   const per_confidence = groupWinRate(signals, (s) => confBand(s.confidence_score))
 
-  const ranked = per_symbol.filter((s) => s.closed >= MIN_CLOSED_FOR_RANK && s.win_rate != null)
+  // Evidence-first (Phase 6): only symbols past the edge threshold may be
+  // ranked best/worst — a 3-trade symbol is no longer called good/bad.
+  const ranked = per_symbol.filter((s) => s.confidence !== 'insufficient' && s.win_rate != null)
 
   const wins = signals.filter((s) => s.result === 'win').length
   const losses = signals.filter((s) => s.result === 'loss').length
