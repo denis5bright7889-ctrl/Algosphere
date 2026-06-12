@@ -15,19 +15,19 @@ import PrintButton from './PrintButton'
 export const metadata = {
   title: 'Pitch — AlgoSphere Quant',
   description:
-    'A 12-slide deck on AlgoSphere Quant — an AI Trader Intelligence Operating System shipped end-to-end by a solo founder. Behavioral journal, AI Coach, Strategy Lab, 15-gate risk. Live, working, honest.',
+    'A 12-slide deck on AlgoSphere Quant — the institutional Trader Performance Intelligence stack for retail traders. 19 behavioral metrics, Trading Maturity Index, AI Coach, Decision Intelligence OS, 15-gate risk, multi-broker execution. Shipped end-to-end, live, honest.',
   alternates: { canonical: '/deck' },
   openGraph: {
     type: 'website',
     title: 'AlgoSphere Quant — investor deck',
     description:
-      'AI Trader Intelligence OS shipped end-to-end by a solo founder. Behavioral journal · AI Coach · Strategy Lab · 15-gate risk.',
+      'Institutional Trader Performance Intelligence for retail. Behavioral engine · Trading Maturity Index · Decision Intelligence OS · 15-gate risk · multi-broker execution.',
     url: '/deck',
   },
   twitter: {
     card: 'summary_large_image',
     title: 'AlgoSphere Quant — investor deck',
-    description: 'AI Trader Intelligence OS shipped end-to-end by a solo founder.',
+    description: 'Institutional Trader Performance Intelligence stack for retail — shipped end-to-end by a solo founder.',
   },
 }
 
@@ -55,7 +55,8 @@ export default function PitchDeckPage() {
               AlgoSphere <span className="text-gradient">Quant</span>
             </h1>
             <p className="max-w-3xl text-xl text-muted-foreground md:text-2xl">
-              The AI Trader Intelligence Operating System, shipped end-to-end by one founder.
+              The institutional Trader Performance Intelligence stack — for retail traders.
+              Shipped end-to-end. Honest by construction.
             </p>
             <p className="text-sm text-muted-foreground">
               <Link href="/live" className="hover:text-amber-300">algospherequant.com/live</Link> · live engine
@@ -66,24 +67,24 @@ export default function PitchDeckPage() {
 
         {/* 2 — Problem */}
         <section className={SLIDE}>
-          <SlideHead n={2} eyebrow="Problem" title="Retail traders pay for noise. They never learn." />
+          <SlideHead n={2} eyebrow="Problem" title="Retail traders don&apos;t lack signals. They lack feedback." />
           <div className="space-y-5 text-lg md:text-xl">
-            <P>The signals industry sells lottery tickets — opaque indicators, untracked outcomes, no behavioral feedback, no risk gates.</P>
-            <P>Meanwhile institutional desks treat every trade as a structured decision event: process logged, outcome attributed, behavior corrected over time.</P>
-            <P className="text-amber-300">That feedback loop stays locked inside hedge funds.</P>
+            <P>The signals industry sells lottery tickets — opaque indicators, untracked outcomes, no behavioral feedback, no risk gates. A winning trade and a lucky one are indistinguishable. A losing trade and a disciplined one are indistinguishable.</P>
+            <P>Meanwhile institutional desks score every trade as a structured decision event: behavior labelled, risk gated, edge attributed. They know exactly which traders are maturing and which are tilting.</P>
+            <P className="text-amber-300">That feedback loop stays locked inside hedge funds. Until now.</P>
           </div>
           <FooterMeta />
         </section>
 
         {/* 3 — Solution */}
         <section className={SLIDE}>
-          <SlideHead n={3} eyebrow="Solution" title="Teach the trader. Score the trade. Build the next edge." />
+          <SlideHead n={3} eyebrow="Solution" title="Score every trader on 19 behavioral axes. Land them on the Maturity Index. Coach the gap." />
           <div className="grid gap-6 md:grid-cols-2">
             <Card label="The shift">
-              From signal vending to Trader Intelligence. Every trade — manually logged or auto-imported from a broker — is a structured intelligence event.
+              From signal vending to <span className="text-amber-300">Trader Performance Intelligence</span>. Every trade — human-executed or engine-executed — is a structured behavioral event with required Strategy + Psychology context.
             </Card>
             <Card label="The output">
-              5 process grades per trade (Execution · Psychology · Risk · Discipline · Timing) plus 3+ AI insights. An AI Coach with pair-specific recommendations. A Strategy Lab to validate the next edge.
+              <span className="font-semibold text-foreground">19 deterministic behavioral metrics</span> (revenge · tilt · FOMO · confidence drift · recency bias · strategy hopping · resilience · patience · rule adherence · self-control · risk discipline · …) collapse into one institutional verdict: the <span className="text-amber-300">Trading Maturity Index</span> — Beginner · Developing · Competent · Advanced · Elite. An always-on AI Coach names the top weaknesses and prescribes specific fixes. Pure math; no LLM dependency.
             </Card>
           </div>
           <FooterMeta />
@@ -94,42 +95,43 @@ export default function PitchDeckPage() {
           <SlideHead n={4} eyebrow="Product · live today" title="Verifiable on the running system." />
           <ul className="grid gap-3 md:grid-cols-2">
             {[
-              ['Behavioral Trade Journal', '5 process grades + 3+ AI insights per trade. Required Strategy + Psychology context.'],
-              ['AI Coach', 'Streak-aware, pair-specific recommendations. Never PnL-driven verdicts.'],
-              ['Strategy Lab', 'Visual Quant Builder · realistic-cost Backtester · Monte Carlo with sample-size confidence · Optimization Center · Deployment Readiness ladder.'],
-              ['34+ instrument live scanner', 'Forex majors · metals · oil · indices · 14+ crypto.'],
-              ['Consolidated Market Intelligence', '6 sections — regime · liquidity & flows · sentiment · rotation · momentum · volatility & stress.'],
-              ['15-gate institutional risk system', 'Drawdown · kill switch · cooldowns · correlation cap · news shield. Overrides strategy.'],
-              ['Multi-broker connections', 'MT4/MT5/cTrader/Binance/Bybit/OKX. AES-256-GCM encrypted. Trades auto-import to the journal.'],
-              ['Telegram signal channels', 'Curated directory + tier-gated DMs. Dedup · retry · flood-control.'],
-              ['Crypto payment rails', 'USDT-TRC20 + BTC/ETH/Binance Pay with admin approval.'],
-              ['Public API', '/api/v1/decision — strict anti-reverse-engineering surface.'],
+              ['Behavioral Engine V2', '19 deterministic metrics: revenge · overtrade · risk inflation · discipline · consistency · FOMO · weekend gambling · impulse · loss chasing · confidence drift · tilt · recency bias · strategy hopping · resilience · patience · rule adherence · self-control · risk discipline · Trading Maturity Index.'],
+              ['Trading Maturity Index', 'One institutional verdict per trader: Beginner · Developing · Competent · Advanced · Elite. Weighted blend of 6 positive composites; deterministic, reproducible, auditable.'],
+              ['AI Coach (deterministic)', 'Always-on narrative — ranked strengths, weaknesses, top-3 templated recommendations keyed to the worst axis. Free; no LLM dependency.'],
+              ['Two-Mode Trade Journal (V4)', 'Distinct lifecycles: human-executed trades teach about the trader, engine-executed trades teach about the strategy. Mode-aware API, grading, and Deployment Readiness ladder.'],
+              ['Decision Intelligence OS', '5 consolidated intelligence hubs — Capital Flows · Sentiment · Structure · Momentum · Market Pulse. Redis-cached, multi-source provider chains.'],
+              ['Strategy Lab', 'Visual Quant Builder · realistic-cost Backtester · Monte Carlo with sample-size confidence · Optimization Center · 6-stage Deployment Readiness ladder.'],
+              ['15-gate institutional risk', 'Two-layer: strategy gate + capital gate. Drawdown · kill switch · cooldowns · correlation cap · news shield. Overrides every signal.'],
+              ['Multi-broker execution', 'Binance · Bybit · OKX · MT5 via dedicated VPS bridge. Per-user vault, AES-256 encrypted. Broker-truth reconciler enriches every closed trade.'],
+              ['Media Engine V3 + content factory', '45+ asset kinds across 9 producer modules. ffmpeg + PIL pipeline emits 1080×1920 vertical reels, branded cards, infographics, carousels, blogs, PDFs.'],
+              ['Multi-channel distribution', 'Telegram + Discord live. Instagram automated via Graph API. Meta + LinkedIn adapters wired. Crypto-only billing rails. Public /api/v1/decision surface.'],
             ].map(([t, d]) => <BulletCard key={t as string} title={t as string}>{d as string}</BulletCard>)}
           </ul>
-          <FooterMeta note="70+ engineered PRs. The codebase is auditable." />
+          <FooterMeta note="Four-service production architecture. The codebase is auditable." />
         </section>
 
         {/* 5 — Architecture */}
         <section className={SLIDE}>
-          <SlideHead n={5} eyebrow="How it works" title="Layered, governed, honest by construction." />
+          <SlideHead n={5} eyebrow="How it works" title="Six layers, four deployments, observable end-to-end." />
           <div className="space-y-3 text-base md:text-lg">
-            <Layer step="L1" name="Market data + broker ingest" detail="Multi-provider OHLCV chain · broker-fill auto-import to the journal (V4 two-mode source distinction)." />
-            <Layer step="L2" name="Intelligence engines" detail="Regime · momentum · smart money · whale flow · breadth · sectors · volatility · correlations. Each emits a normalised score." />
-            <Layer step="L3" name="Decision brain + 15-gate risk" detail="Σ(score × weight) with disagreement penalties. Risk gates enforced before any signal publishes." />
-            <Layer step="L4" name="Behavioral grading + AI Coach" detail="Every journaled trade scored on 5 process axes. Coach reads streaks + pair edges + emotion context to emit specific fixes." />
-            <Layer step="L5" name="Strategy Lab" detail="Visual Quant Builder · Backtester with realistic costs · Monte Carlo · Optimization Center · Deployment Readiness ladder (Research → Institutional)." />
-            <Layer step="L6" name="Delivery & opt-in execution" detail="Web feed · public API · Telegram. Execution is opt-in per user with their own broker." />
+            <Layer step="L1" name="Market data + broker ingest" detail="Multi-provider OHLCV chain (TwelveData · Finnhub · Alpha Vantage · CoinGecko) with provider fallback. Broker fills auto-import into the V4 two-mode journal." />
+            <Layer step="L2" name="Decision Intelligence engines" detail="Regime · momentum · smart money · whale flow · structure · sentiment · volatility · rolling-Pearson correlation. Redis-cached. Each emits a normalised, sanitised score." />
+            <Layer step="L3" name="Decision brain + 15-gate risk" detail="Σ(score × weight) with disagreement penalties. Two-layer risk — strategy gate + institutional capital gate (15 gates + kill switch) — overrides every signal." />
+            <Layer step="L4" name="Trader Performance Intelligence" detail="19 deterministic behavioral metrics collapse into 6 positive composites and the Trading Maturity Index (Beginner → Elite). AI Coach narrative is always-on, free, reproducible." />
+            <Layer step="L5" name="Strategy Lab" detail="Visual Quant Builder · realistic-cost Backtester · Monte Carlo with sample-size confidence · Optimization Center · 6-stage Deployment Readiness ladder (Research → Institutional)." />
+            <Layer step="L6" name="Distribution & opt-in execution" detail="Media Engine V3 fans 45+ asset kinds out to Telegram, Discord, Instagram, Meta, LinkedIn. Public /api/v1/decision. Execution opt-in per user with their own broker." />
           </div>
-          <FooterMeta />
+          <FooterMeta note="Vercel web · Railway engine · Railway asset-worker · Windows VPS MT5 bridge · Supabase backbone." />
         </section>
 
         {/* 6 — Moat */}
         <section className={SLIDE}>
-          <SlideHead n={6} eyebrow="Why it's hard to clone" title="The product is behavioral feedback — not signals." />
+          <SlideHead n={6} eyebrow="Why it&apos;s hard to clone" title="The product is the verdict — not the signals." />
           <div className="space-y-5 text-lg md:text-xl">
-            <P>The Behavioral Journal forces structured Strategy + Psychology context on every trade — the resulting dataset (a trader&apos;s actual decision behavior, scored) is unique to AlgoSphere.</P>
-            <P>The grading engine is <span className="font-semibold text-amber-300">process-based, never PnL-based</span> — a losing trade can be A-grade execution. That signal is invisible to every &quot;trade copier&quot; on the market.</P>
-            <P>The architecture itself is the moat: layered separation, observable health, anti-reverse-engineering API, governed adaptive weighting.</P>
+            <P>The Behavioral Engine forces structured Strategy + Psychology context on every trade. The resulting dataset — a trader&apos;s decision behavior scored across 19 axes — is unique to AlgoSphere and compounds with every entry.</P>
+            <P>Scoring is <span className="font-semibold text-amber-300">deterministic and process-based — PnL never grades</span>. A losing trade can be A-grade execution; a winning one can be a maturity downgrade. That signal is invisible to every &quot;trade copier&quot; on the market.</P>
+            <P>The <span className="text-amber-300">Trading Maturity Index</span> is the institutional output prop firms, regulators and allocators already ask for. AlgoSphere is the only retail product that answers it.</P>
+            <P className="text-base text-muted-foreground">The architecture itself is the operational moat: four-service deployment, Redis-cached multi-source providers, observable health, anti-reverse-engineering API, governed adaptive weighting. Clones don&apos;t ship this.</P>
           </div>
           <FooterMeta />
         </section>
@@ -147,25 +149,27 @@ export default function PitchDeckPage() {
 
         {/* 8 — Business model */}
         <section className={SLIDE}>
-          <SlideHead n={8} eyebrow="Business model" title="Subscriptions, listings directory, API access." />
+          <SlideHead n={8} eyebrow="Business model" title="Subscriptions sold on outcome, not feature list." />
           <div className="grid gap-4 md:grid-cols-3">
-            <Card label="Subscriptions">Free · Starter $29 · Pro $99 · VIP $299. Each tier promises a different outcome — understand · build · deploy the edge. Crypto-only billing (USDT-TRC20 + BTC/ETH/Binance Pay).</Card>
-            <Card label="Listings directory">Paid Telegram-channel listings on a moderated public directory. Founder tool + revenue.</Card>
-            <Card label="API access">Strict <code className="text-amber-300">/api/v1/decision</code> for institutional + developer consumers (VIP scope).</Card>
+            <Card label="Subscriptions"><span className="font-semibold text-foreground">Free</span> see your Maturity Index · <span className="font-semibold text-foreground">Starter $29</span> close the top weakness · <span className="font-semibold text-foreground">Pro $99</span> Strategy Lab + Decision Intelligence + multi-broker · <span className="font-semibold text-foreground">VIP $299</span> auto-execution + API. Crypto-only (USDT-TRC20 + BTC/ETH/Binance Pay).</Card>
+            <Card label="Listings directory">Paid Telegram-channel listings on a moderated public directory. Recurring revenue plus a funnel into Pro/VIP for the channel operators themselves.</Card>
+            <Card label="API access">Strict <code className="text-amber-300">/api/v1/decision</code> for institutional + developer consumers (VIP scope). Anti-reverse-engineering surface; per-key rate-limits + telemetry.</Card>
           </div>
           <FooterMeta />
         </section>
 
         {/* 9 — Traction (honest) */}
         <section className={SLIDE}>
-          <SlideHead n={9} eyebrow="Where we are honestly" title="Engineering complete. Pre-launch. Days from operator-driven launch." />
+          <SlideHead n={9} eyebrow="Where we are honestly" title="Engineering shipped. Distribution wired. Pre-revenue." />
           <ul className="grid gap-3 md:grid-cols-2">
-            <BulletCard title="Engineering">Production-grade. Live system. Observable health. 70+ PRs of verifiable work.</BulletCard>
-            <BulletCard title="Behavioral journal (V4)">Live: required Strategy + Psychology context, 5 process grades + 3+ insights per trade.</BulletCard>
-            <BulletCard title="Strategy Lab + audit fixes">Quant Builder · Backtester (audited grader, fixed drawdown formatter, MC sample-size gating) · Optimization Center · Deployment Readiness ladder.</BulletCard>
-            <BulletCard title="Users">Pre-launch. Public funnels (live feed + investor brief + share cards) shipped.</BulletCard>
+            <BulletCard title="Engineering">Four-service production stack live: Vercel web · Railway engine · Railway asset-worker · Windows VPS MT5 bridge · Supabase backbone. Observable health, automated retries, mirror-trigger audit trail.</BulletCard>
+            <BulletCard title="Behavioral Engine V2 + AI Coach">Live: 19 deterministic metrics + Trading Maturity Index + always-on coaching narrative. Two-Mode V4 journal grading every entry.</BulletCard>
+            <BulletCard title="Strategy Lab + Decision Intelligence OS">Quant Builder · Backtester · Monte Carlo · Optimization Center · Deployment Readiness ladder. 5-hub market intelligence (Capital Flows · Sentiment · Structure · Momentum · Pulse) with Redis cache + multi-source provider chains.</BulletCard>
+            <BulletCard title="Content + distribution">Media Engine V3 producing 45+ asset kinds. 13,000+ items generated lifetime; 300+ published. Active distribution to Telegram + Discord; automated Instagram via Graph API (129 posts shipped); Meta + LinkedIn adapters wired.</BulletCard>
+            <BulletCard title="Brokers">Paper-trading live. MT5 multi-tenant bridge operational on dedicated VPS. Binance · Bybit · OKX adapters built + encrypted-vault gated.</BulletCard>
+            <BulletCard title="Monetization">Crypto rails wired (USDT-TRC20, BTC, ETH, Binance Pay). Tier definitions + admin approval flow shipped. Pre-revenue — first paid signups expected this launch window.</BulletCard>
           </ul>
-          <p className="text-sm text-muted-foreground">No invented traction. What you see on the live site is the full story.</p>
+          <p className="text-sm text-muted-foreground">No invented traction. What you see on the live site — and in this deck — is the full story.</p>
           <FooterMeta />
         </section>
 
@@ -173,8 +177,8 @@ export default function PitchDeckPage() {
         <section className={SLIDE}>
           <SlideHead n={10} eyebrow="Team" title="One technical founder. Full stack, shipped." />
           <div className="space-y-5 text-lg md:text-xl">
-            <P>Built the entire platform alone — data infrastructure, signal engine, 15-gate risk layer, behavioral journal with 5 process grades, AI coach, Strategy Lab with the Deployment Readiness ladder, consolidated market intelligence, payment rails, chart workspace, public APIs.</P>
-            <P>70+ PRs of verifiable engineering. Live system you can inspect right now.</P>
+            <P>Built the entire platform alone — multi-provider data infrastructure, decision engines, two-layer 15-gate risk system, Behavioral Engine V2 + Trading Maturity Index, AI Coach, Two-Mode Trade Journal V4, Strategy Lab with Deployment Readiness ladder, Decision Intelligence OS, Media Engine V3 content factory, multi-broker execution (incl. dedicated MT5 VPS bridge), crypto payment rails, public APIs.</P>
+            <P>The codebase is auditable. The live system is inspectable. Every claim in this deck maps to a running service.</P>
             <P className="text-muted-foreground text-base">Solo today. Capital-efficient by necessity; ready to scale with the right backing.</P>
           </div>
           <FooterMeta />
@@ -182,12 +186,12 @@ export default function PitchDeckPage() {
 
         {/* 11 — The ask */}
         <section className={SLIDE + ' justify-center'}>
-          <SlideHead n={11} eyebrow="The ask" title="A first-believer cheque. Runway to put it in users' hands." />
+          <SlideHead n={11} eyebrow="The ask" title="A first-believer cheque. Runway to land the verdict in users&apos; hands." />
           <ul className="grid gap-3 md:grid-cols-2">
-            <BulletCard title="Runway">Maintain the platform through user onboarding + paid-tier conversion.</BulletCard>
-            <BulletCard title="Data tier upgrades">Higher TwelveData / Polygon / Alpha Vantage quotas — full forex coverage + multi-timeframe confirmation.</BulletCard>
-            <BulletCard title="Audited execution go-live">Staged validation of the opt-in auto-trade layer before real-money fan-out.</BulletCard>
-            <BulletCard title="Growth surface">Telegram listings directory, referral payouts, content engine.</BulletCard>
+            <BulletCard title="Multi-service runway">Operate Vercel + Railway (engine + asset-worker) + Contabo VPS + Supabase + data providers through user onboarding + paid-tier conversion. Current burn is small; the unit economics improve sharply at first revenue.</BulletCard>
+            <BulletCard title="Data tier upgrades">Higher TwelveData / Finnhub / Alpha Vantage / on-chain provider quotas — full forex coverage + multi-timeframe confirmation across Decision Intelligence engines.</BulletCard>
+            <BulletCard title="Audited execution go-live">Staged validation of the opt-in auto-trade layer (FULL_AUTOTRADE arming model) before any real-money fan-out. Two-layer risk + kill switch already enforce; we add an external audit pass.</BulletCard>
+            <BulletCard title="Distribution acceleration">Content engine produces; algorithmic invisibility caps reach. Paid amplification + influencer partnerships convert the existing factory output into Maturity-Index sign-ups.</BulletCard>
           </ul>
           <p className="text-base text-muted-foreground">
             Cheque size matters less than belief and reach. SAFE / rolling angel / grant / revenue-share all open.
@@ -202,14 +206,14 @@ export default function PitchDeckPage() {
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-300">Contact</p>
             <h2 className="text-4xl font-bold tracking-tight md:text-6xl">Let&apos;s talk.</h2>
             <ul className="space-y-3 text-lg md:text-xl">
-              <li>📧 <a href="mailto:denis5bright7889@gmail.com?subject=AlgoSphere%20Quant%20%E2%80%94%20investor%20interest"
-                       className="text-amber-300 hover:underline">denis5bright7889@gmail.com</a></li>
+              <li>📧 <a href="mailto:info@algospherequant.com?subject=AlgoSphere%20Quant%20%E2%80%94%20investor%20interest"
+                       className="text-amber-300 hover:underline">info@algospherequant.com</a></li>
               <li>📊 <Link href="/live" className="text-amber-300 hover:underline">algospherequant.com/live</Link> — engine working in real time</li>
               <li>📄 <Link href="/investors" className="text-amber-300 hover:underline">algospherequant.com/investors</Link> — full investor brief</li>
               <li>🌐 <Link href="/" className="text-amber-300 hover:underline">algospherequant.com</Link></li>
             </ul>
           </div>
-          <FooterMeta note="The honest version beats the polished one. Thank you for reading." />
+          <FooterMeta note="The honest verdict beats the polished pitch. Thank you for reading." />
         </section>
       </main>
       <PrintButton />
