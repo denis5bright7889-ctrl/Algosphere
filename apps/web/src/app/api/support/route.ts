@@ -72,7 +72,7 @@ export async function POST(req: Request) {
     // Don't expose the env-var name to the client — log it and respond
     // generically. Once Discord is configured this never fires.
     console.error('Support notify failed:', result.error)
-    return NextResponse.json({ error: 'Support channel unavailable right now — please email rena20mez@gmail.com.' }, { status: 503 })
+    return NextResponse.json({ error: 'Support channel unavailable right now — please email info@algospherequant.com.' }, { status: 503 })
   }
 
   return NextResponse.json({ ok: true })

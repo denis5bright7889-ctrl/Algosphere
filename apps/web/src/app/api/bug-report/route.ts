@@ -88,7 +88,7 @@ export async function POST(req: Request) {
 
   if (!result.ok) {
     console.error('Bug-report notify failed:', result.error)
-    return NextResponse.json({ error: 'Bug reporting channel unavailable. Please email rena20mez@gmail.com.' }, { status: 503 })
+    return NextResponse.json({ error: 'Bug reporting channel unavailable. Please email info@algospherequant.com.' }, { status: 503 })
   }
 
   return NextResponse.json({ ok: true })

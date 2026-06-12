@@ -8,9 +8,10 @@
  * growth_content_items workflow, not transactional mail.
  */
 import { sendEmail, isEmailAvailable } from '@/lib/notify/email'
+import { CONTACT_EMAIL } from '@/lib/brand'
 
 const PUBLIC_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://algospherequant.com'
-const CONTACT    = 'rena20mez@gmail.com'
+const CONTACT    = CONTACT_EMAIL
 
 export interface WelcomeEmailInput {
   to:           string

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import Logo from '@/components/brand/Logo'
+import { PRIVACY_EMAIL } from '@/lib/brand'
 
 export const metadata = {
   title: 'Privacy Policy — AlgoSphere Quant',
@@ -10,7 +11,7 @@ export const metadata = {
 // Single source of truth for the "last updated" stamp shown in the header
 // and the intro. Update this whenever the policy changes materially.
 const LAST_UPDATED = 'June 1, 2026'
-const CONTACT_EMAIL = 'privacy@algospherequant.com'
+const CONTACT_EMAIL = PRIVACY_EMAIL
 
 export default function PrivacyPage() {
   return (

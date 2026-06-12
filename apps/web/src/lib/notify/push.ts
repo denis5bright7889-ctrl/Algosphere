@@ -11,7 +11,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 
 const PUB     = process.env.VAPID_PUBLIC_KEY
 const PRIV    = process.env.VAPID_PRIVATE_KEY
-const SUBJECT = process.env.VAPID_SUBJECT ?? 'mailto:admin@algosphere.local'
+const SUBJECT = process.env.VAPID_SUBJECT ?? 'mailto:info@algospherequant.com'
 
 let configured = false
 function configure(): boolean {
