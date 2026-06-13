@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { computeMetrics, computeDrawdownCurve, interpretSharpe } from '@/lib/analytics/metrics'
+import { brokerEquityAnchor, formatAge } from '@/lib/analytics/broker-equity'
 import { formatCurrency } from '@/lib/utils'
 import { isDemo } from '@/lib/demo'
 import { generateDemoJournal } from '@/lib/demo-data'
@@ -30,7 +31,7 @@ export default async function AnalyticsPage() {
       .select('*')
       .eq('user_id', user!.id)
       .order('trade_date', { ascending: true }),
-    supabase.from('broker_connections').select('equity_usd').eq('user_id', user!.id),
+    supabase.from('broker_connections').select('equity_usd, equity_updated_at').eq('user_id', user!.id),
   ])
 
   let entries = (raw ?? []) as JournalEntry[]
@@ -57,17 +58,15 @@ export default async function AnalyticsPage() {
     )
   }
 
-  // Single drawdown source of truth: anchor on broker equity (same as
-  // /overview & /risk) so every dashboard reports the SAME drawdown.
-  const accountEquity = ((brokerRows ?? []) as { equity_usd: number | null }[])
-    .map((b) => b.equity_usd)
-    .filter((e): e is number => typeof e === 'number' && e > 0)
-    .reduce<number | undefined>((max, e) => Math.max(max ?? 0, e), undefined)
+  // Single drawdown source of truth: shared equity anchor + age (same helper as
+  // /overview & /risk) so every dashboard reports the SAME drawdown + staleness.
+  const { equity: accountEquity, ageSeconds: equityAge } = brokerEquityAnchor(brokerRows ?? [])
 
   const pnlSeries = entries.map(e => e.pnl ?? 0)
   const netPnl = pnlSeries.reduce((s, p) => s + p, 0)
   const startingBalance = accountEquity != null ? Math.max(0, accountEquity - netPnl) : 0
-  const metrics = computeMetrics(pnlSeries, startingBalance)
+  const metrics = computeMetrics(pnlSeries, startingBalance, { equityAgeSeconds: equityAge })
+  const ddStale = metrics.drawdown_status === 'stale'
   const sharpeInterpret = interpretSharpe(metrics.sharpe_ratio)
 
   const dated = entries
@@ -81,7 +80,11 @@ export default async function AnalyticsPage() {
 
   // Same anchor for the curve (startingBalance derived from the dated subset's net).
   const datedNet = dated.reduce((s, d) => s + d.pnl, 0)
-  const drawdownCurve = computeDrawdownCurve(dated, accountEquity != null ? Math.max(0, accountEquity - datedNet) : 0)
+  const drawdownCurve = computeDrawdownCurve(
+    dated,
+    accountEquity != null ? Math.max(0, accountEquity - datedNet) : 0,
+    { equityAgeSeconds: equityAge },
+  )
 
   // Pair breakdown
   const byPair = groupBy(entries, e => e.pair ?? 'Unknown')
@@ -148,8 +151,10 @@ export default async function AnalyticsPage() {
             sub={sharpeInterpret.label} color={sharpeInterpret.color} />
           <RiskMetric label="Sortino Ratio" value={String(metrics.sortino_ratio === 99.99 ? '∞' : metrics.sortino_ratio)}
             sub="Downside-adj." color={metrics.sortino_ratio >= 1 ? 'text-green-600' : 'text-orange-600'} />
-          <RiskMetric label="Max Drawdown" value={`${metrics.max_drawdown_pct}%`}
-            sub={formatCurrency(metrics.max_drawdown_usd)} color={metrics.max_drawdown_pct < 10 ? 'text-green-600' : metrics.max_drawdown_pct < 20 ? 'text-yellow-600' : 'text-red-600'} />
+          <RiskMetric label="Max Drawdown"
+            value={ddStale ? 'Stale' : `${metrics.max_drawdown_pct}%`}
+            sub={ddStale ? `broker equity ${formatAge(equityAge)} old` : formatCurrency(metrics.max_drawdown_usd)}
+            color={ddStale ? 'text-muted-foreground' : metrics.max_drawdown_pct < 10 ? 'text-green-600' : metrics.max_drawdown_pct < 20 ? 'text-yellow-600' : 'text-red-600'} />
           <RiskMetric label="Calmar Ratio" value={String(metrics.calmar_ratio)}
             sub="Return/Drawdown" color={metrics.calmar_ratio >= 1 ? 'text-green-600' : 'text-muted-foreground'} />
           <RiskMetric label="Avg Win" value={formatCurrency(metrics.avg_win)} sub="" color="text-green-600" />
@@ -170,7 +175,13 @@ export default async function AnalyticsPage() {
         </div>
         <div className="rounded-xl border border-border bg-card p-5">
           <h2 className="font-semibold mb-4">Drawdown Underwater Chart</h2>
-          <DrawdownChart data={drawdownCurve} />
+          {ddStale ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              Drawdown unavailable — broker equity is stale ({formatAge(equityAge)} old). Sync your broker for an equity-accurate curve.
+            </p>
+          ) : (
+            <DrawdownChart data={drawdownCurve} />
+          )}
         </div>
       </div>
 

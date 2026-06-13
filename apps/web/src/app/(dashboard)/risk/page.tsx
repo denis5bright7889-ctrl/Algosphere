@@ -8,6 +8,7 @@ import { effectiveTierForFeatures } from '@/lib/demo'
 import { analyzeBehavior } from '@/lib/intelligence/behavioral'
 import { analyzePerformance } from '@/lib/intelligence/performance'
 import { generateInsights, type CoachInsight } from '@/lib/intelligence/coach'
+import { brokerEquityAnchor, formatAge } from '@/lib/analytics/broker-equity'
 import type { JournalEntry, SubscriptionTier } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -50,7 +51,7 @@ export default async function RiskPage() {
       .limit(500),
     supabase
       .from('broker_connections')
-      .select('equity_usd')
+      .select('equity_usd, equity_updated_at')
       .eq('user_id', user!.id),
   ])
 
@@ -62,13 +63,10 @@ export default async function RiskPage() {
   const todayRisked = todayTrades?.reduce((s, t) => s + (t.risk_amount ?? 0), 0) ?? 0
 
   const entries = ((windowEntries ?? []) as unknown as JournalEntry[])
-  // Anchor drawdown % to real account equity (highest connected broker).
-  const accountEquity = ((brokerRows ?? []) as { equity_usd: number | null }[])
-    .map((b) => b.equity_usd)
-    .filter((e): e is number => typeof e === 'number' && e > 0)
-    .reduce<number | undefined>((max, e) => Math.max(max ?? 0, e), undefined)
-  const behavior    = entries.length > 0 ? analyzeBehavior(entries, WINDOW_DAYS, accountEquity)   : null
-  const performance = entries.length > 0 ? analyzePerformance(entries, accountEquity)             : null
+  // Shared equity anchor + age (B5) — identical helper to /overview & /analytics.
+  const { equity: accountEquity, ageSeconds: equityAge } = brokerEquityAnchor(brokerRows ?? [])
+  const behavior    = entries.length > 0 ? analyzeBehavior(entries, WINDOW_DAYS, accountEquity)        : null
+  const performance = entries.length > 0 ? analyzePerformance(entries, accountEquity, equityAge)       : null
   const insights    = (behavior && performance) ? generateInsights(behavior, performance, entries) : []
   const riskInsights = insights.filter((i) => RISK_INSIGHT_KINDS.has(i.kind)).slice(0, 2)
 
@@ -89,6 +87,7 @@ export default async function RiskPage() {
         performance={performance}
         insights={riskInsights}
         entryCount={entries.length}
+        equityAgeSeconds={equityAge}
       />
 
       {/* Institutional auto risk engine — premium tier only (admin email bypasses) */}
@@ -132,9 +131,10 @@ interface AiRiskReadProps {
   performance: ReturnType<typeof analyzePerformance> | null
   insights:    CoachInsight[]
   entryCount:  number
+  equityAgeSeconds: number | null
 }
 
-function AiRiskRead({ behavior, performance, insights, entryCount }: AiRiskReadProps) {
+function AiRiskRead({ behavior, performance, insights, entryCount, equityAgeSeconds }: AiRiskReadProps) {
   // No journal data yet — show the onboarding rather than fabricating risk takes.
   if (!behavior || !performance || entryCount === 0) {
     return (
@@ -186,10 +186,12 @@ function AiRiskRead({ behavior, performance, insights, entryCount }: AiRiskReadP
         <RiskTile
           label="Max drawdown"
           icon={TrendingDown}
-          score={ddPct != null ? Math.round(ddPct * 100) : null}
+          score={performance.drawdown_status === 'stale' ? null : (ddPct != null ? Math.round(ddPct * 100) : null)}
           higherIsBetter={false}
           unit="%"
-          hint={performance.max_drawdown > 0 ? `−$${performance.max_drawdown.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : ''}
+          hint={performance.drawdown_status === 'stale'
+            ? `broker equity ${formatAge(equityAgeSeconds)} old`
+            : (performance.max_drawdown > 0 ? `−$${performance.max_drawdown.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '')}
         />
         <RiskTile
           label="Worst trade"

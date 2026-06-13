@@ -9,7 +9,11 @@ import { computeAccountDrawdown, drawdownCurve } from './drawdown'
 const ANNUALISATION = Math.sqrt(252) // daily → annual
 const RISK_FREE_RATE = 0             // assume 0 for trading context
 
-export function computeMetrics(pnlSeries: number[], startingBalance = 0): PerformanceMetrics {
+export function computeMetrics(
+  pnlSeries: number[],
+  startingBalance = 0,
+  opts: { equityAgeSeconds?: number | null; maxEquityAgeSeconds?: number } = {},
+): PerformanceMetrics {
   if (pnlSeries.length === 0) return emptyMetrics()
 
   const wins = pnlSeries.filter(p => p > 0)
@@ -21,7 +25,13 @@ export function computeMetrics(pnlSeries: number[], startingBalance = 0): Perfor
 
   const sharpe = computeSharpe(pnlSeries)
   const sortino = computeSortino(pnlSeries)
-  const { maxDrawdownPct, maxDrawdownUsd } = computeMaxDrawdown(pnlSeries, startingBalance)
+  // Canonical drawdown engine — carries B2 (outlier guard) + B5 (staleness).
+  const accountEquity = startingBalance > 0 ? startingBalance + totalPnl : null
+  const dd = computeAccountDrawdown(pnlSeries, {
+    accountEquity, equityAgeSeconds: opts.equityAgeSeconds, maxEquityAgeSeconds: opts.maxEquityAgeSeconds,
+  })
+  const maxDrawdownPct = dd.max_drawdown_pct
+  const maxDrawdownUsd = dd.max_drawdown_usd
   const profitFactor = losses.length
     ? Math.abs(wins.reduce((a, b) => a + b, 0)) / Math.abs(losses.reduce((a, b) => a + b, 0))
     : wins.length > 0 ? Infinity : 0
@@ -51,6 +61,7 @@ export function computeMetrics(pnlSeries: number[], startingBalance = 0): Perfor
     worst_trade: round(Math.min(...pnlSeries), 2),
     consecutive_wins: consecutive.maxWins,
     consecutive_losses: consecutive.maxLosses,
+    drawdown_status: dd.status,
   }
 }
 
@@ -82,28 +93,20 @@ function computeSortino(series: number[]): number {
  * balance is unknown (0), the result is the high-water-mark drawdown of the
  * PnL curve, still bounded and never fabricated above 100%.
  */
-// Drawdown now delegates to the canonical engine (analytics/drawdown.ts) so
-// every surface returns the SAME value. `startingBalance` is mapped to the
-// engine's equity anchor: a positive seed means equity is known, so we pass it
-// as accountEquity = startingBalance + netPnl (the engine re-derives the seed).
-function computeMaxDrawdown(
-  series: number[], startingBalance = 0,
-): { maxDrawdownPct: number; maxDrawdownUsd: number } {
-  const accountEquity = startingBalance > 0
-    ? startingBalance + series.reduce((s, p) => s + p, 0)
-    : null
-  const dd = computeAccountDrawdown(series, { accountEquity })
-  return { maxDrawdownPct: dd.max_drawdown_pct, maxDrawdownUsd: dd.max_drawdown_usd }
-}
-
+// Drawdown delegates to the canonical engine (analytics/drawdown.ts) so every
+// surface returns the SAME value. `startingBalance` maps to the engine's equity
+// anchor: a positive seed means equity is known → accountEquity = seed + netPnl.
 export function computeDrawdownCurve(
   series: { date: string; pnl: number }[], startingBalance = 0,
+  opts: { equityAgeSeconds?: number | null; maxEquityAgeSeconds?: number } = {},
 ): DrawdownPoint[] {
   const pnls = series.map((s) => s.pnl)
   const accountEquity = startingBalance > 0
     ? startingBalance + pnls.reduce((s, p) => s + p, 0)
     : null
-  const steps = drawdownCurve(pnls, { accountEquity })
+  const steps = drawdownCurve(pnls, {
+    accountEquity, equityAgeSeconds: opts.equityAgeSeconds, maxEquityAgeSeconds: opts.maxEquityAgeSeconds,
+  })
   return series.map(({ date }, i) => ({
     date,
     equity: steps[i]?.equity ?? 0,

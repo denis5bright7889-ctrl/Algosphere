@@ -38,7 +38,7 @@ export interface DrawdownOpts {
   accountEquity?:      number | null
   /** Age of that equity reading, seconds (now − equity_updated_at). B5. */
   equityAgeSeconds?:   number | null
-  /** Freshness budget; older → 'stale'. Default 900s (15m). */
+  /** Freshness budget; older → 'stale'. Default 1800s (30m). */
   maxEquityAgeSeconds?: number
   /** B2 outlier guard on/off. Default true. */
   outlierGuard?:       boolean
@@ -67,7 +67,7 @@ function guardOutliers(series: number[], spikeMultiple: number): { clean: number
 }
 
 export function computeAccountDrawdown(pnlSeries: number[], opts: DrawdownOpts = {}): AccountDrawdown {
-  const maxAge       = opts.maxEquityAgeSeconds ?? 900
+  const maxAge       = opts.maxEquityAgeSeconds ?? 1800
   const spikeMul     = opts.spikeMultiple ?? 8
   const guard        = opts.outlierGuard !== false
 
