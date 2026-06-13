@@ -66,7 +66,7 @@ export default async function TraderIntelligencePage() {
 
   const cutoff = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString()
 
-  const [entriesRes, evalsRes, snapshotsRes] = await Promise.all([
+  const [entriesRes, evalsRes, snapshotsRes, brokersRes] = await Promise.all([
     supabase.from('journal_entries')
       .select('*')
       .eq('user_id', user.id)
@@ -91,6 +91,9 @@ export default async function TraderIntelligencePage() {
       .select('symbol, regime, scanned_at')
       .order('scanned_at', { ascending: false })
       .limit(120),
+    supabase.from('broker_connections')
+      .select('equity_usd')
+      .eq('user_id', user.id),
   ])
 
   const entries = (entriesRes.data ?? []) as unknown as JournalEntry[]
@@ -120,8 +123,13 @@ export default async function TraderIntelligencePage() {
     pnl:               row.journal_entries?.pnl       ?? null,
   }))
 
-  const behavior   = analyzeBehavior(entries, WINDOW_DAYS)
-  const performance = analyzePerformance(entries)
+  // Anchor drawdown % to real account equity (highest connected broker).
+  const accountEquity = ((brokersRes.data ?? []) as { equity_usd: number | null }[])
+    .map((b) => b.equity_usd)
+    .filter((e): e is number => typeof e === 'number' && e > 0)
+    .reduce<number | undefined>((max, e) => Math.max(max ?? 0, e), undefined)
+  const behavior   = analyzeBehavior(entries, WINDOW_DAYS, accountEquity)
+  const performance = analyzePerformance(entries, accountEquity)
   const insights   = generateInsights(behavior, performance, entries)
   const timing     = generateTiming(
     (snapshotsRes.data ?? []) as RegimeSnapshot[],
