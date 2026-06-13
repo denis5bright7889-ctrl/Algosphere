@@ -30,6 +30,8 @@ import { cn } from '@/lib/utils'
 import { isDemo } from '@/lib/demo'
 import { generateDemoJournal } from '@/lib/demo-data'
 import { analyzeBehavior, invertComposite, type BehavioralReport } from '@/lib/intelligence/behavioral'
+import { detectContradictions, type Contradiction } from '@/lib/intelligence/contradiction-engine'
+import { MIN_SAMPLE } from '@/lib/intelligence/data-sufficiency'
 import { analyzePerformance } from '@/lib/intelligence/performance'
 import { generateInsights, type CoachInsight } from '@/lib/intelligence/coach'
 import { generateTiming, type RegimeSnapshot, type TimingRecommendation } from '@/lib/intelligence/timing'
@@ -190,7 +192,34 @@ export default async function OverviewPage() {
     }
   }
 
-  const overallBand = bandTone(scores.overall)
+  // ── Edge + contradiction guard (Phase 9) ──────────────────────────
+  // The AI Trader Score is a PROCESS composite. It must never read as a
+  // profitability/edge verdict without a verified edge, and it must never
+  // contradict the underlying facts (PF, impulse, setup coverage).
+  const taggedCount   = entries.filter((e) => (e.setup_tag ?? '').trim()).length
+  const setupCoverage = entries.length > 0 ? taggedCount / entries.length : null
+  const verifiedEdge  =
+    performance.profit_factor != null &&
+    performance.profit_factor >= 1 &&
+    performance.closed_trades >= MIN_SAMPLE.win_rate   // positive edge on ≥20 trades
+
+  const contradictions: Contradiction[] = detectContradictions({
+    profit_factor:  performance.profit_factor,
+    overall_score:  scores.overall,
+    rating:         bandTone(scores.overall).band,
+    verified_edge:  verifiedEdge,
+    setup_coverage: setupCoverage,
+    discipline:     scores.discipline,
+    net_pnl:        performance.total_pnl,
+    impulse_risk:   behavior.impulse_risk,
+  })
+  const hasCritical = contradictions.some((c) => c.severity === 'critical')
+
+  // Without a verified edge — or in the presence of a critical contradiction —
+  // the score is "Unproven": shown, but never labelled Strong/Steady.
+  const overallBand = (!verifiedEdge || hasCritical)
+    ? { tone: 'text-amber-300', band: 'Unproven' }
+    : bandTone(scores.overall)
 
   return (
     <div className="mx-auto max-w-6xl px-1 py-4 sm:px-4 sm:py-6">
@@ -230,6 +259,13 @@ export default async function OverviewPage() {
             <div className={cn('mt-1 text-[11px] font-semibold uppercase tracking-wider', overallBand.tone)}>
               {overallBand.band}
             </div>
+            {overallBand.band === 'Unproven' && (
+              <p className="mt-1 max-w-xs text-[10px] leading-snug text-muted-foreground">
+                Process score only — no verified edge yet
+                {performance.profit_factor != null && ` (PF ${performance.profit_factor.toFixed(2)}, ${performance.closed_trades} trades)`}.
+                This is not a profitability rating.
+              </p>
+            )}
           </div>
           <div className="grid flex-1 grid-cols-2 gap-2 sm:max-w-md sm:grid-cols-5">
             <SubScore label="Discipline"  score={scores.discipline} />

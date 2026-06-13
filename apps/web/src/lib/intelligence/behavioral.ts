@@ -646,11 +646,16 @@ function detectFomo(
   flags: BehaviorFlag[],
 ): { score: number | null; count: number } {
   let count = 0
+  let logged = 0
   for (const r of rows) {
+    if (rowHasEmotionEvidence(r)) logged++
     if (rowSignalsFomo(r)) count++
   }
-  if (rows.length < MIN_SAMPLE_PER_AXIS) return { score: null, count }
-  const ratio = count / rows.length
+  // Trust audit (C1): FOMO is inferred from SELF-REPORTED emotion_pre / notes /
+  // ai_tags. If the trader never logs any of those, absence of a FOMO signal is
+  // NOT evidence of emotional control — it's unknown. Insufficient, not 0-risk.
+  if (rows.length < MIN_SAMPLE_PER_AXIS || logged < MIN_SAMPLE_PER_AXIS) return { score: null, count }
+  const ratio = count / logged
   const score = Math.min(100, Math.round(ratio * 180))
   if (count >= 2) {
     flags.push({
@@ -661,6 +666,14 @@ function detectFomo(
     })
   }
   return { score, count }
+}
+
+/** Did the trader log ANY emotional signal on this trade? FOMO can only be
+ *  measured where this is true — absence is "unknown", never "no FOMO". */
+function rowHasEmotionEvidence(r: JournalEntry): boolean {
+  return Boolean((r.emotion_pre ?? '').trim())
+    || (r.ai_tags ?? []).length > 0
+    || Boolean((r.notes ?? '').trim())
 }
 
 function rowSignalsFomo(r: JournalEntry): boolean {
