@@ -82,3 +82,34 @@ test('unified grade scale (single source of truth)', () => {
   assert.equal(gradeForScore(null), null)
   assert.equal(gradeForScore(undefined), null)
 })
+
+import { coachEvaluationTrust } from './coach-eval.ts'
+
+test('TrustResult: full trade → scored, capped at Medium (self-reported)', () => {
+  const input = {
+    entry_quality: 'good', exit_quality: 'good', management_quality: 'good',
+    emotion_pre: 'calm', reason_for_entry: 'strategy_signal', rule_compliance: 'full',
+    risk_pct: 1.0, setup_validity: 'yes', strategy_used: 'trend_following', market_regime: 'trending',
+  }
+  const ev = evaluateTrade(input)
+  assert.ok(ev.trust, 'evaluation carries a TrustResult')
+  assert.equal(ev.trust.value, ev.quality_score)
+  assert.equal(ev.trust.confidence, 'High')
+  assert.equal(ev.trust.trust_level, 'Medium')          // self-reported can't exceed Medium
+  assert.ok(ev.trust.explanation.length > 0)
+})
+
+test('TrustResult: empty trade → Insufficient, null value, Very Low', () => {
+  const ev = evaluateTrade({ pair: 'XAUUSD' })
+  assert.equal(ev.trust.value, null)
+  assert.equal(ev.trust.confidence, 'Insufficient')
+  assert.equal(ev.trust.trust_level, 'Very Low')
+  assert.ok(ev.trust.explanation.includes('Insufficient'))
+})
+
+test('coachEvaluationTrust maps confidence + flags missing axes', () => {
+  const t = coachEvaluationTrust({ quality_score: 72, confidence: 'medium', data_completeness: 0.6 })
+  assert.equal(t.value, 72)
+  assert.equal(t.confidence, 'Medium')
+  assert.ok(t.inputs_missing!.some((m) => m.includes('process axes')))
+})

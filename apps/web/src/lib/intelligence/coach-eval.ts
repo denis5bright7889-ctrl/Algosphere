@@ -17,7 +17,13 @@
  *   • ONE grade scale (gradeForScore) — no more dual A+/A-F bands.
  *
  * PnL never enters a process grade (a losing trade can be A-grade process).
+ *
+ * Phase 10 (TrustResult migration): every evaluation now also carries a
+ * `trust` TrustResult — the platform-wide contract {value, confidence,
+ * sample_size, evidence_strength, trust_level, explanation}. Coach data is
+ * SELF-REPORTED, so trust is capped at Medium regardless of completeness.
  */
+import { buildTrust, type TrustResult, type TrustConfidence } from './trust-engine'
 
 export interface EvaluatorInput {
   // ─── Core ──
@@ -108,6 +114,33 @@ export interface CoachEvaluation {
   discipline_grade: number | null
   timing_grade:     number | null
   ai_insights:      string[]
+
+  // Phase 10 — unified platform trust contract for the overall quality score.
+  trust:            TrustResult
+}
+
+/** coach Confidence → trust-engine TrustConfidence. */
+function coachConfidenceToTrust(c: Confidence): TrustConfidence {
+  return c === 'high' ? 'High' : c === 'medium' ? 'Medium' : c === 'low' ? 'Low' : 'Insufficient'
+}
+
+/** Map a coach evaluation onto the platform TrustResult. Confidence is the
+ *  coach's OWN process-completeness signal (not trade sample size); assurance
+ *  is Self-Reported (journal fields), so trust_level can never exceed Medium. */
+export function coachEvaluationTrust(ev: Pick<CoachEvaluation,
+  'quality_score' | 'confidence' | 'data_completeness'>): TrustResult {
+  const evidenced = Math.round(ev.data_completeness * 5)   // 0..5 process axes
+  return buildTrust({
+    metric_id:      'coach_quality',
+    value:          ev.quality_score,
+    confidence:     coachConfidenceToTrust(ev.confidence),
+    sample_size:    1,            // per-trade evaluation
+    min_sample:     1,
+    evidence_count: evidenced,
+    assurance:      'Self-Reported',
+    formula:        'Mean of the EVIDENCED process axes (Execution, Psychology, Risk, Discipline, Timing). PnL never enters; zero evidence → Insufficient.',
+    inputs_missing: evidenced < 5 ? [`${5 - evidenced} of 5 process axes not logged`] : [],
+  })
 }
 
 
@@ -181,6 +214,7 @@ export function evaluateTrade(input: EvaluatorInput): CoachEvaluation {
     discipline_grade:  discipline.score,
     timing_grade:      timing.score,
     ai_insights:       insights,
+    trust:             coachEvaluationTrust({ quality_score, confidence, data_completeness }),
   }
 }
 
