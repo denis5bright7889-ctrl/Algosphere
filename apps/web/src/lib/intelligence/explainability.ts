@@ -9,6 +9,8 @@
  */
 import type { EvaluatorInput, CoachEvaluation, Confidence } from './coach-eval'
 import type { EdgeConfidence } from './edge-confidence'
+import type { MetricTrust, Assurance, TrustLevel } from './behavioral-trust'
+import type { StrategyAnalysis } from './strategy-grader'
 
 export interface ExplanationInput {
   name:    string
@@ -20,7 +22,11 @@ export interface ScoreExplanation {
   label:          string                       // "Risk Score"
   value:          number | null                // 72 | null (Insufficient Data)
   unit?:          string                        // "/100"
-  confidence:     Confidence | EdgeConfidence
+  confidence:     Confidence | EdgeConfidence | string  // styler lowercases
+  // Unified trust contract (optional — behavioral/strategy surfaces set these):
+  assurance?:     Assurance                     // Objective | Mixed | Self-Reported
+  trust_level?:   TrustLevel                    // overall trust = confidence × assurance
+  evidence_count?: number                       // events actually observed
   formula:        string                        // plain-English formula
   inputs_used:    ExplanationInput[]
   inputs_missing: string[]
@@ -136,6 +142,86 @@ export function explainEdge(args: {
 }
 
 // ─── Drawdown → explanation ─────────────────────────────────────────
+
+// ─── Behavioral metric → explanation (Phase B) ─────────────────────
+
+const BEHAVIORAL_FORMULAS: Record<string, string> = {
+  resilience:      'Peak-to-trough drawdown on the equity curve; score from recovery efficiency (recovery vs fall duration) minus a depth penalty. Insufficient until a real drawdown is observed.',
+  recovery:        'Trades + days taken to reclaim the prior equity high after the deepest drawdown.',
+  consistency:     '100 − coefficient-of-variation × 25 of per-trade PnL. A steady curve scores high (measures variance, NOT profitability).',
+  patience:        'Median inter-trade gap vs a 4h selectivity target, minus impulse + overtrading penalties.',
+  self_control:    '100 − mean of the MEASURED impulse risks (FOMO, impulse, revenge, tilt). Insufficient if a measured majority is unavailable.',
+  rule_adherence:  '100 − mean of the MEASURED rule risks (rule violations, risk inflation, loss chasing).',
+  risk_discipline: '100 − mean of the MEASURED risk-sizing risks (risk inflation, loss chasing, rule violations).',
+  tilt:            'Behavioral deterioration in the 24h after a >2×-average loss (trade bursts, risk inflation, or negative emotion logs).',
+  revenge:         'Share of post-loss trades that took 40%+ extra risk within 60 minutes of the loss.',
+  risk_inflation:  'Share of trades after a 3-win streak that used 30%+ more risk than baseline.',
+  loss_chase:      'Trades during a 3+ loss streak that kept risk at/above baseline instead of de-risking.',
+  fomo:            'Share of trades flagged FOMO via emotion_pre, notes, or AI tags.',
+  impulse:         'Share of trades with no setup_tag — by the trader\'s own log, an unrepeatable entry.',
+  overtrade:       'Share of trading days that exceeded the daily trade cap.',
+  maturity:        'Weighted blend: rule-adherence 25% + self-control 25% + risk-discipline 20% + resilience 15% + patience 10% + consistency 5% (renormalised over measured axes).',
+}
+
+function prettyMetric(metric: string): string {
+  return metric.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+/** Turn a behavioral MetricTrust into the unified ScoreExplanation. */
+export function explainBehavioralMetric(trust: MetricTrust): ScoreExplanation {
+  return {
+    label:        prettyMetric(trust.metric),
+    value:        trust.value,
+    unit:         '/100',
+    confidence:   trust.confidence.toLowerCase(),   // unify casing for the styler
+    assurance:    trust.assurance,
+    trust_level:  trust.trust_level,
+    evidence_count: trust.evidence_count,
+    formula:      BEHAVIORAL_FORMULAS[trust.metric] ?? 'Composite behavioral metric.',
+    inputs_used: [
+      { name: 'qualifying observations', value: trust.sample_size, present: true },
+      { name: 'events observed',         value: trust.evidence_count, present: true },
+    ],
+    inputs_missing: trust.value == null ? ['enough qualifying observations (need 4+)'] : [],
+    sample_size:  trust.sample_size,
+    notes:        [trust.verdict],
+  }
+}
+
+// ─── Strategy grade → explanation (Phase B) ─────────────────────────
+
+/** Map a strategy grade (BacktestResult-derived) onto the unified contract.
+ *  StrategyAnalysis is imported type-only so this stays node-testable. */
+export function explainStrategyGrade(a: StrategyAnalysis): ScoreExplanation {
+  const g = a.grade
+  const b = g.breakdown
+  const reliable = a.metrics.sample_reliable
+  return {
+    label:       'Strategy Grade',
+    value:       g.score,
+    unit:        '/100',
+    confidence:  g.confidence,
+    formula:     'Weighted sum: Sample quality 30% + Performance 40% + Risk 20% + Robustness 10% (robustness weight redistributed when the sample is too thin to evaluate). No letter grade below 30 trades — shown as N/A, never a fabricated A.',
+    inputs_used: [
+      { name: 'sample quality', value: b.sample_quality, present: true },
+      { name: 'performance',    value: b.performance,    present: true },
+      { name: 'risk',           value: b.risk,           present: true },
+      { name: 'robustness',     value: b.robustness ?? 'not evaluated', present: b.robustness != null },
+      { name: 'closed trades',  value: a.metrics.trades, present: true },
+      { name: 'reliability',    value: a.metrics.reliability, present: true },
+    ],
+    inputs_missing: [
+      ...(b.robustness == null ? ['robustness (sample too thin for Monte Carlo)'] : []),
+      ...(!reliable ? [`statistical reliability (need ${30} trades, have ${a.metrics.trades})`] : []),
+    ],
+    sample_size: a.metrics.trades,
+    notes: [
+      `Verdict: ${g.verdict}`,
+      `Deployment readiness: ${g.readiness}.`,
+      g.grade === 'N/A' ? 'Sample below the 30-trade floor — no letter grade is published.' : 'Grade is profitability-aware but sample-gated: no A from a thin or unstable edge.',
+    ],
+  }
+}
 
 export function explainDrawdown(args: {
   maxDrawdownPct: number; maxDrawdownUsd: number; startingBalance: number; trades: number

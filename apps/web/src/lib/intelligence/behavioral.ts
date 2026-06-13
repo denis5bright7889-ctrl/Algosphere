@@ -118,6 +118,11 @@ export type MaturityLevel = typeof MATURITY_BANDS[number]['name']
 export interface BehavioralReport {
   total_trades:        number
   closed_trades:       number
+  // Win/loss counts power per-metric sample sizing in the trust layer
+  // (e.g. revenge confidence is bounded by post-loss opportunities, not
+  // total trades). See behavioral-trust.buildBehavioralTrust().
+  wins_count:          number
+  losses_count:        number
   window_days:         number
 
   /** 0–100 — higher is more disciplined. null when sample too thin. */
@@ -376,6 +381,8 @@ export function analyzeBehavior(
   const report: BehavioralReport = {
     total_trades:        rows.length,
     closed_trades:       closed.length,
+    wins_count:          closed.filter((r) => (r.pnl ?? 0) > 0).length,
+    losses_count:        closed.filter((r) => (r.pnl ?? 0) < 0).length,
     window_days:         windowDays,
     consistency_score:   consistency,
     revenge_risk:        revengeRisk,
@@ -450,9 +457,9 @@ export function analyzeBehavior(
 function detectRevenge(
   chron: JournalEntry[],
   flags: BehaviorFlag[],
-): { score: number; count: number } {
+): { score: number | null; count: number } {
   const closed = chron.filter((r) => r.pnl != null)
-  if (closed.length < MIN_SAMPLE_PER_AXIS) return { score: 0, count: 0 }
+  if (closed.length < MIN_SAMPLE_PER_AXIS) return { score: null, count: 0 }
 
   const avgRisk = mean(closed.map((r) => r.risk_pct ?? null).filter((x): x is number => x != null))
   let revengeCount = 0
@@ -473,7 +480,7 @@ function detectRevenge(
     if (next.risk_pct > avgRisk * REVENGE_RISK_INFLATION) revengeCount++
   }
 
-  if (opportunities < MIN_SAMPLE_PER_AXIS) return { score: 0, count: revengeCount }
+  if (opportunities < MIN_SAMPLE_PER_AXIS) return { score: null, count: revengeCount }
   const ratio = revengeCount / opportunities
   const score = Math.min(100, Math.round(ratio * 140))   // 70% revenge → ~98
   if (revengeCount >= 2) {
@@ -493,7 +500,7 @@ function detectRevenge(
 function detectOvertrade(
   chron: JournalEntry[],
   flags: BehaviorFlag[],
-): { score: number; days: number } {
+): { score: number | null; days: number } {
   const byDay = new Map<string, JournalEntry[]>()
   for (const r of chron) {
     const day = (r.trade_date ?? r.created_at.slice(0, 10))
@@ -525,13 +532,13 @@ function detectOvertrade(
 function detectRiskInflation(
   chron: JournalEntry[],
   flags: BehaviorFlag[],
-): { score: number; count: number } {
+): { score: number | null; count: number } {
   const closed = chron.filter((r) => r.pnl != null && r.risk_pct != null)
   if (closed.length < MIN_SAMPLE_PER_AXIS + WIN_STREAK_LEN) {
-    return { score: 0, count: 0 }
+    return { score: null, count: 0 }
   }
   const avgRisk = mean(closed.map((r) => r.risk_pct as number)) ?? 0
-  if (avgRisk <= 0) return { score: 0, count: 0 }
+  if (avgRisk <= 0) return { score: null, count: 0 }
 
   let count = 0
   let opportunities = 0
@@ -553,7 +560,7 @@ function detectRiskInflation(
     }
   }
 
-  if (opportunities < MIN_SAMPLE_PER_AXIS) return { score: 0, count }
+  if (opportunities < MIN_SAMPLE_PER_AXIS) return { score: null, count }
   const ratio = count / opportunities
   const score = Math.min(100, Math.round(ratio * 130))
   if (count >= 2) {
@@ -573,9 +580,9 @@ function detectRiskInflation(
 function detectDisciplineRisk(
   closed: JournalEntry[],
   flags: BehaviorFlag[],
-): { score: number; count: number } {
+): { score: number | null; count: number } {
   const flagged = closed.filter((r) => r.rule_violation === true).length
-  if (closed.length < MIN_SAMPLE_PER_AXIS) return { score: 0, count: flagged }
+  if (closed.length < MIN_SAMPLE_PER_AXIS) return { score: null, count: flagged }
   const ratio = flagged / closed.length
   const score = Math.min(100, Math.round(ratio * 200))
   if (flagged >= 2) {
@@ -624,12 +631,12 @@ function computeConsistency(closed: JournalEntry[], flags: BehaviorFlag[]): numb
 function detectFomo(
   rows: JournalEntry[],
   flags: BehaviorFlag[],
-): { score: number; count: number } {
+): { score: number | null; count: number } {
   let count = 0
   for (const r of rows) {
     if (rowSignalsFomo(r)) count++
   }
-  if (rows.length < MIN_SAMPLE_PER_AXIS) return { score: 0, count }
+  if (rows.length < MIN_SAMPLE_PER_AXIS) return { score: null, count }
   const ratio = count / rows.length
   const score = Math.min(100, Math.round(ratio * 180))
   if (count >= 2) {
@@ -663,13 +670,13 @@ function rowSignalsFomo(r: JournalEntry): boolean {
 function detectWeekendGamble(
   rows: JournalEntry[],
   flags: BehaviorFlag[],
-): { score: number; count: number } {
+): { score: number | null; count: number } {
   let count = 0
   for (const r of rows) {
     const d = new Date(r.created_at).getUTCDay()  // 0=Sun, 6=Sat
     if (d === 0 || d === 6) count++
   }
-  if (rows.length < MIN_SAMPLE_PER_AXIS) return { score: 0, count }
+  if (rows.length < MIN_SAMPLE_PER_AXIS) return { score: null, count }
   const ratio = count / rows.length
   const score = Math.min(100, Math.round(ratio * 220))
   if (count >= 2) {
@@ -693,13 +700,13 @@ function detectWeekendGamble(
 function detectImpulse(
   rows: JournalEntry[],
   flags: BehaviorFlag[],
-): { score: number; count: number } {
+): { score: number | null; count: number } {
   let count = 0
   for (const r of rows) {
     const tag = (r.setup_tag ?? '').trim().toLowerCase()
     if (IMPULSE_NO_STRATEGY_TAGS.has(tag)) count++
   }
-  if (rows.length < MIN_SAMPLE_PER_AXIS) return { score: 0, count }
+  if (rows.length < MIN_SAMPLE_PER_AXIS) return { score: null, count }
   const ratio = count / rows.length
   const score = Math.min(100, Math.round(ratio * 160))
   if (count >= 2) {
@@ -723,15 +730,15 @@ function detectImpulse(
 function detectLossChase(
   chron: JournalEntry[],
   flags: BehaviorFlag[],
-): { score: number; count: number } {
+): { score: number | null; count: number } {
   const closed = chron.filter((r) => r.pnl != null)
   if (closed.length < MIN_SAMPLE_PER_AXIS + LOSS_CHASE_STREAK_LEN) {
-    return { score: 0, count: 0 }
+    return { score: null, count: 0 }
   }
   const avgRisk = mean(
     closed.map((r) => r.risk_pct ?? null).filter((x): x is number => x != null),
   )
-  if (avgRisk == null || avgRisk <= 0) return { score: 0, count: 0 }
+  if (avgRisk == null || avgRisk <= 0) return { score: null, count: 0 }
 
   let count = 0
   let lossStreak = 0
@@ -798,10 +805,10 @@ function summarizeEmotions(rows: JournalEntry[]) {
 function detectConfidenceDrift(
   chron: JournalEntry[],
   flags: BehaviorFlag[],
-): { score: number; count: number; events: ConfidenceDriftEvent[] } {
+): { score: number | null; count: number; events: ConfidenceDriftEvent[] } {
   const closed = chron.filter((r) => r.pnl != null)
   if (closed.length < MIN_SAMPLE_PER_AXIS + CONFIDENCE_DRIFT_STREAK_LEN) {
-    return { score: 0, count: 0, events: [] }
+    return { score: null, count: 0, events: [] }
   }
   const sizes = closed.map((r) =>
     (typeof r.lot_size === 'number' && r.lot_size > 0)
@@ -809,7 +816,7 @@ function detectConfidenceDrift(
       : (typeof r.risk_pct === 'number' && r.risk_pct > 0 ? r.risk_pct : null),
   )
   const sizeAvg = mean(sizes.filter((x): x is number => x != null))
-  if (sizeAvg == null || sizeAvg <= 0) return { score: 0, count: 0, events: [] }
+  if (sizeAvg == null || sizeAvg <= 0) return { score: null, count: 0, events: [] }
 
   let count = 0
   let opportunities = 0
@@ -847,7 +854,7 @@ function detectConfidenceDrift(
     }
   }
 
-  if (opportunities < MIN_SAMPLE_PER_AXIS) return { score: 0, count, events }
+  if (opportunities < MIN_SAMPLE_PER_AXIS) return { score: null, count, events }
   const score = Math.min(100, Math.round((count / opportunities) * 140))
   if (count >= 2) {
     flags.push({
@@ -870,12 +877,12 @@ function detectConfidenceDrift(
 function detectTilt(
   chron: JournalEntry[],
   flags: BehaviorFlag[],
-): { score: number; events: TiltEvent[] } {
+): { score: number | null; events: TiltEvent[] } {
   const closed = chron.filter((r) => r.pnl != null)
-  if (closed.length < MIN_SAMPLE_PER_AXIS) return { score: 0, events: [] }
+  if (closed.length < MIN_SAMPLE_PER_AXIS) return { score: null, events: [] }
 
   const losses = closed.map((r) => r.pnl as number).filter((p) => p < 0)
-  if (losses.length === 0) return { score: 0, events: [] }
+  if (losses.length === 0) return { score: null, events: [] }
   const avgLoss = Math.abs(mean(losses) ?? 0)
   const tiltThreshold = -avgLoss * TILT_LOSS_MULTIPLIER
 
@@ -953,9 +960,9 @@ function detectTilt(
 function detectRecencyBias(
   chron: JournalEntry[],
   flags: BehaviorFlag[],
-): { score: number; events: RecencyBiasEvent[] } {
+): { score: number | null; events: RecencyBiasEvent[] } {
   const closed = chron.filter((r) => r.pnl != null && r.pair)
-  if (closed.length < MIN_SAMPLE_PER_AXIS) return { score: 0, events: [] }
+  if (closed.length < MIN_SAMPLE_PER_AXIS) return { score: null, events: [] }
 
   // Group by pair.
   const byPair = new Map<string, JournalEntry[]>()
@@ -1034,9 +1041,9 @@ function detectRecencyBias(
 function detectStrategyHopping(
   rows: JournalEntry[],
   flags: BehaviorFlag[],
-): { score: number; switches: number } {
+): { score: number | null; switches: number } {
   const tagged = rows.filter((r) => typeof r.setup_tag === 'string' && r.setup_tag.trim().length > 0)
-  if (tagged.length < MIN_SAMPLE_PER_AXIS) return { score: 0, switches: 0 }
+  if (tagged.length < MIN_SAMPLE_PER_AXIS) return { score: null, switches: 0 }
 
   const tags = tagged.map((r) => (r.setup_tag as string).trim().toLowerCase())
   const unique = new Set(tags).size
@@ -1122,7 +1129,7 @@ function computeResilience(
     // No meaningful drawdown — trader hasn't been stress-tested.
     // Award a neutral 70 (positive but not perfect; absence of stress
     // doesn't equal proven resilience).
-    return { score: 70, recovery_time_days: null, recovery_efficiency: null }
+    return null   // not stress-tested yet → Insufficient, not a neutral 70
   }
 
   // Drawdown duration & recovery duration in trades.
@@ -1224,8 +1231,11 @@ function computePatience(
  *  the 0–100 positive score (100 - mean of risks). Null if ANY input
  *  is null — we never fabricate by averaging around missing data. */
 function invertComposite(risks: (number | null)[]): number | null {
-  if (risks.some((r) => r == null)) return null
-  const xs = risks as number[]
+  // Trust audit: insufficient sub-metrics arrive as null and must NOT be
+  // treated as 0-risk (that inflated composites to ~100 = "perfect"). Average
+  // over MEASURED risks only, and refuse to score without a measured majority.
+  const xs = risks.filter((r): r is number => r != null)
+  if (xs.length < Math.ceil(risks.length / 2)) return null
   const avg = xs.reduce((a, b) => a + b, 0) / xs.length
   return clamp01_100(100 - avg)
 }

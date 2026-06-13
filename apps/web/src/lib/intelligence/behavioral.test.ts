@@ -212,3 +212,37 @@ test('generateCoaching can be called on an already-built report', () => {
   assert.equal(c.summary, b.coaching.summary)
   assert.deepEqual(c.strengths, b.coaching.strengths)
 })
+
+// ── Trust audit: insufficient sub-samples must NOT inflate to "perfect" ──
+
+test('thin sub-samples no longer fabricate elite discipline (was ~100)', () => {
+  // 8 all-WIN trades, no risk data, calm, tagged, no violations. The
+  // composite-feeding risk detectors (revenge/tilt/risk-inflation/loss-chase)
+  // CANNOT measure here → they are Insufficient (null), and must not be read
+  // as 0-risk = perfect.
+  const entries: Row[] = []
+  const start = +new Date('2026-05-01T08:00:00Z')
+  for (let i = 0; i < 8; i++) {
+    entries.push(row({
+      created_at: new Date(start + i * 24 * 3_600_000).toISOString(),
+      pnl: 12,                // all wins → no losses to assess revenge/tilt/loss-chase
+      risk_pct: null,         // no risk data → risk-inflation unmeasurable
+      lot_size: null,
+      setup_tag: 'breakout',
+      emotion_pre: 'calm',
+      rule_violation: false,
+    }))
+  }
+  const b = analyzeBehavior(entries as never, 30) as BehavioralReport
+
+  assert.equal(b.closed_trades, 8)              // passes the overall gate
+  // The detectors that can't measure must be Insufficient, not 0.
+  assert.equal(b.revenge_risk, null)
+  assert.equal(b.tilt_risk, null)
+  assert.equal(b.risk_inflation_risk, null)
+  // Composites that lose their measured majority must be Insufficient,
+  // NOT the old fabricated 100 / 70.
+  assert.equal(b.rule_adherence_score, null)
+  assert.equal(b.risk_discipline_score, null)
+  assert.equal(b.resilience_score, null)        // never drew down → not "70 neutral"
+})
