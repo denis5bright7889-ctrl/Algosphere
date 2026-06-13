@@ -23,13 +23,14 @@ export default async function AnalyticsPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  const [{ data: profile }, { data: raw }] = await Promise.all([
+  const [{ data: profile }, { data: raw }, { data: brokerRows }] = await Promise.all([
     supabase.from('profiles').select('account_type').eq('id', user!.id).single(),
     supabase
       .from('journal_entries')
       .select('*')
       .eq('user_id', user!.id)
       .order('trade_date', { ascending: true }),
+    supabase.from('broker_connections').select('equity_usd').eq('user_id', user!.id),
   ])
 
   let entries = (raw ?? []) as JournalEntry[]
@@ -56,8 +57,17 @@ export default async function AnalyticsPage() {
     )
   }
 
+  // Single drawdown source of truth: anchor on broker equity (same as
+  // /overview & /risk) so every dashboard reports the SAME drawdown.
+  const accountEquity = ((brokerRows ?? []) as { equity_usd: number | null }[])
+    .map((b) => b.equity_usd)
+    .filter((e): e is number => typeof e === 'number' && e > 0)
+    .reduce<number | undefined>((max, e) => Math.max(max ?? 0, e), undefined)
+
   const pnlSeries = entries.map(e => e.pnl ?? 0)
-  const metrics = computeMetrics(pnlSeries)
+  const netPnl = pnlSeries.reduce((s, p) => s + p, 0)
+  const startingBalance = accountEquity != null ? Math.max(0, accountEquity - netPnl) : 0
+  const metrics = computeMetrics(pnlSeries, startingBalance)
   const sharpeInterpret = interpretSharpe(metrics.sharpe_ratio)
 
   const dated = entries
@@ -69,7 +79,9 @@ export default async function AnalyticsPage() {
     value: dated.slice(0, i + 1).reduce((s, x) => s + x.pnl, 0),
   }))
 
-  const drawdownCurve = computeDrawdownCurve(dated)
+  // Same anchor for the curve (startingBalance derived from the dated subset's net).
+  const datedNet = dated.reduce((s, d) => s + d.pnl, 0)
+  const drawdownCurve = computeDrawdownCurve(dated, accountEquity != null ? Math.max(0, accountEquity - datedNet) : 0)
 
   // Pair breakdown
   const byPair = groupBy(entries, e => e.pair ?? 'Unknown')

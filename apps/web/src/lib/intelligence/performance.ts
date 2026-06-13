@@ -16,6 +16,7 @@
  * "—".
  */
 import type { JournalEntry as BaseEntry } from '@/lib/types'
+import { computeAccountDrawdown, type DrawdownStatus } from '@/lib/analytics/drawdown'
 
 // See note in behavioral.ts — extending locally so R4 stays
 // self-contained.
@@ -42,6 +43,7 @@ export interface PerformanceReport {
   worst_trade:     number | null
   max_drawdown:    number             // in pnl units (currency)
   max_drawdown_pct: number | null     // vs peak running equity
+  drawdown_status: DrawdownStatus     // ok | pnl_relative | stale | insufficient
 
   by_pair:    SegmentRow[]
   by_session: SegmentRow[]
@@ -71,6 +73,10 @@ export function analyzePerformance(
    *  of the PnL high-water mark — otherwise a tiny early peak produces absurd
    *  percentages like 3509%. Omit when no account base is available. */
   accountEquity?: number,
+  /** Age of the equity reading in seconds (B5). When stale, the equity anchor
+   *  is not trusted and `drawdown_status` becomes 'stale'. */
+  equityAgeSeconds?: number | null,
+  maxEquityAgeSeconds?: number,
 ): PerformanceReport {
   const rows   = [...entries].sort(
     (a, b) => +new Date(a.created_at) - +new Date(b.created_at),
@@ -98,22 +104,14 @@ export function analyzePerformance(
     ? (winRate * avgWin) + (lossRate * avgLoss)
     : null
 
-  // Drawdown — peak-to-trough on the equity curve. Seed at the account's
-  // starting balance (current equity − window PnL) when known, so the % is
-  // measured against real equity, not a near-zero early PnL peak. Clamp to
-  // [0,1]: a fabricated 3509% is never a valid drawdown.
-  const closedPnlTotal = closed.reduce((s, r) => s + (r.pnl ?? 0), 0)
-  const startingBalance = (accountEquity != null && Number.isFinite(accountEquity) && accountEquity > 0)
-    ? Math.max(0, accountEquity - closedPnlTotal)
-    : 0
-  let equity = startingBalance, peak = startingBalance, maxDd = 0
-  for (const r of closed) {
-    equity += r.pnl ?? 0
-    if (equity > peak) peak = equity
-    const dd = peak - equity
-    if (dd > maxDd) maxDd = dd
-  }
-  const maxDdPct = peak > 0 ? Math.min(maxDd / peak, 1) : (maxDd > 0 ? 1 : null)
+  // Drawdown — delegated to the canonical engine (analytics/drawdown.ts) so
+  // /overview, /risk, /analytics and /intelligence/me all agree. Equity anchor,
+  // outlier guard (B2) and staleness (B5) live in ONE place.
+  const dd = computeAccountDrawdown(closed.map((r) => r.pnl ?? 0), {
+    accountEquity, equityAgeSeconds, maxEquityAgeSeconds,
+  })
+  const maxDd = dd.max_drawdown_usd
+  const maxDdPct = dd.status === 'insufficient' ? null : dd.max_drawdown_pct
 
   return {
     total_trades:    rows.length,
@@ -133,6 +131,7 @@ export function analyzePerformance(
     worst_trade:     lossesArr.length ? round2(Math.min(...lossesArr.map((r) => r.pnl as number))) : null,
     max_drawdown:    round2(maxDd),
     max_drawdown_pct: maxDdPct,
+    drawdown_status: dd.status,
     by_pair:    bucket(closed, (r) => r.pair      ?? null),
     by_session: bucket(closed, (r) => readSession(r)),
     by_setup:   bucket(closed, (r) => r.setup_tag ?? null),

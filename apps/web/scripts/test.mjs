@@ -19,7 +19,7 @@ console.log(`Running ${files.length} test files…`)
 
 const res = spawnSync(
   process.execPath,
-  ['--experimental-strip-types', '--test', ...files],
+  ['--experimental-strip-types', '--import', './scripts/register-ts.mjs', '--test', ...files],
   { stdio: 'inherit' },
 )
 process.exit(res.status ?? 1)
