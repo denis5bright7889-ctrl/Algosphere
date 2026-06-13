@@ -46,6 +46,11 @@ export interface BuildTrustArgs {
   min_sample:      number
   /** Discrete events actually observed (e.g. flagged trades). Drives strength. */
   evidence_count?: number
+  /** Optional confidence override for engines that gate on their OWN evidence
+   *  signal (e.g. coach-eval's process-axis completeness) rather than sample
+   *  size. When given, it replaces the sample-derived confidence — but a null
+   *  value still forces 'Insufficient'. */
+  confidence?:     TrustConfidence
   assurance?:      Assurance
   formula?:        string
   inputs_used?:    ExplanationInput[]
@@ -91,7 +96,8 @@ function trustLevelFor(
  */
 export function buildTrust(a: BuildTrustArgs): TrustResult {
   const assurance  = a.assurance ?? 'Mixed'
-  const confidence = confidenceFor(a.value, a.sample_size, a.min_sample)
+  const confidence = a.value == null ? 'Insufficient'
+    : (a.confidence ?? confidenceFor(a.value, a.sample_size, a.min_sample))
   const strength   = evidenceFor(a.evidence_count ?? 0)
   const insufficient = confidence === 'Insufficient'
   const value      = insufficient ? null : a.value
