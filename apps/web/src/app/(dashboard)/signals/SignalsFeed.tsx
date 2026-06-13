@@ -9,6 +9,8 @@ import SignalCard from '@/components/dashboard/SignalCard'
 import type { TradeBroker } from '@/components/dashboard/PlaceTradeButton'
 import type { Signal, SubscriptionTier } from '@/lib/types'
 import { cn, formatRelativeTime } from '@/lib/utils'
+import AutoTradingPanel from './AutoTradingPanel'
+import type { AutoTradingSettings } from '@/lib/auto-trading'
 
 type StatusTab = 'active' | 'inactive' | 'all'
 
@@ -31,9 +33,10 @@ interface Props {
   isAdmin:        boolean
   engine?:        EngineSnapshot
   brokers?:       TradeBroker[]
+  autoSettings?:  AutoTradingSettings
 }
 
-export default function SignalsFeed({ initialSignals, userTier, userEmail, isAdmin, engine, brokers = [] }: Props) {
+export default function SignalsFeed({ initialSignals, userTier, userEmail, isAdmin, engine, brokers = [], autoSettings }: Props) {
   const { signals, connected } = useRealtimeSignals(initialSignals)
   const active   = signals.filter(s => s.lifecycle_state === 'active' || s.status === 'active')
   const inactive = signals.filter(s => s.lifecycle_state !== 'active' && s.status !== 'active')
@@ -74,6 +77,10 @@ export default function SignalsFeed({ initialSignals, userTier, userEmail, isAdm
           so users see WHAT the engine is doing, not just whether the
           feed has signals. */}
       {engine && <EnginePulseStrip engine={engine} />}
+
+      {/* Auto-trading settings panel — collapsed by default. Lives ABOVE
+          the tabs so the gate config sits next to the feed it gates. */}
+      {autoSettings && <AutoTradingPanel initialSettings={autoSettings} brokers={brokers} />}
 
       {/* Status tabs — Active is the daily-trading surface, Inactive
           holds closed / stopped / expired signals for review, All
@@ -136,7 +143,7 @@ function TabButton({
     <button
       type="button"
       onClick={() => onClick(value)}
-      aria-pressed={active ? 'true' : 'false'}
+      aria-pressed={active}
       className={cn(
         'rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors',
         active

@@ -7,6 +7,7 @@ import { getEngineStatus } from '@/lib/engine-client'
 import type { Signal, SubscriptionTier } from '@/lib/types'
 import SignalsFeed, { type EngineSnapshot } from './SignalsFeed'
 import type { TradeBroker } from '@/components/dashboard/PlaceTradeButton'
+import { DEFAULT_SETTINGS, type AutoTradingSettings } from '@/lib/auto-trading'
 
 export const metadata = { title: 'Intelligence Feed' }
 export const dynamic = 'force-dynamic'
@@ -34,6 +35,23 @@ export default async function SignalsPage() {
     .eq('status', 'connected')
     .order('is_default', { ascending: false })
   const brokers = (brokerRows ?? []) as TradeBroker[]
+
+  // Auto-trading settings — caller-self via RLS. Missing row falls back
+  // to the safe defaults (enabled=false, no symbols allowed).
+  const { data: autoRow } = await supabase
+    .from('user_auto_trading_settings')
+    .select('*')
+    .eq('user_id', user!.id)
+    .maybeSingle()
+  const autoSettings: AutoTradingSettings = autoRow
+    ? (autoRow as AutoTradingSettings)
+    : {
+        user_id:               user!.id,
+        ...DEFAULT_SETTINGS,
+        updated_at:            new Date().toISOString(),
+        enabled_at:            null,
+        total_auto_executions: 0,
+      }
 
   const accountType = profile?.account_type
   const userTier = effectiveTierForFeatures(
@@ -107,6 +125,7 @@ export default async function SignalsPage() {
       isAdmin={admin}
       engine={engineSnapshot}
       brokers={brokers}
+      autoSettings={autoSettings}
     />
   )
 }
