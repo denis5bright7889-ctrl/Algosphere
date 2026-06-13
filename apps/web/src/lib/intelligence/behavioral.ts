@@ -307,6 +307,10 @@ export type BehaviorFlag = {
 export function analyzeBehavior(
   entries: JournalEntry[],
   windowDays = 30,
+  /** Current account equity (broker equity_usd). When known, resilience
+   *  drawdown is measured against real equity instead of the PnL high-water
+   *  mark — prevents a tiny early peak producing absurd depths like 3509%. */
+  accountEquity?: number,
 ): BehavioralReport {
   // Sort newest → oldest so the first scan reads the most recent state.
   // Keep a chronological alias for the streak/revenge passes that need
@@ -345,7 +349,11 @@ export function analyzeBehavior(
   const tilt            = thinSample ? null : detectTilt(chron, flags)
   const recencyBias     = thinSample ? null : detectRecencyBias(chron, flags)
   const strategyHopping = thinSample ? null : detectStrategyHopping(rows, flags)
-  const resilience      = thinSample ? null : computeResilience(chron, flags)
+  const closedPnlTotal  = closed.reduce((s, r) => s + ((r.pnl as number) ?? 0), 0)
+  const startingBalance = (accountEquity != null && Number.isFinite(accountEquity) && accountEquity > 0)
+    ? Math.max(0, accountEquity - closedPnlTotal)
+    : 0
+  const resilience      = thinSample ? null : computeResilience(chron, flags, startingBalance)
   const patience        = thinSample ? null : computePatience(chron, impulse?.count ?? 0, overtrade?.days ?? 0, flags)
 
   const fomoRisk          = fomo?.score ?? null
@@ -1086,12 +1094,15 @@ function detectStrategyHopping(
 function computeResilience(
   chron: JournalEntry[],
   flags: BehaviorFlag[],
+  startingBalance = 0,
 ): { score: number; recovery_time_days: number | null; recovery_efficiency: number | null } | null {
   const closed = chron.filter((r) => r.pnl != null)
   if (closed.length < MIN_SAMPLE_OVERALL) return null
 
-  let equity = 0
-  let peak = 0
+  // Seed the curve at the account's starting balance so peak-to-trough depth
+  // is a fraction of real equity, not of a near-zero early PnL peak.
+  let equity = startingBalance
+  let peak = startingBalance
   const points: { eq: number; at: number; idx: number }[] = []
   for (let i = 0; i < closed.length; i++) {
     const r = closed[i]
@@ -1114,7 +1125,7 @@ function computeResilience(
       continue
     }
     const depth = runningPeak - pt.eq
-    const normDepth = depth / Math.max(1, Math.abs(runningPeak))
+    const normDepth = Math.min(1, depth / Math.max(1, Math.abs(runningPeak)))
     if (normDepth > bestDD.depth) {
       // Find recovery point — first j>i with eq >= runningPeak.
       let recovery = -1

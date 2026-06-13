@@ -135,8 +135,15 @@ export default async function OverviewPage() {
     return <EmptyState name={profile?.full_name ?? null} />
   }
 
-  const behavior    = analyzeBehavior(entries, WINDOW_DAYS)
-  const performance = analyzePerformance(entries)
+  // Real account equity (highest connected broker) anchors drawdown % so it's
+  // measured against equity, not a near-zero PnL peak. undefined when unknown.
+  const accountEquity = ((brokersRes.data ?? []) as unknown as BrokerConn[])
+    .map((b) => b.equity_usd)
+    .filter((e): e is number => typeof e === 'number' && e > 0)
+    .reduce<number | undefined>((max, e) => Math.max(max ?? 0, e), undefined)
+
+  const behavior    = analyzeBehavior(entries, WINDOW_DAYS, accountEquity)
+  const performance = analyzePerformance(entries, accountEquity)
   const insights    = generateInsights(behavior, performance, entries)
   const timing      = generateTiming(
     (snapshotsRes.data ?? []) as RegimeSnapshot[],

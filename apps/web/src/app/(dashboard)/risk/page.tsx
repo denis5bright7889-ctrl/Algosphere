@@ -28,7 +28,7 @@ export default async function RiskPage() {
   const today  = new Date().toISOString().slice(0, 10)
   const cutoff = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString()
 
-  const [{ data: profile }, { data: todayTrades }, { data: windowEntries }] = await Promise.all([
+  const [{ data: profile }, { data: todayTrades }, { data: windowEntries }, { data: brokerRows }] = await Promise.all([
     supabase
       .from('profiles')
       .select('subscription_tier, account_type')
@@ -48,6 +48,10 @@ export default async function RiskPage() {
       .gte('created_at', cutoff)
       .order('created_at', { ascending: false })
       .limit(500),
+    supabase
+      .from('broker_connections')
+      .select('equity_usd')
+      .eq('user_id', user!.id),
   ])
 
   const rawTier = (profile?.subscription_tier ?? 'free') as SubscriptionTier
@@ -58,8 +62,13 @@ export default async function RiskPage() {
   const todayRisked = todayTrades?.reduce((s, t) => s + (t.risk_amount ?? 0), 0) ?? 0
 
   const entries = ((windowEntries ?? []) as unknown as JournalEntry[])
-  const behavior    = entries.length > 0 ? analyzeBehavior(entries, WINDOW_DAYS)   : null
-  const performance = entries.length > 0 ? analyzePerformance(entries)             : null
+  // Anchor drawdown % to real account equity (highest connected broker).
+  const accountEquity = ((brokerRows ?? []) as { equity_usd: number | null }[])
+    .map((b) => b.equity_usd)
+    .filter((e): e is number => typeof e === 'number' && e > 0)
+    .reduce<number | undefined>((max, e) => Math.max(max ?? 0, e), undefined)
+  const behavior    = entries.length > 0 ? analyzeBehavior(entries, WINDOW_DAYS, accountEquity)   : null
+  const performance = entries.length > 0 ? analyzePerformance(entries, accountEquity)             : null
   const insights    = (behavior && performance) ? generateInsights(behavior, performance, entries) : []
   const riskInsights = insights.filter((i) => RISK_INSIGHT_KINDS.has(i.kind)).slice(0, 2)
 

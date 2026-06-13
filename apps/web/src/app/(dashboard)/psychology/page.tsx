@@ -43,17 +43,28 @@ export default async function PsychologyPage() {
 
   const cutoff = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString()
 
-  const { data: rows } = await supabase
-    .from('journal_entries')
-    .select('*')
-    .eq('user_id', user.id)
-    .gte('created_at', cutoff)
-    .order('created_at', { ascending: false })
-    .limit(500)
+  const [{ data: rows }, { data: brokerRows }] = await Promise.all([
+    supabase
+      .from('journal_entries')
+      .select('*')
+      .eq('user_id', user.id)
+      .gte('created_at', cutoff)
+      .order('created_at', { ascending: false })
+      .limit(500),
+    supabase
+      .from('broker_connections')
+      .select('equity_usd')
+      .eq('user_id', user.id),
+  ])
 
   const entries = (rows ?? []) as unknown as JournalEntry[]
-  const behavior    = entries.length > 0 ? analyzeBehavior(entries, WINDOW_DAYS) : null
-  const performance = entries.length > 0 ? analyzePerformance(entries)           : null
+  // Anchor drawdown % to real account equity (highest connected broker).
+  const accountEquity = ((brokerRows ?? []) as { equity_usd: number | null }[])
+    .map((b) => b.equity_usd)
+    .filter((e): e is number => typeof e === 'number' && e > 0)
+    .reduce<number | undefined>((max, e) => Math.max(max ?? 0, e), undefined)
+  const behavior    = entries.length > 0 ? analyzeBehavior(entries, WINDOW_DAYS, accountEquity) : null
+  const performance = entries.length > 0 ? analyzePerformance(entries, accountEquity)           : null
   const insights    = (behavior && performance) ? generateInsights(behavior, performance, entries) : []
   const psychInsights = insights.filter((i) => PSYCH_INSIGHT_KINDS.has(i.kind)).slice(0, 2)
 
