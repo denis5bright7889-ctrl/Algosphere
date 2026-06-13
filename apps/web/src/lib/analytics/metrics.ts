@@ -4,6 +4,7 @@
 // =============================================================================
 
 import type { PerformanceMetrics, DrawdownPoint } from '@/lib/types'
+import { computeAccountDrawdown, drawdownCurve } from './drawdown'
 
 const ANNUALISATION = Math.sqrt(252) // daily → annual
 const RISK_FREE_RATE = 0             // assume 0 for trading context
@@ -81,39 +82,33 @@ function computeSortino(series: number[]): number {
  * balance is unknown (0), the result is the high-water-mark drawdown of the
  * PnL curve, still bounded and never fabricated above 100%.
  */
+// Drawdown now delegates to the canonical engine (analytics/drawdown.ts) so
+// every surface returns the SAME value. `startingBalance` is mapped to the
+// engine's equity anchor: a positive seed means equity is known, so we pass it
+// as accountEquity = startingBalance + netPnl (the engine re-derives the seed).
 function computeMaxDrawdown(
   series: number[], startingBalance = 0,
 ): { maxDrawdownPct: number; maxDrawdownUsd: number } {
-  let equity = startingBalance
-  let peak = startingBalance
-  let maxDrawdownPct = 0
-  let maxDrawdownUsd = 0
-
-  for (const pnl of series) {
-    equity += pnl
-    if (equity > peak) peak = equity
-    const ddUsd = peak - equity
-    // Denominator is peak EQUITY. If peak ≤ 0 (no positive equity reference),
-    // any decline is a full (100%) drawdown rather than a divide-by-zero skip.
-    const ddPct = peak > 0 ? Math.min(ddUsd / peak, 1) : (ddUsd > 0 ? 1 : 0)
-    if (ddUsd > maxDrawdownUsd) maxDrawdownUsd = ddUsd
-    if (ddPct > maxDrawdownPct) maxDrawdownPct = ddPct
-  }
-  return { maxDrawdownPct, maxDrawdownUsd }
+  const accountEquity = startingBalance > 0
+    ? startingBalance + series.reduce((s, p) => s + p, 0)
+    : null
+  const dd = computeAccountDrawdown(series, { accountEquity })
+  return { maxDrawdownPct: dd.max_drawdown_pct, maxDrawdownUsd: dd.max_drawdown_usd }
 }
 
 export function computeDrawdownCurve(
   series: { date: string; pnl: number }[], startingBalance = 0,
 ): DrawdownPoint[] {
-  let equity = startingBalance
-  let peak = startingBalance
-  return series.map(({ date, pnl }) => {
-    equity += pnl
-    if (equity > peak) peak = equity
-    const ddUsd = peak - equity
-    const ddPctMag = peak > 0 ? Math.min(ddUsd / peak, 1) : (ddUsd > 0 ? 1 : 0)
-    return { date, equity: round(equity, 2), drawdown_pct: round(-ddPctMag * 100, 2) }
-  })
+  const pnls = series.map((s) => s.pnl)
+  const accountEquity = startingBalance > 0
+    ? startingBalance + pnls.reduce((s, p) => s + p, 0)
+    : null
+  const steps = drawdownCurve(pnls, { accountEquity })
+  return series.map(({ date }, i) => ({
+    date,
+    equity: steps[i]?.equity ?? 0,
+    drawdown_pct: steps[i]?.drawdown_pct ?? 0,
+  }))
 }
 
 function computeConsecutive(series: number[]): { maxWins: number; maxLosses: number } {
