@@ -29,7 +29,7 @@ import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 import { isDemo } from '@/lib/demo'
 import { generateDemoJournal } from '@/lib/demo-data'
-import { analyzeBehavior, type BehavioralReport } from '@/lib/intelligence/behavioral'
+import { analyzeBehavior, invertComposite, type BehavioralReport } from '@/lib/intelligence/behavioral'
 import { analyzePerformance } from '@/lib/intelligence/performance'
 import { generateInsights, type CoachInsight } from '@/lib/intelligence/coach'
 import { generateTiming, type RegimeSnapshot, type TimingRecommendation } from '@/lib/intelligence/timing'
@@ -53,14 +53,15 @@ interface TraderScores {
 }
 
 function computeScores(b: BehavioralReport, timing: TimingRecommendation[]): TraderScores {
-  // Sub-scores are 0-100 where higher = better. Behavioral risks are
-  // already 0-100 where higher = worse, so we invert.
-  const discipline  = b.discipline_risk     != null ? Math.max(0, 100 - b.discipline_risk)     : null
+  // Each sub-score inverts a SET of behavioral risks via invertComposite,
+  // which averages only MEASURED risks and returns null without a measured
+  // majority — so "nothing logged" becomes Insufficient (—), never a perfect
+  // 100. Discipline includes impulse (no setup_tag) — trading with no plan is
+  // the #1 discipline failure and must drag the score, not be ignored.
+  const discipline  = invertComposite([b.impulse_risk, b.discipline_risk, b.overtrade_risk, b.loss_chase_risk])
+  const psychology  = invertComposite([b.fomo_risk, b.revenge_risk, b.tilt_risk])
+  const risk        = invertComposite([b.risk_inflation_risk, b.loss_chase_risk])
   const consistency = b.consistency_score
-  const psychology  = (b.revenge_risk != null && b.overtrade_risk != null)
-    ? Math.round(((100 - b.revenge_risk) + (100 - b.overtrade_risk)) / 2)
-    : null
-  const risk        = b.risk_inflation_risk != null ? Math.max(0, 100 - b.risk_inflation_risk) : null
 
   // Timing score: share of the user's regime-eligible pairs that are
   // currently 'favorable' for their edge. Null until we have at least

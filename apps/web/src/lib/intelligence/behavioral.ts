@@ -590,8 +590,13 @@ function detectDisciplineRisk(
   flags: BehaviorFlag[],
 ): { score: number | null; count: number } {
   const flagged = closed.filter((r) => r.rule_violation === true).length
-  if (closed.length < MIN_SAMPLE_PER_AXIS) return { score: null, count: flagged }
-  const ratio = flagged / closed.length
+  // Trust audit: rule_violation is a SELF-REPORTED boolean. If the trader
+  // never logs it (field absent on every trade), we have NO evidence of
+  // discipline — it must be Insufficient, NOT a perfect 0-risk/100 score.
+  // Only trades that explicitly set the flag (true or false) count as logged.
+  const logged = closed.filter((r) => typeof r.rule_violation === 'boolean').length
+  if (closed.length < MIN_SAMPLE_PER_AXIS || logged === 0) return { score: null, count: flagged }
+  const ratio = flagged / logged
   const score = Math.min(100, Math.round(ratio * 200))
   if (flagged >= 2) {
     flags.push({
@@ -1241,7 +1246,7 @@ function computePatience(
 /** Inverse composite: given N "risk" scores (higher=worse), returns
  *  the 0–100 positive score (100 - mean of risks). Null if ANY input
  *  is null — we never fabricate by averaging around missing data. */
-function invertComposite(risks: (number | null)[]): number | null {
+export function invertComposite(risks: (number | null)[]): number | null {
   // Trust audit: insufficient sub-metrics arrive as null and must NOT be
   // treated as 0-risk (that inflated composites to ~100 = "perfect"). Average
   // over MEASURED risks only, and refuse to score without a measured majority.

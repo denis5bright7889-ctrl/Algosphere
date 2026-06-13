@@ -246,3 +246,25 @@ test('thin sub-samples no longer fabricate elite discipline (was ~100)', () => {
   assert.equal(b.risk_discipline_score, null)
   assert.equal(b.resilience_score, null)        // never drew down → not "70 neutral"
 })
+
+test('discipline is Insufficient (null) when rule_violation is NEVER logged — not a perfect 0-risk', () => {
+  // 12 trades, rule_violation never set (the real-user case). Absence of
+  // self-reported rule data must NOT read as flawless discipline.
+  const rows = Array.from({ length: 12 }, (_, i) =>
+    row({ created_at: `2026-05-${String(i + 1).padStart(2, '0')}T10:00:00Z`,
+          rule_violation: null, setup_tag: null, pnl: i % 2 === 0 ? 5 : -8 }))
+  const r = analyzeBehavior(rows as never, 30)
+  assert.equal(r.discipline_risk, null, 'discipline_risk must be null with no logged rule data')
+  // ...but impulse IS measurable from setup_tag absence and must be high.
+  assert.ok(r.impulse_risk != null && r.impulse_risk >= 80,
+    `impulse_risk should be high for all-no-setup_tag, got ${r.impulse_risk}`)
+})
+
+test('discipline IS scored when rule_violation is actually logged', () => {
+  const rows = Array.from({ length: 12 }, (_, i) =>
+    row({ created_at: `2026-05-${String(i + 1).padStart(2, '0')}T10:00:00Z`,
+          rule_violation: i < 3, pnl: 5 }))   // 3 of 12 violations logged
+  const r = analyzeBehavior(rows as never, 30)
+  assert.ok(r.discipline_risk != null && r.discipline_risk > 0,
+    `expected a real discipline_risk, got ${r.discipline_risk}`)
+})
