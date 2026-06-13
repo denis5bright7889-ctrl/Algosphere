@@ -118,6 +118,11 @@ export type MaturityLevel = typeof MATURITY_BANDS[number]['name']
 export interface BehavioralReport {
   total_trades:        number
   closed_trades:       number
+  // Win/loss counts power per-metric sample sizing in the trust layer
+  // (e.g. revenge confidence is bounded by post-loss opportunities, not
+  // total trades). See behavioral-trust.buildBehavioralTrust().
+  wins_count:          number
+  losses_count:        number
   window_days:         number
 
   /** 0–100 — higher is more disciplined. null when sample too thin. */
@@ -376,6 +381,8 @@ export function analyzeBehavior(
   const report: BehavioralReport = {
     total_trades:        rows.length,
     closed_trades:       closed.length,
+    wins_count:          closed.filter((r) => (r.pnl ?? 0) > 0).length,
+    losses_count:        closed.filter((r) => (r.pnl ?? 0) < 0).length,
     window_days:         windowDays,
     consistency_score:   consistency,
     revenge_risk:        revengeRisk,
