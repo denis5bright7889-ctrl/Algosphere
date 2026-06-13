@@ -145,6 +145,8 @@ export interface PerformanceMetrics {
   worst_trade: number
   consecutive_wins: number
   consecutive_losses: number
+  /** Drawdown trust status — 'ok' | 'pnl_relative' | 'stale' | 'insufficient'. */
+  drawdown_status?: 'ok' | 'pnl_relative' | 'stale' | 'insufficient'
 }
 
 export interface DrawdownPoint {

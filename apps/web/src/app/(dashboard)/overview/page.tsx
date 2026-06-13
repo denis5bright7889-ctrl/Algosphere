@@ -32,6 +32,7 @@ import { generateDemoJournal } from '@/lib/demo-data'
 import { analyzeBehavior, invertComposite, type BehavioralReport } from '@/lib/intelligence/behavioral'
 import { detectContradictions, type Contradiction } from '@/lib/intelligence/contradiction-engine'
 import { MIN_SAMPLE } from '@/lib/intelligence/data-sufficiency'
+import { brokerEquityAnchor, formatAge } from '@/lib/analytics/broker-equity'
 import { analyzePerformance } from '@/lib/intelligence/performance'
 import { generateInsights, type CoachInsight } from '@/lib/intelligence/coach'
 import { generateTiming, type RegimeSnapshot, type TimingRecommendation } from '@/lib/intelligence/timing'
@@ -138,15 +139,14 @@ export default async function OverviewPage() {
     return <EmptyState name={profile?.full_name ?? null} />
   }
 
-  // Real account equity (highest connected broker) anchors drawdown % so it's
-  // measured against equity, not a near-zero PnL peak. undefined when unknown.
-  const accountEquity = ((brokersRes.data ?? []) as unknown as BrokerConn[])
-    .map((b) => b.equity_usd)
-    .filter((e): e is number => typeof e === 'number' && e > 0)
-    .reduce<number | undefined>((max, e) => Math.max(max ?? 0, e), undefined)
+  // Shared equity anchor (highest connected broker) + its age — same helper on
+  // every drawdown surface so the value AND the staleness verdict agree (B5).
+  const { equity: accountEquity, ageSeconds: equityAge } = brokerEquityAnchor(
+    (brokersRes.data ?? []) as unknown as BrokerConn[],
+  )
 
   const behavior    = analyzeBehavior(entries, WINDOW_DAYS, accountEquity)
-  const performance = analyzePerformance(entries, accountEquity)
+  const performance = analyzePerformance(entries, accountEquity, equityAge)
   const insights    = generateInsights(behavior, performance, entries)
   const timing      = generateTiming(
     (snapshotsRes.data ?? []) as RegimeSnapshot[],
@@ -319,7 +319,10 @@ export default async function OverviewPage() {
             <Stat label="Net P&L"        value={fmtCurrency(performance.total_pnl)} positive={performance.total_pnl >= 0} />
             <Stat label="Win rate"       value={performance.win_rate != null ? `${Math.round(performance.win_rate * 100)}%` : '—'} />
             <Stat label="Profit factor"  value={performance.profit_factor != null ? performance.profit_factor.toFixed(2) : '—'} />
-            <Stat label="Max DD"         value={performance.max_drawdown_pct != null ? `${Math.round(performance.max_drawdown_pct * 100)}%` : '—'} />
+            <Stat label="Max DD"
+              value={performance.drawdown_status === 'stale' ? 'Stale'
+                : performance.max_drawdown_pct != null ? `${Math.round(performance.max_drawdown_pct * 100)}%` : '—'}
+              hint={performance.drawdown_status === 'stale' ? `broker equity ${formatAge(equityAge)} old` : undefined} />
           </div>
         </div>
         <div className="surface p-5">
