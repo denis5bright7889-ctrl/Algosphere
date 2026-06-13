@@ -45,6 +45,25 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'stub-anon-key' }}
         run: npm run build
 
+  intelligence-tests:
+    name: intelligence trust tests (Phase 9 gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node >= 22.6 for --experimental-strip-types + fs.globSync. The trust
+      # suites import only local modules + node builtins, so no npm install.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Build fails if: a contradiction rule regresses, a missing-data-positive
+      # bug reappears, or a TrustResult is emitted without confidence/explanation.
+      - name: Run trust + intelligence test suites
+        working-directory: apps/web
+        run: npm test
+
   signal-engine:
     name: signal-engine (smoke import)
     runs-on: ubuntu-latest

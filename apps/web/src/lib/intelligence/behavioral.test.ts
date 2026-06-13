@@ -268,3 +268,20 @@ test('discipline IS scored when rule_violation is actually logged', () => {
   assert.ok(r.discipline_risk != null && r.discipline_risk > 0,
     `expected a real discipline_risk, got ${r.discipline_risk}`)
 })
+
+test('FOMO is Insufficient (null) when emotion/notes/tags are NEVER logged — not 0-risk', () => {
+  // 12 trades, no emotion_pre / notes / ai_tags anywhere (the real-user case).
+  const rows = Array.from({ length: 12 }, (_, i) =>
+    row({ created_at: `2026-05-${String(i + 1).padStart(2, '0')}T10:00:00Z`,
+          emotion_pre: null, notes: null, pnl: i % 2 ? -8 : 5 }))
+  const r = analyzeBehavior(rows as never, 30)
+  assert.equal(r.fomo_risk, null, 'fomo_risk must be null with no emotional evidence')
+})
+
+test('FOMO IS scored when emotion is actually logged', () => {
+  const rows = Array.from({ length: 12 }, (_, i) =>
+    row({ created_at: `2026-05-${String(i + 1).padStart(2, '0')}T10:00:00Z`,
+          emotion_pre: i < 4 ? 'fomo' : 'calm', pnl: 5 }))
+  const r = analyzeBehavior(rows as never, 30)
+  assert.ok(r.fomo_risk != null && r.fomo_risk > 0, `expected a real fomo_risk, got ${r.fomo_risk}`)
+})
