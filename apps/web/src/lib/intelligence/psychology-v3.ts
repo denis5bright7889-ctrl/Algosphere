@@ -55,8 +55,24 @@ export type Granularity = 'daily' | 'weekly' | 'monthly' | 'quarterly'
 /** Per-period min closed trades before performance metrics are honest.
  *  (Behavior already self-gates at 8 inside analyzeBehavior.) */
 const PERIOD_MIN_CLOSED = 3
-/** Min populated periods before correlation / forecast are meaningful. */
+/** Min populated periods before a series statistic is even computed. */
 const MIN_SERIES_POINTS = 3
+/** Trust audit: a Pearson r over 3 points is noise. A correlation is only
+ *  SURFACED at 6+ paired periods, and its strength LABEL is gated by n
+ *  (no "strong link" claim below CORRELATION_STRONG_MIN points). */
+const CORRELATION_MIN_POINTS  = 6
+const CORRELATION_STRONG_MIN  = 8
+/** Forecast extrapolation needs more than a 2-point slope. */
+const FORECAST_MIN_POINTS = 4
+
+export type SeriesConfidence = 'insufficient' | 'low' | 'medium' | 'high'
+/** Confidence tier for any period-series statistic, from populated points. */
+function seriesConfidence(n: number): SeriesConfidence {
+  if (!Number.isFinite(n) || n < CORRELATION_MIN_POINTS) return 'insufficient'
+  if (n < CORRELATION_STRONG_MIN) return 'low'
+  if (n < 15) return 'medium'
+  return 'high'
+}
 
 
 // ─────────────────────────────────────────────────────────────────────
@@ -233,6 +249,7 @@ export interface Correlation {
   correlation_strength: number   // Pearson r, [-1, 1]
   direction:          'positive' | 'negative'
   confidence:         number     // 0–100 heuristic (grows with |r| and n)
+  confidence_tier:    SeriesConfidence   // honest sample-based tier
   sample_size:        number
   /** |r| × confidence/100 — used to rank predictors. */
   predictive_power:   number
@@ -271,7 +288,7 @@ export function computeCorrelations(timeline: BehavioralTimeline): Correlation[]
       if (x == null || y == null) continue
       xs.push(x); ys.push(y)
     }
-    if (xs.length < MIN_SERIES_POINTS) continue
+    if (xs.length < CORRELATION_MIN_POINTS) continue   // 6+ paired periods, was 3
     const r = pearson(xs, ys)
     if (r == null) continue
     const confidence = correlationConfidence(r, xs.length)
@@ -282,9 +299,10 @@ export function computeCorrelations(timeline: BehavioralTimeline): Correlation[]
       correlation_strength: round2(r),
       direction:  r >= 0 ? 'positive' : 'negative',
       confidence,
+      confidence_tier: seriesConfidence(xs.length),
       sample_size: xs.length,
       predictive_power: round2(Math.abs(r) * confidence / 100),
-      interpretation: interpretCorrelation(bKey, pKey, r),
+      interpretation: interpretCorrelation(bKey, pKey, r, xs.length),
     })
   }
   return out.sort((a, b) => b.predictive_power - a.predictive_power)
@@ -297,10 +315,15 @@ function correlationConfidence(r: number, n: number): number {
   return clamp01_100(Math.round(Math.abs(r) * 100 * shrink))
 }
 
-function interpretCorrelation(b: BehaviorKey, p: PerformanceKey, r: number): string {
-  const strong = Math.abs(r) >= 0.6 ? 'strong' : Math.abs(r) >= 0.35 ? 'moderate' : 'weak'
+function interpretCorrelation(b: BehaviorKey, p: PerformanceKey, r: number, n: number): string {
+  // Strength is gated by BOTH |r| AND sample size — a high r on a thin series
+  // is "tentative", never "strong" (the trust-audit fix: no strong conclusion
+  // from a small sample).
+  const magnitude = Math.abs(r) >= 0.6 ? 'strong' : Math.abs(r) >= 0.35 ? 'moderate' : 'weak'
+  const strength = n < CORRELATION_STRONG_MIN ? 'tentative' : magnitude
   const dir = r >= 0 ? 'rises with' : 'falls as'
-  return `${strong} link — ${PRETTY[b]} ${dir} ${PRETTY_PERF[p]} (r=${round2(r)}).`
+  const caveat = n < CORRELATION_STRONG_MIN ? ` — only ${n} periods, treat as directional` : ''
+  return `${strength} link — ${PRETTY[b]} ${dir} ${PRETTY_PERF[p]} (r=${round2(r)}, n=${n})${caveat}.`
 }
 
 
@@ -310,7 +333,11 @@ function interpretCorrelation(b: BehaviorKey, p: PerformanceKey, r: number): str
 
 export interface Forecast {
   metric:      string
-  probability: number   // 0–100
+  /** 0–100 PROJECTED RISK LEVEL for next period (linear extrapolation of the
+   *  risk metric) — NOT a calibrated probability. The UI must label it as a
+   *  projection, and `confidence` says how much to trust it. */
+  probability: number
+  confidence:  SeriesConfidence
   trend:       'rising' | 'falling' | 'flat'
   slope:       number    // per-period change in the underlying risk metric
   basis_periods: number
@@ -339,14 +366,17 @@ function forecastMetric(metric: string, series: (number | null)[]): Forecast | n
   const pts = series
     .map((v, i) => (v == null ? null : { x: i, y: v }))
     .filter((p): p is { x: number; y: number } => p != null)
-  if (pts.length < MIN_SERIES_POINTS) return null
+  if (pts.length < FORECAST_MIN_POINTS) return null   // 4+ periods, was 3
 
   const { slope, intercept } = linregress(pts)
   const nextX = (pts[pts.length - 1]!.x) + 1
   const projected = intercept + slope * nextX
   const probability = clamp01_100(Math.round(projected))
   const trend = slope > 1 ? 'rising' : slope < -1 ? 'falling' : 'flat'
-  return { metric, probability, trend, slope: round2(slope), basis_periods: pts.length }
+  return {
+    metric, probability, confidence: seriesConfidence(pts.length),
+    trend, slope: round2(slope), basis_periods: pts.length,
+  }
 }
 
 
@@ -391,7 +421,9 @@ export function classifyTraderDNA(report: BehavioralReport): TraderDNA | null {
     consistency:     report.consistency_score,
   }
   const present = DNA_AXES.filter((a) => axes[a] != null)
-  if (present.length < 3) return null   // not enough signal to classify honestly
+  // Trust audit: classify only with a MAJORITY of the 6 DNA axes measured —
+  // a personality label from 3 thin axes is a flattering guess, not a profile.
+  if (present.length < 4) return null
 
   // Distance to each prototype over the present axes (normalized by count).
   const ranked = (Object.keys(ARCHETYPES) as TraderArchetype[])
@@ -404,15 +436,20 @@ export function classifyTraderDNA(report: BehavioralReport): TraderDNA | null {
 
   const primary = ranked[0]!
   const second  = ranked[1]!
-  // Confidence: bigger gap to the runner-up = more confident classification.
+  // Confidence: bigger gap to the runner-up = more confident — but CAPPED by
+  // how complete the axis evidence is (a 4-of-6 classification cannot be as
+  // confident as a 6-of-6 one).
   const gap = second.dist - primary.dist
-  const confidence = clamp01_100(Math.round(Math.min(100, gap * 2.2) + Math.max(0, 40 - primary.dist)))
+  const completeness = present.length / DNA_AXES.length
+  const rawConf = Math.min(100, gap * 2.2) + Math.max(0, 40 - primary.dist)
+  const confidence = clamp01_100(Math.round(rawConf * completeness))
 
   return {
     primary_profile:   primary.name,
     secondary_profile: gap < 6 ? second.name : null,   // genuinely ambiguous → expose the blend
     confidence,
-    explanation:       explainDNA(primary.name, axes, present),
+    explanation:       explainDNA(primary.name, axes, present)
+                       + ` Classified from ${present.length}/${DNA_AXES.length} measured DNA axes.`,
     axes,
   }
 }
