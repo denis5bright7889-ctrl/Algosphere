@@ -19,6 +19,12 @@ const CONF_STYLE: Record<string, string> = {
   low:          'text-orange-600',
   insufficient: 'text-muted-foreground',
 }
+const TRUST_STYLE: Record<string, string> = {
+  High:         'text-emerald-600',
+  Medium:       'text-amber-600',
+  Low:          'text-orange-600',
+  Insufficient: 'text-muted-foreground',
+}
 
 export default function ScoreExplainer({
   explanation, children,
@@ -54,11 +60,21 @@ export default function ScoreExplainer({
                 <p className="text-muted-foreground">
                   {e.value == null ? 'Insufficient Data' : <>{e.value}{e.unit}</>}
                   {' · '}
-                  <span className={cn('font-medium capitalize', CONF_STYLE[e.confidence] ?? '')}>
+                  <span className={cn('font-medium capitalize', CONF_STYLE[String(e.confidence).toLowerCase()] ?? '')}>
                     {e.confidence} confidence
                   </span>
                   {e.sample_size != null && <> · n={e.sample_size}</>}
                 </p>
+                {(e.trust_level || e.assurance) && (
+                  <p className="text-muted-foreground">
+                    {e.trust_level && (
+                      <span className={cn('font-semibold', TRUST_STYLE[e.trust_level] ?? '')}>
+                        Trust: {e.trust_level}
+                      </span>
+                    )}
+                    {e.assurance && <> · {e.assurance} evidence</>}
+                  </p>
+                )}
               </div>
               <button type="button" aria-label="Close" onClick={() => setOpen(false)}
                 className="text-muted-foreground hover:text-foreground">

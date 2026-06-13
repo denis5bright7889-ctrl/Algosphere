@@ -30,6 +30,8 @@ import {
 import {
   generateIntelligenceReport, type StrategyIntelligenceReport, type ConditionInsight,
 } from '@/lib/intelligence/strategy-intelligence-report'
+import { explainStrategyGrade } from '@/lib/intelligence/explainability'
+import ScoreExplainer from '@/components/intelligence/ScoreExplainer'
 
 interface Props {
   result: BacktestResult
@@ -154,9 +156,11 @@ function GradeCard({ a }: { a: StrategyAnalysis }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline flex-wrap gap-x-2 gap-y-1">
           <h3 className="text-sm font-semibold">Strategy grade</h3>
-          <span className="text-[10px] uppercase tracking-wider opacity-80 tabular-nums">
-            {a.grade.score != null ? `${a.grade.score}/100` : 'no score'}
-          </span>
+          <ScoreExplainer explanation={explainStrategyGrade(a)}>
+            <span className="text-[10px] uppercase tracking-wider opacity-80 tabular-nums">
+              {a.grade.score != null ? `${a.grade.score}/100` : 'no score'}
+            </span>
+          </ScoreExplainer>
           <span className={cn(
             'ml-auto inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
             confTone,

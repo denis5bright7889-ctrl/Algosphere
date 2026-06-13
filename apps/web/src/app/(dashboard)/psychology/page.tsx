@@ -20,9 +20,12 @@ import {
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 import { analyzeBehavior, type BehavioralReport } from '@/lib/intelligence/behavioral'
+import { buildBehavioralTrust } from '@/lib/intelligence/behavioral-trust'
+import { explainBehavioralMetric, type ScoreExplanation } from '@/lib/intelligence/explainability'
 import { analyzePerformance } from '@/lib/intelligence/performance'
 import { generateInsights, type CoachInsight } from '@/lib/intelligence/coach'
 import type { JournalEntry } from '@/lib/types'
+import ScoreExplainer from '@/components/intelligence/ScoreExplainer'
 import PsychologyClient from './PsychologyClient'
 
 export const metadata = { title: 'Psychology Intelligence — AlgoSphere Quant' }
@@ -126,6 +129,13 @@ function PsychologyRead({ behavior, insights, entryCount }: PsychologyReadProps)
     + behavior.emotion_summary.other
   const hasEmotion = emotionLogged > 0
 
+  const trust = buildBehavioralTrust(behavior)
+  const explain = (metric: string, value: number | null): ScoreExplanation | undefined => {
+    const t = trust[metric]
+    if (!t) return undefined
+    return { ...explainBehavioralMetric(t), value }
+  }
+
   return (
     <div className="rounded-xl border border-border bg-card p-5">
       <div className="flex items-center gap-2">
@@ -143,6 +153,7 @@ function PsychologyRead({ behavior, insights, entryCount }: PsychologyReadProps)
           score={behavior.revenge_risk}
           higherIsBetter={false}
           hint={`${behavior.revenge_count} flagged trades`}
+          explanation={explain('revenge', behavior.revenge_risk)}
         />
         <PsychTile
           label="Overtrade risk"
@@ -150,6 +161,7 @@ function PsychologyRead({ behavior, insights, entryCount }: PsychologyReadProps)
           score={behavior.overtrade_risk}
           higherIsBetter={false}
           hint={`${behavior.overtrade_days} flagged days`}
+          explanation={explain('overtrade', behavior.overtrade_risk)}
         />
         <PsychTile
           label="Calm entries"
@@ -167,6 +179,7 @@ function PsychologyRead({ behavior, insights, entryCount }: PsychologyReadProps)
           hint={behavior.fomo_risk != null
             ? `${behavior.fomo_count} flagged`
             : (hasEmotion ? 'log emotion_pre' : 'no emotion logs')}
+          explanation={behavior.fomo_risk != null ? explain('fomo', behavior.fomo_risk) : undefined}
         />
       </div>
 
@@ -184,6 +197,7 @@ function PsychologyRead({ behavior, insights, entryCount }: PsychologyReadProps)
           score={behavior.impulse_risk}
           higherIsBetter={false}
           hint={`${behavior.impulse_count} with no setup_tag`}
+          explanation={explain('impulse', behavior.impulse_risk)}
         />
         <PsychTile
           label="Loss chasing"
@@ -191,6 +205,7 @@ function PsychologyRead({ behavior, insights, entryCount }: PsychologyReadProps)
           score={behavior.loss_chase_risk}
           higherIsBetter={false}
           hint={`${behavior.loss_chase_count} kept full risk in 3+ loss streak`}
+          explanation={explain('loss_chase', behavior.loss_chase_risk)}
         />
       </div>
 
@@ -209,13 +224,14 @@ function PsychologyRead({ behavior, insights, entryCount }: PsychologyReadProps)
   )
 }
 
-function PsychTile({ label, icon: Icon, score, higherIsBetter, unit = '', hint }: {
+function PsychTile({ label, icon: Icon, score, higherIsBetter, unit = '', hint, explanation }: {
   label: string
   icon: LucideIcon
   score: number | null
   higherIsBetter: boolean
   unit?: string
   hint?: string
+  explanation?: ScoreExplanation
 }) {
   if (score == null) {
     return (
@@ -223,7 +239,10 @@ function PsychTile({ label, icon: Icon, score, higherIsBetter, unit = '', hint }
         <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
           <Icon className="h-3 w-3" strokeWidth={2} aria-hidden />{label}
         </div>
-        <div className="mt-1 text-xs text-muted-foreground/70">Insufficient data</div>
+        <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground/70">
+          Insufficient data
+          {explanation && <ScoreExplainer explanation={explanation}><span /></ScoreExplainer>}
+        </div>
         {hint && <p className="mt-0.5 text-[10px] text-muted-foreground/60">{hint}</p>}
       </div>
     )
@@ -231,13 +250,18 @@ function PsychTile({ label, icon: Icon, score, higherIsBetter, unit = '', hint }
   const good = higherIsBetter ? score >= 65 : score <= 25
   const bad  = higherIsBetter ? score < 35  : score >= 60
   const tone = good ? 'text-emerald-300' : bad ? 'text-rose-300' : 'text-amber-300'
+  const valueEl = (
+    <span className={cn('text-xl font-semibold tabular-nums leading-none', tone)}>
+      {score}{unit || <span className="text-[11px] opacity-50">/100</span>}
+    </span>
+  )
   return (
     <div className="rounded-lg border border-border/40 bg-background/40 p-3">
       <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
         <Icon className="h-3 w-3" strokeWidth={2} aria-hidden />{label}
       </div>
-      <div className={cn('mt-0.5 text-xl font-semibold tabular-nums leading-none', tone)}>
-        {score}{unit || <span className="text-[11px] opacity-50">/100</span>}
+      <div className="mt-0.5">
+        {explanation ? <ScoreExplainer explanation={explanation}>{valueEl}</ScoreExplainer> : valueEl}
       </div>
       {hint && <p className="mt-1 text-[10px] text-muted-foreground/80">{hint}</p>}
     </div>
@@ -312,16 +336,25 @@ function MaturityHero({ behavior }: { behavior: BehavioralReport }) {
 
 function InstitutionalScores({ behavior }: { behavior: BehavioralReport }) {
   const s = behavior.institutional_scores
-  const TILES: Array<{ label: string; icon: LucideIcon; score: number | null; hint?: string }> = [
-    { label: 'Psychology',  icon: Brain,       score: s.psychology,  hint: 'self-control composite' },
-    { label: 'Discipline',  icon: ShieldCheck, score: s.discipline,  hint: 'rule adherence' },
-    { label: 'Consistency', icon: Activity,    score: s.consistency, hint: 'P&L distribution' },
-    { label: 'Resilience',  icon: HeartPulse,  score: s.resilience,
+  const trust = buildBehavioralTrust(behavior)
+  // Each axis is explained by its underlying behavioral metric. Override the
+  // explanation value with the displayed institutional score so the popover
+  // can never disagree with the tile.
+  const explain = (metric: string, score: number | null): ScoreExplanation | undefined => {
+    const t = trust[metric]
+    if (!t) return undefined
+    return { ...explainBehavioralMetric(t), value: score }
+  }
+  const TILES: Array<{ label: string; icon: LucideIcon; score: number | null; hint?: string; metric: string }> = [
+    { label: 'Psychology',  icon: Brain,       score: s.psychology,  hint: 'self-control composite', metric: 'self_control' },
+    { label: 'Discipline',  icon: ShieldCheck, score: s.discipline,  hint: 'rule adherence', metric: 'rule_adherence' },
+    { label: 'Consistency', icon: Activity,    score: s.consistency, hint: 'P&L distribution', metric: 'consistency' },
+    { label: 'Resilience',  icon: HeartPulse,  score: s.resilience, metric: 'resilience',
       hint: behavior.recovery_time_days != null
         ? `recovered in ${behavior.recovery_time_days}d`
         : 'recovery quality' },
-    { label: 'Patience',    icon: Hourglass,   score: s.patience,    hint: 'selectivity' },
-    { label: 'Maturity',    icon: Sparkles,    score: s.maturity,    hint: behavior.maturity_level ?? undefined },
+    { label: 'Patience',    icon: Hourglass,   score: s.patience,    hint: 'selectivity', metric: 'patience' },
+    { label: 'Maturity',    icon: Sparkles,    score: s.maturity,    hint: behavior.maturity_level ?? undefined, metric: 'maturity' },
   ]
   return (
     <div className="mt-4 rounded-xl border border-border bg-card p-5">
@@ -331,8 +364,8 @@ function InstitutionalScores({ behavior }: { behavior: BehavioralReport }) {
         <span className="ml-auto text-[11px] text-muted-foreground">6 axes · 0–100 · higher is better</span>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {TILES.map((t) => (
-          <PsychTile key={t.label} {...t} higherIsBetter />
+        {TILES.map(({ metric, ...t }) => (
+          <PsychTile key={t.label} {...t} higherIsBetter explanation={explain(metric, t.score)} />
         ))}
       </div>
     </div>
@@ -405,15 +438,22 @@ function CoachingPanel({ behavior }: { behavior: BehavioralReport }) {
 // ─── V2 — Behavioral risk matrix (12 risk metrics + counts) ─────────
 
 function BehavioralRiskMatrix({ behavior }: { behavior: BehavioralReport }) {
-  const ROWS: Array<{ label: string; icon: LucideIcon; risk: number | null; count?: number; hint?: string }> = [
-    { label: 'Revenge',          icon: AlertOctagon, risk: behavior.revenge_risk,         count: behavior.revenge_count,         hint: 'post-loss aggression' },
-    { label: 'Tilt',             icon: Flame,        risk: behavior.tilt_risk,            count: behavior.tilt_events.length,    hint: '24h after large loss' },
-    { label: 'FOMO',             icon: Flame,        risk: behavior.fomo_risk,            count: behavior.fomo_count,            hint: 'chase entries' },
-    { label: 'Impulse',          icon: Zap,          risk: behavior.impulse_risk,         count: behavior.impulse_count,         hint: 'no setup_tag' },
-    { label: 'Overtrade',        icon: Repeat,       risk: behavior.overtrade_risk,       count: behavior.overtrade_days,        hint: 'daily cap blown' },
-    { label: 'Risk inflation',   icon: TrendingDown, risk: behavior.risk_inflation_risk,  count: behavior.risk_inflation_count,  hint: 'sizing up after wins' },
+  const trust = buildBehavioralTrust(behavior)
+  const explain = (metric: string | undefined, risk: number | null): ScoreExplanation | undefined => {
+    if (!metric) return undefined
+    const t = trust[metric]
+    if (!t) return undefined
+    return { ...explainBehavioralMetric(t), value: risk }
+  }
+  const ROWS: Array<{ label: string; icon: LucideIcon; risk: number | null; count?: number; hint?: string; metric?: string }> = [
+    { label: 'Revenge',          icon: AlertOctagon, risk: behavior.revenge_risk,         count: behavior.revenge_count,         hint: 'post-loss aggression', metric: 'revenge' },
+    { label: 'Tilt',             icon: Flame,        risk: behavior.tilt_risk,            count: behavior.tilt_events.length,    hint: '24h after large loss', metric: 'tilt' },
+    { label: 'FOMO',             icon: Flame,        risk: behavior.fomo_risk,            count: behavior.fomo_count,            hint: 'chase entries', metric: 'fomo' },
+    { label: 'Impulse',          icon: Zap,          risk: behavior.impulse_risk,         count: behavior.impulse_count,         hint: 'no setup_tag', metric: 'impulse' },
+    { label: 'Overtrade',        icon: Repeat,       risk: behavior.overtrade_risk,       count: behavior.overtrade_days,        hint: 'daily cap blown', metric: 'overtrade' },
+    { label: 'Risk inflation',   icon: TrendingDown, risk: behavior.risk_inflation_risk,  count: behavior.risk_inflation_count,  hint: 'sizing up after wins', metric: 'risk_inflation' },
     { label: 'Confidence drift', icon: Sparkles,     risk: behavior.confidence_drift_risk,count: behavior.confidence_drift_count,hint: 'size + selectivity drift' },
-    { label: 'Loss chasing',     icon: TrendingDown, risk: behavior.loss_chase_risk,      count: behavior.loss_chase_count,      hint: '3+ loss streak, full risk' },
+    { label: 'Loss chasing',     icon: TrendingDown, risk: behavior.loss_chase_risk,      count: behavior.loss_chase_count,      hint: '3+ loss streak, full risk', metric: 'loss_chase' },
     { label: 'Strategy hopping', icon: Repeat,       risk: behavior.strategy_hopping_risk,count: behavior.strategy_switch_count, hint: 'setup_tag switching' },
     { label: 'Recency bias',     icon: Activity,     risk: behavior.recency_bias_risk,    count: behavior.recency_bias_events.length, hint: 'pair-selection bias' },
     { label: 'Weekend gamble',   icon: CalendarOff,  risk: behavior.weekend_gamble_risk,  count: behavior.weekend_gamble_count,  hint: 'Sat/Sun trades' },
@@ -427,34 +467,40 @@ function BehavioralRiskMatrix({ behavior }: { behavior: BehavioralReport }) {
         <span className="ml-auto text-[11px] text-muted-foreground">12 risks · higher is worse</span>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
-        {ROWS.map((r) => (
-          <RiskCell key={r.label} {...r} />
+        {ROWS.map(({ metric, ...r }) => (
+          <RiskCell key={r.label} {...r} explanation={explain(metric, r.risk)} />
         ))}
       </div>
     </div>
   )
 }
 
-function RiskCell({ label, icon: Icon, risk, count, hint }: {
+function RiskCell({ label, icon: Icon, risk, count, hint, explanation }: {
   label: string
   icon: LucideIcon
   risk: number | null
   count?: number
   hint?: string
+  explanation?: ScoreExplanation
 }) {
   const tone =
     risk == null              ? 'border-border/30 bg-background/30 text-muted-foreground' :
     risk >= 60                ? 'border-rose-500/40 bg-rose-500/[0.05] text-rose-200' :
     risk >= 35                ? 'border-amber-500/40 bg-amber-500/[0.05] text-amber-200' :
                                 'border-emerald-500/30 bg-emerald-500/[0.04] text-emerald-200'
+  const valueEl = (
+    <span className="text-lg font-semibold tabular-nums leading-none">
+      {risk == null ? '—' : risk}
+      <span className="text-[10px] opacity-50">/100</span>
+    </span>
+  )
   return (
     <div className={cn('rounded-lg border p-2.5', tone)}>
       <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider opacity-90">
         <Icon className="h-3 w-3" strokeWidth={2} aria-hidden />{label}
       </div>
-      <div className="mt-0.5 text-lg font-semibold tabular-nums leading-none">
-        {risk == null ? '—' : risk}
-        <span className="text-[10px] opacity-50">/100</span>
+      <div className="mt-0.5">
+        {explanation ? <ScoreExplainer explanation={explanation}>{valueEl}</ScoreExplainer> : valueEl}
       </div>
       <div className="mt-1 text-[10px] opacity-70">
         {count != null ? `${count} event${count === 1 ? '' : 's'}` : ''}{count != null && hint ? ' · ' : ''}{hint}

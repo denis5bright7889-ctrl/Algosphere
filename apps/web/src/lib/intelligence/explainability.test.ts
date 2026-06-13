@@ -56,3 +56,67 @@ test('drawdown explanation discloses unknown-balance caveat', () => {
   assert.equal(known.confidence, 'high')
   assert.equal(known.inputs_missing.length, 0)
 })
+
+import { buildMetricTrust } from './behavioral-trust.ts'
+import { explainBehavioralMetric } from './explainability.ts'
+
+test('behavioral explainer: unified contract incl assurance + trust_level', () => {
+  // rule_adherence, n=30 → Medium trust (self-reported cap), confidence lowercased.
+  const trust = buildMetricTrust({ metric: 'rule_adherence', value: 87, sample: 30, evidenceCount: 0 })
+  const e = explainBehavioralMetric(trust)
+  assert.equal(e.label, 'Rule Adherence')
+  assert.equal(e.value, 87)
+  assert.equal(e.assurance, 'Self-Reported')
+  assert.equal(e.trust_level, 'Medium')
+  assert.equal(e.confidence, 'high')           // lowercased for the styler
+  assert.ok(e.formula.length > 0)
+  assert.ok(e.notes!.some((n) => n.includes('Trust')))
+})
+
+test('behavioral explainer: insufficient → null value + missing-evidence note', () => {
+  const trust = buildMetricTrust({ metric: 'revenge', value: null, sample: 2 })
+  const e = explainBehavioralMetric(trust)
+  assert.equal(e.value, null)
+  assert.equal(e.trust_level, 'Insufficient')
+  assert.ok(e.inputs_missing.length > 0)
+})
+
+import type { StrategyAnalysis } from './strategy-grader.ts'
+import { explainStrategyGrade } from './explainability.ts'
+
+test('strategy explainer: thin sample → N/A surfaces robustness + reliability gaps', () => {
+  const a = {
+    grade: {
+      grade: 'N/A', score: null, confidence: 'low',
+      verdict: 'Insufficient observations for statistical confidence.',
+      breakdown: { sample_quality: 20, performance: 50, risk: 60, robustness: null },
+      readiness: 'research',
+    },
+    metrics: { trades: 8, sample_reliable: false, reliability: 25 },
+    diagnostics: [],
+  } as unknown as StrategyAnalysis
+  const e = explainStrategyGrade(a)
+  assert.equal(e.value, null)
+  assert.equal(e.sample_size, 8)
+  assert.ok(e.inputs_missing.some((m) => m.includes('robustness')))
+  assert.ok(e.inputs_missing.some((m) => m.includes('reliability')))
+  assert.ok(e.notes!.some((n) => n.includes('30-trade floor')))
+})
+
+test('strategy explainer: graded sample exposes weighted formula + no missing gates', () => {
+  const a = {
+    grade: {
+      grade: 'B', score: 78, confidence: 'high',
+      verdict: 'Positive edge with stable behavior.',
+      breakdown: { sample_quality: 80, performance: 75, risk: 82, robustness: 70 },
+      readiness: 'pilot',
+    },
+    metrics: { trades: 120, sample_reliable: true, reliability: 88 },
+    diagnostics: [],
+  } as unknown as StrategyAnalysis
+  const e = explainStrategyGrade(a)
+  assert.equal(e.value, 78)
+  assert.equal(e.confidence, 'high')
+  assert.equal(e.inputs_missing.length, 0)
+  assert.ok(e.formula.includes('40%'))
+})
